@@ -4,6 +4,7 @@ const svgNS = "http://www.w3.org/2000/svg";
 const wallSvg = document.getElementById("wallSvg");
 const wallWrapper = document.getElementById("wallWrapper");
 const stickersLayer = document.getElementById("stickersLayer");
+const effectsLayer = document.getElementById("effectsLayer");
 const dragOverlay = document.getElementById("dragOverlay");
 const eaglePaths = Array.from(document.querySelectorAll(".eagle-shape"));
 const randomButton = document.getElementById("randomPlacementBtn");
@@ -48,8 +49,8 @@ const STICKER_RADIUS = STICKER_DIAMETER / 2;
 const MIN_DISTANCE = STICKER_DIAMETER + 8;
 const DRAG_ACTIVATION_DISTANCE = 12;
 const PLACEMENT_MESSAGES = {
-  idle: "點擊貼紙樣本啟用點擊貼上模式，\n或直接拖曳貼紙。",
-  click: "點擊老鷹任一位置貼上貼紙，\n按 Esc 或再點樣本可取消。",
+  idle: "請先點下方貼紙以啟用點擊放置模式，\n或直接拖曳貼紙。",
+  click: "點擊老鷹任一位置貼上貼紙，\n按 Esc 或再次點擊可取消。",
   drag: "拖曳貼紙中，鬆開手即可貼上。",
 };
 const SUBTITLE_TEXT = "（最多 800 字，留言於一日後鎖定）";
@@ -61,6 +62,7 @@ const state = {
   drag: null,
   placementMode: "idle",
   counterVisible: false,
+  controlsLocked: true,
   toastTimer: null,
   flipAnimation: null,
   zoomOverlay: null,
@@ -76,10 +78,14 @@ init().catch((err) => console.error(err));
 
 function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
-  randomButton?.addEventListener("click", () => handleRandomPlacement());
-  toggleBoardBtn?.addEventListener("click", toggleCounter);
-  zoomInBtn?.addEventListener("click", handleZoomIn);
-  zoomOutBtn?.addEventListener("click", handleZoomOut);
+  if (!state.controlsLocked) {
+    randomButton?.addEventListener("click", () => handleRandomPlacement());
+    toggleBoardBtn?.addEventListener("click", toggleCounter);
+    zoomInBtn?.addEventListener("click", handleZoomIn);
+    zoomOutBtn?.addEventListener("click", handleZoomOut);
+  } else {
+    applyControlLock();
+  }
   wallSvg.addEventListener("click", handleEagleClick);
   paletteSticker?.addEventListener("pointerdown", handlePalettePointerDown);
   paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
@@ -143,7 +149,7 @@ function handleEagleClick(event) {
   if (state.placementMode !== "click") {
     const now = Date.now();
     if (now - state.lastClickWarning > 1400) {
-      showToast("請先點貼紙樣本以啟用點擊貼上模式", "info");
+      showToast("請先點下方貼紙以啟用點擊放置模式", "info");
       state.lastClickWarning = now;
     }
     return;
@@ -159,6 +165,9 @@ function handleEagleClick(event) {
 }
 
 function handleRandomPlacement() {
+  if (state.controlsLocked) {
+    return;
+  }
   if (state.pending) {
     showToast("請先完成目前的留言", "danger");
     return;
@@ -376,10 +385,16 @@ function updatePlacementStatus() {
 }
 
 function handleZoomIn() {
+  if (state.controlsLocked) {
+    return;
+  }
   setZoomMode("zoomed");
 }
 
 function handleZoomOut() {
+  if (state.controlsLocked) {
+    return;
+  }
   setZoomMode("normal");
 }
 
@@ -417,13 +432,42 @@ function setZoomMode(mode) {
   updateZoomButtons();
 }
 
+function applyControlLock() {
+  const buttons = [randomButton, toggleBoardBtn, zoomInBtn, zoomOutBtn];
+  buttons.forEach((button) => {
+    if (!button) {
+      return;
+    }
+    button.disabled = true;
+    button.setAttribute("aria-disabled", "true");
+    button.classList.add("control-disabled");
+  });
+  if (boardCounter) {
+    boardCounter.hidden = true;
+  }
+  updateZoomButtons();
+}
+
 function updateZoomButtons() {
   const zoomed = state.zoomMode === "zoomed";
+  const locked = state.controlsLocked;
   if (zoomInBtn) {
-    zoomInBtn.disabled = zoomed;
+    const disabled = locked || zoomed;
+    zoomInBtn.disabled = disabled;
+    if (disabled) {
+      zoomInBtn.setAttribute("aria-disabled", "true");
+    } else {
+      zoomInBtn.removeAttribute("aria-disabled");
+    }
   }
   if (zoomOutBtn) {
-    zoomOutBtn.disabled = !zoomed;
+    const disabled = locked || !zoomed;
+    zoomOutBtn.disabled = disabled;
+    if (disabled) {
+      zoomOutBtn.setAttribute("aria-disabled", "true");
+    } else {
+      zoomOutBtn.removeAttribute("aria-disabled");
+    }
   }
 }
 
@@ -476,6 +520,7 @@ function beginPlacement(x, y) {
   const rotation = randomRotationAngle();
   const node = createStickerNode(tempId, x, y, true, rotation);
   stickersLayer.appendChild(node);
+  spawnPlacementBurst(x, y);
   if (!state.deviceId) {
     state.deviceId = ensureDeviceId();
   }
@@ -575,7 +620,7 @@ async function handleFormSubmit(event) {
     if (pending.lockReason === "device") {
       formError.textContent = "此留言僅能由原建立裝置於 24 小時內修改";
     } else {
-      formError.textContent = "留言已鎖定，無法再修改";
+      formError.textContent = "";
     }
     return;
   }
@@ -720,6 +765,8 @@ async function saveNewSticker(pending, message) {
   });
   setStickerRotation(pending.node, rotation);
   runPopAnimation(pending.node);
+  spawnImpactShockwave(pending.x, pending.y);
+  triggerWallFlash();
   updateBoardCounter();
   await closeDialogWithResult("saved");
   showToast("留言已保存", "success");
@@ -830,8 +877,6 @@ function openStickerModal(id) {
   state.pending.locked = Boolean(lockReason);
   if (lockReason === "device") {
     formError.textContent = "此留言僅能由原建立裝置於 24 小時內修改";
-  } else if (lockReason === "time") {
-    formError.textContent = "留言已鎖定，無法再修改";
   }
   setNoteLocked(Boolean(lockReason), { reason: lockReason });
   updateDeleteButton();
@@ -941,6 +986,9 @@ function clientToSvg(clientX, clientY) {
 }
 
 function toggleCounter() {
+  if (state.controlsLocked) {
+    return;
+  }
   state.counterVisible = !state.counterVisible;
   boardCounter.hidden = !state.counterVisible;
   if (state.counterVisible) {
@@ -956,6 +1004,169 @@ function updateBoardCounter() {
   boardCounter.hidden = false;
 }
 
+function spawnPlacementBurst(x, y, options = {}) {
+  if (!effectsLayer || !window.anime) {
+    return;
+  }
+
+  const {
+    radius = 68,
+    rays = 9,
+    duration = 640,
+    rayJitter = 0.2,
+  } = options;
+
+  const group = document.createElementNS(svgNS, "g");
+  group.classList.add("placement-burst");
+  group.setAttribute("transform", `translate(${x} ${y})`);
+
+  const core = document.createElementNS(svgNS, "circle");
+  core.setAttribute("r", "0");
+  group.appendChild(core);
+
+  const rayEntries = [];
+  for (let i = 0; i < rays; i += 1) {
+    const line = document.createElementNS(svgNS, "line");
+    line.setAttribute("x1", "0");
+    line.setAttribute("y1", "0");
+    line.setAttribute("x2", "0");
+    line.setAttribute("y2", "0");
+    line.style.opacity = "0";
+    group.appendChild(line);
+
+    const baseAngle = (Math.PI * 2 * i) / rays;
+    rayEntries.push({
+      node: line,
+      angle: baseAngle + randomBetween(-rayJitter, rayJitter),
+      length: radius * randomBetween(0.6, 1.05),
+    });
+  }
+
+  effectsLayer.appendChild(group);
+
+  window.anime({
+    targets: core,
+    r: [8, radius],
+    opacity: [0.95, 0],
+    easing: "easeOutCubic",
+    duration,
+  });
+
+  rayEntries.forEach((entry, index) => {
+    window.anime({
+      targets: entry.node,
+      x2: [0, Math.cos(entry.angle) * entry.length],
+      y2: [0, Math.sin(entry.angle) * entry.length],
+      opacity: [
+        { value: 1, duration: 130 },
+        { value: 0, duration: duration - 130 },
+      ],
+      delay: 28 * index,
+      easing: "easeOutExpo",
+      duration,
+      complete: index === rayEntries.length - 1 ? () => group.remove() : undefined,
+    });
+  });
+}
+
+function spawnImpactShockwave(x, y, options = {}) {
+  if (!effectsLayer || !window.anime) {
+    return;
+  }
+
+  const {
+    outerRadius = 140,
+    coreRadius = 24,
+    sparkCount = 8,
+    duration = 780,
+  } = options;
+
+  const group = document.createElementNS(svgNS, "g");
+  group.classList.add("impact-ring");
+  group.setAttribute("transform", `translate(${x} ${y})`);
+
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.setAttribute("r", "0");
+  group.appendChild(ring);
+
+  const core = document.createElementNS(svgNS, "circle");
+  core.classList.add("sparkle");
+  core.setAttribute("r", "0");
+  group.appendChild(core);
+
+  const sparks = [];
+  for (let i = 0; i < sparkCount; i += 1) {
+    const spark = document.createElementNS(svgNS, "circle");
+    spark.classList.add("sparkle");
+    spark.setAttribute("r", "2");
+    spark.setAttribute("cx", "0");
+    spark.setAttribute("cy", "0");
+    group.appendChild(spark);
+    sparks.push({
+      node: spark,
+      angle: (Math.PI * 2 * i) / sparkCount + randomBetween(-0.2, 0.2),
+      distance: outerRadius * randomBetween(0.35, 0.85),
+    });
+  }
+
+  effectsLayer.appendChild(group);
+
+  window.anime({
+    targets: ring,
+    r: [10, outerRadius],
+    opacity: [0.8, 0],
+    strokeWidth: [6, 1],
+    easing: "easeOutCubic",
+    duration,
+  });
+
+  window.anime({
+    targets: core,
+    r: [0, coreRadius],
+    opacity: [
+      { value: 1, duration: 150 },
+      { value: 0, duration: duration - 150 },
+    ],
+    easing: "easeOutExpo",
+    duration,
+  });
+
+  sparks.forEach((spark, index) => {
+    window.anime({
+      targets: spark.node,
+      cx: [0, Math.cos(spark.angle) * spark.distance],
+      cy: [0, Math.sin(spark.angle) * spark.distance],
+      r: [2 + randomBetween(0, 1.6), 0],
+      opacity: [
+        { value: 1, duration: 120 },
+        { value: 0, duration: duration - 120 },
+      ],
+      delay: 40 * index,
+      easing: "easeOutQuad",
+      duration,
+      complete: index === sparks.length - 1 ? () => group.remove() : undefined,
+    });
+  });
+}
+
+function triggerWallFlash() {
+  if (!wallSvg) {
+    return;
+  }
+
+  wallSvg.classList.remove("wall-flash");
+  void wallSvg.offsetWidth;
+  wallSvg.classList.add("wall-flash");
+
+  window.setTimeout(() => {
+    wallSvg.classList.remove("wall-flash");
+  }, 620);
+}
+
+function randomBetween(min, max) {
+  return Math.random() * (max - min) + min;
+}
+
 function showToast(message, tone = "info") {
   statusToast.textContent = message;
   statusToast.dataset.tone = tone;
@@ -969,26 +1180,38 @@ function showToast(message, tone = "info") {
 }
 
 function runPopAnimation(node) {
-  if (!window.anime) {
+  if (!window.anime || !node) {
     return;
   }
+  const rotation = Number(node?.dataset?.rotation ?? 0);
+  const normalizedRotation = Number.isFinite(rotation) ? rotation : 0;
+  applyStickerTransform(node);
+  node.style.transformOrigin = "50% 50%";
   window.anime({
     targets: node,
     scale: [0.35, 1],
+    rotate: [normalizedRotation, normalizedRotation],
     easing: "easeOutBack",
     duration: 520,
+    complete: () => applyStickerTransform(node),
   });
 }
 
 function runPulseAnimation(node) {
-  if (!window.anime) {
+  if (!window.anime || !node) {
     return;
   }
+  const rotation = Number(node?.dataset?.rotation ?? 0);
+  const normalizedRotation = Number.isFinite(rotation) ? rotation : 0;
+  applyStickerTransform(node);
+  node.style.transformOrigin = "50% 50%";
   window.anime({
     targets: node,
     scale: [1, 1.15, 1],
+    rotate: [normalizedRotation, normalizedRotation],
     duration: 620,
     easing: "easeInOutSine",
+    complete: () => applyStickerTransform(node),
   });
 }
 

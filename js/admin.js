@@ -1,7 +1,8 @@
-import { supabase, isSupabaseConfigured } from "./supabase-config.js";
+import { isSupabaseConfigured, createSupabaseClient } from "./supabase-config.js";
 
 // Replace this hash with the SHA-256 digest of your desired admin password.
 const ADMIN_PASSWORD_HASH = "edd807dfa6482153fdf7d0cc18d84cf6a4b0cdc667b972951c3a55cee7afe92f";
+const ADMIN_SECRET_HEADER = "admin-super-secret";
 
 const loginPanel = document.getElementById("loginPanel");
 const dashboard = document.getElementById("dashboard");
@@ -16,6 +17,15 @@ const emptyState = document.getElementById("emptyState");
 const entriesBody = document.getElementById("entriesBody");
 const rowTemplate = document.getElementById("entryRowTemplate");
 const toastNode = document.getElementById("adminToast");
+const exportBtn = document.getElementById("exportBtn");
+const totalCountNode = document.getElementById("totalCount");
+
+if (exportBtn) {
+  exportBtn.disabled = true;
+}
+if (totalCountNode) {
+  totalCountNode.textContent = "0";
+}
 
 if (configNotice) {
   configNotice.hidden = isSupabaseConfigured();
@@ -27,6 +37,8 @@ const state = {
   loading: false,
   toastTimer: null,
 };
+
+let supabaseClient = null;
 
 let dateFormatter = null;
 try {
@@ -52,6 +64,7 @@ refreshBtn?.addEventListener("click", () => {
 logoutBtn?.addEventListener("click", handleLogout);
 entriesBody?.addEventListener("input", handleRowInput);
 entriesBody?.addEventListener("click", handleTableClick);
+exportBtn?.addEventListener("click", handleExportEntries);
 
 document.addEventListener("DOMContentLoaded", () => {
   passwordInput?.focus();
@@ -84,6 +97,10 @@ async function handleLogin(event) {
   passwordInput.value = "";
   loginPanel.hidden = true;
   dashboard.hidden = false;
+  if (exportBtn) {
+    exportBtn.disabled = false;
+  }
+  supabaseClient = createSupabaseClient({ headers: { "x-admin-secret": ADMIN_SECRET_HEADER } });
   void loadStickers();
 }
 
@@ -94,6 +111,10 @@ function handleLogout() {
   emptyState.hidden = true;
   dashboard.hidden = true;
   loginPanel.hidden = false;
+  supabaseClient = null;
+  if (exportBtn) {
+    exportBtn.disabled = true;
+  }
   if (loginError) {
     loginError.textContent = "";
   }
@@ -105,6 +126,12 @@ function handleLogout() {
 
 async function loadStickers(showToastOnError = false) {
   if (!state.authorized) {
+    return;
+  }
+  if (!supabaseClient) {
+    if (showToastOnError) {
+      showToast("尚未建立管理連線，請重新登入。", "danger");
+    }
     return;
   }
   if (!isSupabaseConfigured()) {
@@ -119,7 +146,7 @@ async function loadStickers(showToastOnError = false) {
   }
   emptyState.hidden = true;
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from("wall_stickers")
       .select("id, note, rotation_angle, created_at, updated_at")
       .order("created_at", { ascending: false });
@@ -153,6 +180,7 @@ function renderEntries() {
   }
   entriesBody.innerHTML = "";
   if (!Array.isArray(state.entries) || !state.entries.length) {
+    updateTotalCount();
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -196,6 +224,7 @@ function renderEntries() {
     fragment.appendChild(clone);
   });
   entriesBody.appendChild(fragment);
+  updateTotalCount();
 }
 
 function handleRowInput(event) {
@@ -241,6 +270,10 @@ async function saveEntry(row, button) {
     showToast("找不到這筆留言的 ID。", "danger");
     return;
   }
+  if (!supabaseClient) {
+    showToast("尚未建立管理連線，請重新登入。", "danger");
+    return;
+  }
   const rotationInput = row.querySelector(".rotation-input");
   const noteInputNode = row.querySelector(".note-input");
   if (!rotationInput || !noteInputNode) {
@@ -267,7 +300,7 @@ async function saveEntry(row, button) {
   button.disabled = true;
   button.textContent = "儲存中…";
   try {
-    const { error, data } = await supabase
+    const { error, data } = await supabaseClient
       .from("wall_stickers")
       .update({
         note,
@@ -307,11 +340,15 @@ async function deleteEntry(row, button) {
   if (!confirmDelete) {
     return;
   }
+  if (!supabaseClient) {
+    showToast("尚未建立管理連線，請重新登入。", "danger");
+    return;
+  }
   const originalLabel = button.textContent;
   button.disabled = true;
   button.textContent = "刪除中…";
   try {
-    const { error } = await supabase
+    const { error } = await supabaseClient
       .from("wall_stickers")
       .delete()
       .eq("id", id);
@@ -345,6 +382,39 @@ function updateLocalEntry(id, note, rotation, updatedAt) {
   } else {
     target.updated_at = new Date().toISOString();
   }
+}
+
+function updateTotalCount() {
+  if (!totalCountNode) {
+    return;
+  }
+  totalCountNode.textContent = state.entries.length.toString();
+}
+
+function handleExportEntries() {
+  if (!state.authorized) {
+    showToast("請先登入管理後再匯出。", "danger");
+    return;
+  }
+  if (!state.entries.length) {
+    showToast("目前沒有留言可匯出。", "info");
+    return;
+  }
+  const lines = state.entries.map((entry, index) => {
+    const note = (entry.note ?? "").replace(/\r?\n/g, "\n");
+    return `#${index + 1}\nID：${entry.id}\n留言：${note}`;
+  });
+  const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `miracle-wall-entries-${new Date().toISOString().slice(0, 10)}.txt`;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+  showToast("已匯出留言。", "success");
 }
 
 async function verifyPassword(password) {

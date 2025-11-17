@@ -52,3 +52,18 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
 export function isSupabaseConfigured() {
   return !SUPABASE_URL.includes("YOUR-PROJECT") && !SUPABASE_ANON_KEY.includes("YOUR_PUBLIC_ANON_KEY");
 }
+
+export function createSupabaseClient(options = {}) {
+  const headers = {
+    ...(deviceId ? { "x-device-id": deviceId } : {}),
+    ...(options.headers ?? {}),
+  };
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+    },
+    global: {
+      headers,
+    },
+  });
+}

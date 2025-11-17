@@ -66,12 +66,38 @@ main {
   overflow: visible;
 }
 
+.wall-aurora,
+.wall-stars {
+  position: absolute;
+  inset: -6%;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.wall-aurora {
+  background: conic-gradient(from 120deg at 50% 38%, rgba(244, 192, 96, 0.3), rgba(244, 170, 70, 0.08), rgba(116, 186, 255, 0.24), rgba(186, 132, 255, 0.16), rgba(244, 192, 96, 0.3));
+  filter: blur(48px);
+  opacity: 0.92;
+  animation: auroraDrift 18s ease-in-out infinite;
+}
+
+.wall-stars {
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.4) 0, transparent 45%),
+    radial-gradient(circle at 82% 62%, rgba(255, 255, 255, 0.48) 0, transparent 42%),
+    radial-gradient(circle at 46% 78%, rgba(244, 192, 96, 0.4) 0, transparent 36%),
+    radial-gradient(circle at 68% 18%, rgba(116, 186, 255, 0.35) 0, transparent 38%);
+  opacity: 0.82;
+  animation: starPulse 12s ease-in-out infinite alternate;
+}
+
 #wallSvg {
   width: 100%;
   height: auto;
   max-height: calc(100vh - 6rem);
   display: block;
-  transition: width 240ms ease;
+  transition: width 240ms ease, filter 620ms ease;
+  filter: drop-shadow(0 40px 60px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 45px rgba(244, 170, 70, 0.25));
 }
 
 #stickersLayer {
@@ -79,6 +105,10 @@ main {
 }
 
 #dragOverlay {
+  pointer-events: none;
+}
+
+#effectsLayer {
   pointer-events: none;
 }
 
@@ -92,6 +122,70 @@ main {
 
 .sticker-node.drag-ghost {
   pointer-events: none;
+}
+
+.wall {
+  filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45)) drop-shadow(0 0 56px rgba(255, 244, 221, 0.35));
+  animation: eaglePulse 7.5s ease-in-out infinite alternate;
+}
+
+#wallSvg.wall-flash {
+  animation: wallFlash 640ms ease-out;
+}
+
+.placement-burst circle {
+  fill: rgba(244, 192, 96, 0.28);
+  stroke: rgba(255, 244, 221, 0.7);
+  stroke-width: 2;
+}
+
+.placement-burst line {
+  stroke: rgba(255, 244, 221, 0.85);
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.95;
+}
+
+.impact-ring circle {
+  fill: rgba(255, 255, 255, 0.05);
+  stroke: rgba(244, 170, 70, 0.8);
+  stroke-width: 3;
+}
+
+.impact-ring .sparkle {
+  fill: rgba(255, 250, 235, 0.9);
+  opacity: 0.9;
+}
+
+@keyframes wallFlash {
+  0% {
+    filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45)) drop-shadow(0 0 56px rgba(255, 244, 221, 0.35)) brightness(0.9);
+  }
+  30% {
+    filter: drop-shadow(0 0 42px rgba(255, 214, 153, 0.75)) drop-shadow(0 0 110px rgba(255, 250, 235, 0.65)) brightness(1.4);
+  }
+  100% {
+    filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45)) drop-shadow(0 0 56px rgba(255, 244, 221, 0.35)) brightness(1);
+  }
+}
+
+@media (min-width: 1024px) {
+  .wall-section {
+    padding: clamp(1.1rem, 3vh, 2.4rem) 0;
+  }
+
+  .wall-wrapper {
+    width: min(100vw - clamp(0.5rem, 3vw, 2rem), calc((100vh - 4rem) * 1.96795));
+    max-width: min(2048px, 99vw);
+  }
+
+  #wallSvg {
+    max-height: calc(100vh - 4rem);
+  }
+
+  .drag-palette {
+    align-items: center;
+  }
 }
 
 .sticker-node:hover,
@@ -163,6 +257,7 @@ main {
   text-decoration: none;
   user-select: none;
   position: relative;
+  align-self: center;
 }
 
 .palette-sticker svg {
@@ -262,6 +357,57 @@ body:has(.floating-menu:focus-within) .floating-menu {
 .ghost-btn:focus-visible {
   background: rgba(244, 192, 96, 0.15);
   color: #fff4dd;
+}
+
+.control-disabled {
+  opacity: 0.48;
+  cursor: not-allowed !important;
+}
+
+@keyframes auroraDrift {
+  0% {
+    transform: scale(1.05) rotate(0deg);
+    opacity: 0.85;
+  }
+  40% {
+    transform: scale(1.18) rotate(14deg);
+    opacity: 1;
+  }
+  70% {
+    transform: scale(1.08) rotate(-10deg);
+    opacity: 0.92;
+  }
+  100% {
+    transform: scale(1.05) rotate(0deg);
+    opacity: 0.85;
+  }
+}
+
+@keyframes starPulse {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+}
+
+@keyframes eaglePulse {
+  0% {
+    filter: drop-shadow(0 0 18px rgba(244, 192, 96, 0.32)) drop-shadow(0 0 40px rgba(116, 186, 255, 0.18));
+  }
+  50% {
+    filter: drop-shadow(0 0 36px rgba(244, 192, 96, 0.58)) drop-shadow(0 0 80px rgba(255, 244, 221, 0.32));
+  }
+  100% {
+    filter: drop-shadow(0 0 20px rgba(116, 186, 255, 0.35)) drop-shadow(0 0 60px rgba(244, 170, 70, 0.28));
+  }
 }
 
 #statusToast {
@@ -667,8 +813,9 @@ body.zoomed-in #wallWrapper::-webkit-scrollbar-thumb {
     bottom: calc(env(safe-area-inset-bottom) + clamp(0.75rem, 2.6vh, 1.6rem));
     left: 50%;
     transform: translateX(-50%);
-    width: min(92vw, 440px);
-    max-width: none;
+    width: clamp(260px, 72vw, 320px);
+    max-width: 320px;
+    min-width: 260px;
     margin: 0;
     flex-direction: column;
     align-items: center;

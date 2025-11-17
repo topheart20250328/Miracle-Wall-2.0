@@ -178,6 +178,13 @@ body {
   color: var(--text-muted);
 }
 
+.dashboard-count {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
 .header-actions {
   display: flex;
   gap: 0.6rem;
