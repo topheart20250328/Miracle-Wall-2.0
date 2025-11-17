@@ -8,7 +8,7 @@
   --success: #67f59a;
   --shadow-xl: 0 25px 60px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
-  --sticker-diameter: 72px;
+  --sticker-diameter: 36px;
   font-size: 16px;
 }
 
@@ -30,26 +30,55 @@ body {
   color: var(--text-primary);
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-}
-
-body.dialog-open {
-  overflow: hidden;
-}
-
-#wallSvg {
-  width: 100%;
-  height: 100%;
-  filter: drop-shadow(0 25px 45px rgba(0, 0, 0, 0.6));
-}
-
-.wall path {
+ 
   fill: rgba(255, 214, 153, 0.15);
   stroke: rgba(255, 196, 111, 0.45);
   stroke-width: 5;
 }
 
+main {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wall-section {
+  flex: 1 1 auto;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: clamp(1.5rem, 4vh, 2.8rem) 0;
+}
+
+.wall-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100vw - 4rem, calc((100vh - 6rem) * 1.96795));
+  max-width: 1500px;
+  aspect-ratio: 3500 / 1779.31;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+#wallSvg {
+  width: 100%;
+  height: auto;
+  max-height: calc(100vh - 6rem);
+  display: block;
+  transition: width 240ms ease;
+}
+
 #stickersLayer {
+  pointer-events: none;
+}
+
+#dragOverlay {
   pointer-events: none;
 }
 
@@ -59,6 +88,10 @@ body.dialog-open {
   transition: filter 180ms ease, opacity 180ms ease;
   transform-box: fill-box;
   transform-origin: center;
+}
+
+.sticker-node.drag-ghost {
+  pointer-events: none;
 }
 
 .sticker-node:hover,
@@ -74,35 +107,94 @@ body.dialog-open {
   filter: drop-shadow(0 0 14px rgba(255, 93, 93, 0.85));
 }
 
+.sticker-node.in-flight {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .drag-palette {
   position: absolute;
   inset: auto clamp(1rem, 2vw, 1.5rem) clamp(1rem, 2vw, 1.5rem) auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: stretch;
+  gap: 0.75rem;
   background: rgba(0, 0, 0, 0.35);
   border-radius: 18px;
   padding: 0.85rem;
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-md);
+  max-width: clamp(220px, 26vw, 280px);
+}
+
+.palette-guidance {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.35rem 0.35rem 0.5rem;
+  align-items: center;
+  text-align: center;
+}
+
+.palette-title {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  color: #fff4dd;
+}
+
+.palette-hint {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .palette-sticker {
-  width: 72px;
+  width: calc(var(--sticker-diameter) * 1.8);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0;
   cursor: grab;
   color: var(--text-muted);
   text-decoration: none;
   user-select: none;
+  position: relative;
 }
 
 .palette-sticker svg {
   width: 100%;
   height: auto;
+  transition: filter 160ms ease;
+}
+
+.placement-status {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  padding-top: 0.4rem;
+  text-align: center;
+  white-space: pre-line;
+}
+
+.danger {
+  border: 1px solid rgba(255, 93, 93, 0.75);
+  background: rgba(255, 93, 93, 0.15);
+  color: #ffb1b1;
+  padding: 0.5rem 0.95rem;
+  border-radius: 999px;
+  cursor: pointer;
+  min-width: 0;
+  transition: transform 140ms ease;
+}
+
+.danger:hover,
+.danger:focus-visible {
+  transform: translateY(-1px);
 }
 
 .palette-sticker:active {
@@ -116,11 +208,13 @@ body.dialog-open {
 
 .floating-menu {
   position: fixed;
-  top: 0.8rem;
+  top: calc(env(safe-area-inset-top) + 0.8rem);
   left: 50%;
   transform: translate(-50%, -120%);
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
+  justify-content: center;
   background: rgba(0, 0, 0, 0.4);
   padding: 0.65rem 1.2rem;
   border-radius: 999px;
@@ -134,6 +228,21 @@ body.dialog-open {
 .floating-menu:hover,
 body:has(.floating-menu:focus-within) .floating-menu {
   transform: translate(-50%, 0);
+}
+
+.note-lock-notice {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: clamp(4.4rem, 7.6vmin, 5.8rem);
+  margin: 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  color: rgba(255, 244, 221, 0.9);
+  text-align: center;
+  width: 100%;
+  max-width: clamp(320px, 52vmin, 440px);
+  z-index: 2;
 }
 
 .ghost-btn {
@@ -178,7 +287,7 @@ body:has(.floating-menu:focus-within) .floating-menu {
 
 .board-counter {
   position: absolute;
-  top: 1rem;
+  top: calc(env(safe-area-inset-top) + 1rem);
   right: 1.2rem;
   background: rgba(0, 0, 0, 0.55);
   padding: 0.45rem 0.9rem;
@@ -346,7 +455,7 @@ body:has(.floating-menu:focus-within) .floating-menu {
   border: 2px solid rgba(51, 50, 50, 0.38);
   padding: 1.1rem 1.25rem;
   font-size: 1.05rem;
-  line-height: 1.6;
+  bottom: clamp(4.4rem, 7.6vmin, 5.8rem);
   background: rgba(255, 255, 255, 0.92);
   color: #1c1c1c;
   box-shadow: inset 0 10px 24px rgba(0, 0, 0, 0.1);
@@ -360,6 +469,12 @@ body:has(.floating-menu:focus-within) .floating-menu {
   text-align: center;
 }
 
+#noteInput.locked {
+  background: rgba(240, 240, 240, 0.9);
+  color: rgba(28, 28, 28, 0.6);
+  cursor: not-allowed;
+}
+
 
 .dialog-actions {
   position: absolute;
@@ -369,6 +484,7 @@ body:has(.floating-menu:focus-within) .floating-menu {
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
   gap: clamp(0.65rem, 2vmin, 0.95rem);
@@ -376,11 +492,12 @@ body:has(.floating-menu:focus-within) .floating-menu {
 }
 
 .dialog-actions button {
-  flex: 0 0 auto;
-  min-width: 120px;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 140px;
 }
 .primary {
-  padding: 0.55rem 1.2rem;
+  padding: 0.5rem 1rem;
   border-radius: 999px;
   border: none;
   background: linear-gradient(135deg, rgba(244, 192, 96, 0.95), rgba(244, 170, 70, 0.95));
@@ -400,7 +517,7 @@ body:has(.floating-menu:focus-within) .floating-menu {
   border: 1px solid rgba(255, 255, 255, 0.55);
   background: rgba(255, 255, 255, 0.18);
   color: rgba(255, 255, 255, 0.92);
-  padding: 0.55rem 1.1rem;
+  padding: 0.5rem 0.95rem;
   border-radius: 999px;
   cursor: pointer;
 }
@@ -409,7 +526,7 @@ body:has(.floating-menu:focus-within) .floating-menu {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: clamp(6.9rem, 11vmin, 8rem);
+  bottom: clamp(6rem, 10vmin, 7.4rem);
   min-height: 1.2rem;
   margin: 0;
   color: var(--danger);
@@ -449,6 +566,65 @@ body:has(.floating-menu:focus-within) .floating-menu {
   filter: drop-shadow(0 0 18px rgba(255, 93, 93, 0.9));
 }
 
+body.placement-click #wallSvg,
+body.placement-drag #wallSvg {
+  filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45));
+}
+
+body.placement-click #wallSvg {
+  cursor: pointer;
+}
+
+body.placement-drag #wallSvg {
+  cursor: crosshair;
+}
+
+body.placement-active #paletteSticker svg {
+  filter: drop-shadow(0 0 18px rgba(244, 192, 96, 0.75));
+}
+
+body.placement-click .placement-status {
+  color: var(--success);
+}
+
+body.placement-drag .placement-status {
+  color: rgba(255, 214, 153, 0.9);
+}
+
+.wall-wrapper.zoomed {
+  overflow-x: auto;
+  overflow-y: hidden;
+  cursor: grab;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.wall-wrapper.zoomed:active {
+  cursor: grabbing;
+}
+
+body.zoomed-in {
+  overscroll-behavior: contain;
+  overflow-x: hidden;
+}
+
+body.zoomed-in main {
+  overflow: hidden;
+}
+
+body.zoomed-in #wallWrapper {
+  touch-action: pan-x;
+}
+
+body.zoomed-in #wallWrapper::-webkit-scrollbar {
+  height: 6px;
+}
+
+body.zoomed-in #wallWrapper::-webkit-scrollbar-thumb {
+  background: rgba(244, 192, 96, 0.4);
+  border-radius: 3px;
+}
+
 .zoom-overlay {
   position: fixed;
   z-index: 1200;
@@ -476,19 +652,37 @@ body:has(.floating-menu:focus-within) .floating-menu {
     transform: translate(-50%, -130%);
   }
 
+  .wall-section {
+    padding-top: clamp(1.1rem, 3vh, 1.8rem);
+    padding-bottom: clamp(240px, 38vh, 320px);
+  }
+
   .wall-wrapper {
-    width: min(100vw, calc(100vh * (3500 / 1779.31)));
-    height: min(100vh, calc(100vw * (1779.31 / 3500)));
+    width: min(92vw, 900px);
+    max-width: none;
   }
 
   .drag-palette {
-    position: static;
-    margin: 1rem auto 0;
-    flex-direction: row;
+    position: fixed;
+    bottom: calc(env(safe-area-inset-bottom) + clamp(0.75rem, 2.6vh, 1.6rem));
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(92vw, 440px);
+    max-width: none;
+    margin: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.65rem;
+    z-index: 60;
   }
 
-  .flip-card {
-    width: clamp(320px, 52vmin, 440px);
+  .palette-guidance {
+    text-align: center;
+    padding-inline: clamp(0.4rem, 4vw, 1rem);
+  }
+
+  #statusToast {
+    bottom: calc(env(safe-area-inset-bottom) + clamp(7.5rem, 28vh, 11rem));
   }
 }
 
@@ -504,10 +698,15 @@ body:has(.floating-menu:focus-within) .floating-menu {
   }
 
   .palette-sticker {
-    width: 60px;
+    width: calc(var(--sticker-diameter) * 1.4);
   }
 
-  .flip-card {
-    width: clamp(320px, 52vmin, 440px);
+  .dialog-actions {
+    flex-wrap: wrap;
+    gap: 0.55rem;
+  }
+
+  .dialog-actions button {
+    max-width: none;
   }
 }

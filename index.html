@@ -13,11 +13,13 @@
   <nav class="floating-menu" aria-label="快速操作">
     <button id="randomPlacementBtn" type="button" class="ghost-btn">隨機貼上</button>
     <button id="toggleBoardBtn" type="button" class="ghost-btn">顯示貼紙數</button>
+    <button id="zoomInBtn" type="button" class="ghost-btn">放大</button>
+    <button id="zoomOutBtn" type="button" class="ghost-btn" disabled>還原</button>
   </nav>
 
   <main>
     <section class="wall-section">
-      <div class="wall-wrapper">
+      <div class="wall-wrapper" id="wallWrapper">
         <svg id="wallSvg" viewBox="0 0 3500 1779.31" role="img" aria-labelledby="wallTitle" preserveAspectRatio="xMidYMid meet">
           <title id="wallTitle">Top Church Miracle Wall</title>
           <defs>
@@ -42,13 +44,17 @@
           </g>
 
           <g id="stickersLayer" clip-path="url(#eagleClip)"></g>
+          <g id="dragOverlay" aria-hidden="true"></g>
         </svg>
-        <div class="drag-palette" aria-label="拖曳貼紙區">
-          <div id="paletteSticker" class="palette-sticker" draggable="false" role="button" aria-pressed="false" tabindex="0">
+        <div class="drag-palette" aria-label="貼紙工具">
+          <div class="palette-guidance">
+            <h2 class="palette-title">記錄神蹟的方式</h2>
+            <p id="placementStatus" class="placement-status" hidden></p>
+          </div>
+          <div id="paletteSticker" class="palette-sticker" draggable="false" role="button" aria-pressed="false" tabindex="0" aria-label="貼紙樣本，點擊啟用或拖曳貼上">
             <svg viewBox="0 0 2000 2000" aria-hidden="true">
               <use href="#heartSticker"></use>
             </svg>
-            <span>拖曳貼紙</span>
           </div>
         </div>
         <div id="statusToast" role="status" aria-live="polite"></div>
@@ -60,8 +66,8 @@
   <dialog id="noteDialog" class="note-dialog" aria-labelledby="dialogTitle">
     <form method="dialog" id="noteForm">
       <header class="dialog-header">
-        <h2 id="dialogTitle">貼紙留言</h2>
-        <span class="dialog-subtitle">最多 800 字，寫下你的心聲</span>
+        <h2 id="dialogTitle">神蹟留言</h2>
+        <span class="dialog-subtitle" id="dialogSubtitle">（最多 800 字，留言於一日後鎖定）</span>
       </header>
       <div class="flip-card">
         <div class="flip-card-inner" id="flipCardInner" data-state="front">
@@ -78,7 +84,8 @@
       <p id="formError" class="form-error" role="alert"></p>
       <p id="noteTimestamp" class="note-timestamp" hidden aria-live="polite"></p>
       <footer class="dialog-actions">
-        <button type="button" id="cancelModalBtn" class="ghost">取消</button>
+        <button type="button" id="cancelModalBtn" class="ghost">返回</button>
+        <button type="button" id="deleteStickerBtn" class="danger" hidden>刪除</button>
         <button type="submit" class="primary">儲存</button>
       </footer>
     </form>
