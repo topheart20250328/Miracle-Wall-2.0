@@ -230,7 +230,7 @@ main::before {
   max-width: 1500px;
   aspect-ratio: 3500 / 1779.31;
   margin: 0 auto;
-  overflow: hidden;
+  overflow: visible;
 }
 
 #wallSvg {
@@ -240,8 +240,8 @@ main::before {
   display: block;
   transition: width 240ms ease;
   touch-action: none;
+  transform-origin: 0 0;
   will-change: transform;
-  transform-origin: 50% 50%;
 }
 
 #ambientLayer {

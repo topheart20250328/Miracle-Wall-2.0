@@ -1,6 +1,7 @@
 import { supabase, isSupabaseConfigured, deviceId as initialDeviceId } from "./supabase-config.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
+  initViewportGestures();
 const wallSvg = document.getElementById("wallSvg");
 const wallWrapper = document.getElementById("wallWrapper");
 const stickersLayer = document.getElementById("stickersLayer");
@@ -72,19 +73,26 @@ const state = {
   zoomOverlay: null,
   zoomAnimation: null,
   zoomResolve: null,
-  closing: false,
-  lastClickWarning: 0,
-  lastPendingToast: 0,
-  deviceId: initialDeviceId ?? null,
-  panZoom: {
+  viewport: {
     scale: 1,
     translateX: 0,
     translateY: 0,
     minScale: 1,
-    maxScale: 2.6,
-    pointerMap: new Map(),
-    snapshot: null,
+    maxScale: 2.4,
+    suppressClickUntil: 0,
   },
+  pinch: {
+    active: false,
+    pointers: new Map(),
+    initialDistance: 0,
+    initialScale: 1,
+    initialCentroid: null,
+    contentFocus: null,
+  },
+  closing: false,
+  lastClickWarning: 0,
+  lastPendingToast: 0,
+  deviceId: initialDeviceId ?? null,
 };
 
 if (mediaPrefersReducedMotion) {
@@ -116,7 +124,6 @@ function init() {
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
   document.addEventListener("keydown", handleGlobalKeyDown);
   window.addEventListener("resize", handleViewportChange);
-  initPanZoomControls();
   setPlacementMode("idle", { force: true });
   updatePlacementHint();
   hideStatusMessage(true);
@@ -170,6 +177,10 @@ async function loadExistingStickers() {
 }
 
 function handleEagleClick(event) {
+  if (state.viewport?.suppressClickUntil && Date.now() < state.viewport.suppressClickUntil) {
+    return;
+  }
+  state.viewport.suppressClickUntil = 0;
   if (event.target.closest(".sticker-node") || state.pending) {
     return;
   }
@@ -380,7 +391,161 @@ function setPlacementMode(mode, options = {}) {
 
 function handleViewportChange() {
   scheduleAmbientGlowRefresh();
-  finalizePanZoomBounds();
+  clampViewportTransform();
+}
+
+function initViewportGestures() {
+  if (!wallSvg || typeof window === "undefined" || typeof window.PointerEvent === "undefined") {
+    return;
+  }
+  const listenerOptions = { passive: false };
+  wallSvg.addEventListener("pointerdown", handleViewportPointerDown, listenerOptions);
+  wallSvg.addEventListener("pointermove", handleViewportPointerMove, listenerOptions);
+  wallSvg.addEventListener("pointerup", handleViewportPointerEnd, listenerOptions);
+  wallSvg.addEventListener("pointercancel", handleViewportPointerEnd, listenerOptions);
+}
+
+function handleViewportPointerDown(event) {
+  if (event.pointerType !== "touch" || !state.pinch) {
+    return;
+  }
+  if (!state.pinch.pointers.has(event.pointerId) && state.pinch.pointers.size >= 2) {
+    return;
+  }
+  state.pinch.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (typeof wallSvg.setPointerCapture === "function") {
+    try {
+      wallSvg.setPointerCapture(event.pointerId);
+    } catch (error) {
+      console.debug("pointer capture unavailable", error);
+    }
+  }
+  if (state.pinch.pointers.size === 2) {
+    startPinchGesture();
+    event.preventDefault();
+  }
+}
+
+function handleViewportPointerMove(event) {
+  if (event.pointerType !== "touch" || !state.pinch?.pointers?.has(event.pointerId)) {
+    return;
+  }
+  state.pinch.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (state.pinch.active && state.pinch.pointers.size >= 2) {
+    event.preventDefault();
+    updatePinchGesture();
+  }
+}
+
+function handleViewportPointerEnd(event) {
+  if (!state.pinch?.pointers?.has(event.pointerId)) {
+    return;
+  }
+  const wasPinching = state.pinch.active;
+  state.pinch.pointers.delete(event.pointerId);
+  if (typeof wallSvg.releasePointerCapture === "function") {
+    try {
+      wallSvg.releasePointerCapture(event.pointerId);
+    } catch (error) {
+      console.debug("release pointer capture unavailable", error);
+    }
+  }
+  if (state.pinch.pointers.size < 2) {
+    state.pinch.active = false;
+    state.pinch.initialDistance = 0;
+    state.pinch.initialCentroid = null;
+    state.pinch.contentFocus = null;
+  }
+  if (wasPinching && event.pointerType === "touch") {
+    event.preventDefault();
+    state.viewport.suppressClickUntil = Date.now() + 600;
+  }
+}
+
+function startPinchGesture() {
+  const pointers = Array.from(state.pinch.pointers.values());
+  if (pointers.length < 2) {
+    return;
+  }
+  const distance = distanceBetweenPoints(pointers[0], pointers[1]);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return;
+  }
+  state.pinch.initialDistance = distance;
+  state.pinch.initialScale = state.viewport.scale;
+  state.pinch.initialCentroid = centroidFromPoints(pointers);
+  const safeScale = state.viewport.scale || 1;
+  state.pinch.contentFocus = {
+    x: (state.pinch.initialCentroid.x - state.viewport.translateX) / safeScale,
+    y: (state.pinch.initialCentroid.y - state.viewport.translateY) / safeScale,
+  };
+  state.pinch.active = true;
+  state.viewport.suppressClickUntil = Date.now() + 600;
+}
+
+function updatePinchGesture() {
+  const pointers = Array.from(state.pinch.pointers.values());
+  if (pointers.length < 2 || !state.pinch.initialDistance) {
+    return;
+  }
+  const distance = distanceBetweenPoints(pointers[0], pointers[1]);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return;
+  }
+  const ratio = distance / state.pinch.initialDistance;
+  let nextScale = state.pinch.initialScale * (Number.isFinite(ratio) ? ratio : 1);
+  nextScale = clampValue(nextScale, state.viewport.minScale, state.viewport.maxScale);
+  const centroid = centroidFromPoints(pointers);
+  const focus = state.pinch.contentFocus ?? {
+    x: (centroid.x - state.viewport.translateX) / (state.viewport.scale || 1),
+    y: (centroid.y - state.viewport.translateY) / (state.viewport.scale || 1),
+  };
+  const nextTranslateX = centroid.x - focus.x * nextScale;
+  const nextTranslateY = centroid.y - focus.y * nextScale;
+  applyViewportTransform(nextScale, nextTranslateX, nextTranslateY);
+}
+
+function clampViewportTransform() {
+  const { scale, translateX, translateY } = state.viewport;
+  const clamped = clampViewportTranslation(scale, translateX, translateY);
+  if (clamped.x !== translateX || clamped.y !== translateY) {
+    applyViewportTransform(scale, clamped.x, clamped.y);
+  }
+}
+
+function applyViewportTransform(scale, translateX, translateY) {
+  if (!wallSvg) {
+    return;
+  }
+  const clampedScale = clampValue(scale, state.viewport.minScale, state.viewport.maxScale);
+  const translation = clampViewportTranslation(clampedScale, translateX, translateY);
+  state.viewport.scale = clampedScale;
+  state.viewport.translateX = translation.x;
+  state.viewport.translateY = translation.y;
+  const scaleValue = clampedScale.toFixed(4);
+  const translateXValue = translation.x.toFixed(2);
+  const translateYValue = translation.y.toFixed(2);
+  wallSvg.style.transform = `matrix(${scaleValue}, 0, 0, ${scaleValue}, ${translateXValue}, ${translateYValue})`;
+  wallSvg.classList.toggle("viewport-zoomed", clampedScale > 1.02);
+}
+
+function clampViewportTranslation(scale, translateX, translateY) {
+  if (!wallSvg) {
+    return { x: translateX, y: translateY };
+  }
+  const baseWidth = wallSvg.clientWidth || 0;
+  const baseHeight = wallSvg.clientHeight || 0;
+  if (!baseWidth || !baseHeight) {
+    return { x: translateX, y: translateY };
+  }
+  const scaledWidth = baseWidth * scale;
+  const scaledHeight = baseHeight * scale;
+  const maxOffsetX = Math.max(0, (scaledWidth - baseWidth) / 2);
+  const maxOffsetY = Math.max(0, (scaledHeight - baseHeight) / 2);
+  const clampedX = clampValue(translateX, -maxOffsetX, maxOffsetX);
+  const clampedY = clampValue(translateY, -maxOffsetY, maxOffsetY);
+  return { x: clampedX, y: clampedY };
+}
 }
 
 function ensureDeviceId() {
@@ -964,6 +1129,42 @@ function clampToViewBox(value, isY = false) {
     return Math.min(viewBox.y + viewBox.height - STICKER_RADIUS, Math.max(viewBox.y + STICKER_RADIUS, value));
   }
   return Math.min(viewBox.x + viewBox.width - STICKER_RADIUS, Math.max(viewBox.x + STICKER_RADIUS, value));
+}
+
+function distanceBetweenPoints(a, b) {
+  if (!a || !b) {
+    return 0;
+  }
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function centroidFromPoints(points) {
+  if (!Array.isArray(points) || !points.length) {
+    return { x: 0, y: 0 };
+  }
+  const sum = points.reduce(
+    (acc, point) => {
+      acc.x += point.x;
+      acc.y += point.y;
+      return acc;
+    },
+    { x: 0, y: 0 },
+  );
+  return { x: sum.x / points.length, y: sum.y / points.length };
+}
+
+function clampValue(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return Number.isFinite(min) ? min : 0;
+  }
+  let result = value;
+  if (Number.isFinite(min) && result < min) {
+    result = min;
+  }
+  if (Number.isFinite(max) && result > max) {
+    result = max;
+  }
+  return result;
 }
 
 function clientToSvg(clientX, clientY) {
@@ -2162,201 +2363,6 @@ function updateDialogSubtitle(isLocked, reason = null) {
   }
   dialogSubtitle.textContent = SUBTITLE_TEXT;
   dialogSubtitle.hidden = false;
-}
-
-function initPanZoomControls() {
-  if (!wallSvg) {
-    return;
-  }
-  resetPanZoomTransform();
-  wallSvg.style.transformOrigin = "50% 50%";
-  wallSvg.addEventListener("pointerdown", handlePanZoomPointerDown);
-  wallSvg.addEventListener("pointermove", handlePanZoomPointerMove);
-  wallSvg.addEventListener("pointerup", handlePanZoomPointerUp);
-  wallSvg.addEventListener("pointercancel", handlePanZoomPointerUp);
-}
-
-function handlePanZoomPointerDown(event) {
-  if (event.pointerType !== "touch" || noteDialog?.open) {
-    return;
-  }
-  if (typeof wallSvg.setPointerCapture === "function") {
-    wallSvg.setPointerCapture(event.pointerId);
-  }
-  const pointerMap = state.panZoom.pointerMap;
-  pointerMap.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (pointerMap.size === 2) {
-    event.preventDefault();
-    beginPinchGesture();
-  }
-}
-
-function handlePanZoomPointerMove(event) {
-  if (event.pointerType !== "touch") {
-    return;
-  }
-  const pointerMap = state.panZoom.pointerMap;
-  if (!pointerMap.has(event.pointerId)) {
-    return;
-  }
-  pointerMap.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (pointerMap.size >= 2) {
-    event.preventDefault();
-    if (!state.panZoom.snapshot) {
-      beginPinchGesture();
-    }
-    updatePinchGesture();
-  }
-}
-
-function handlePanZoomPointerUp(event) {
-  if (event.pointerType !== "touch") {
-    return;
-  }
-  if (typeof wallSvg.releasePointerCapture === "function") {
-    wallSvg.releasePointerCapture(event.pointerId);
-  }
-  const pointerMap = state.panZoom.pointerMap;
-  pointerMap.delete(event.pointerId);
-  if (pointerMap.size >= 2) {
-    beginPinchGesture();
-    return;
-  }
-  state.panZoom.snapshot = null;
-  finalizePanZoomBounds();
-}
-
-function beginPinchGesture() {
-  const [first, second] = extractFirstTwoPointers();
-  if (!first || !second || !wallWrapper) {
-    state.panZoom.snapshot = null;
-    return;
-  }
-  const distance = distanceBetweenPoints(first, second);
-  if (!Number.isFinite(distance) || distance <= 0) {
-    state.panZoom.snapshot = null;
-    return;
-  }
-  const rect = wallWrapper.getBoundingClientRect();
-  const centerX = ((first.x + second.x) / 2) - rect.left - rect.width / 2;
-  const centerY = ((first.y + second.y) / 2) - rect.top - rect.height / 2;
-  state.panZoom.snapshot = {
-    startDistance: distance,
-    startScale: state.panZoom.scale,
-    startTranslateX: state.panZoom.translateX,
-    startTranslateY: state.panZoom.translateY,
-    startCenterX: centerX,
-    startCenterY: centerY,
-  };
-}
-
-function updatePinchGesture() {
-  const snapshot = state.panZoom.snapshot;
-  if (!snapshot || !wallWrapper) {
-    return;
-  }
-  const [first, second] = extractFirstTwoPointers();
-  if (!first || !second) {
-    return;
-  }
-  const distance = distanceBetweenPoints(first, second);
-  if (!snapshot.startDistance || !Number.isFinite(distance) || distance <= 0) {
-    return;
-  }
-  const rect = wallWrapper.getBoundingClientRect();
-  const centerX = ((first.x + second.x) / 2) - rect.left - rect.width / 2;
-  const centerY = ((first.y + second.y) / 2) - rect.top - rect.height / 2;
-  let scale = snapshot.startScale * (distance / snapshot.startDistance);
-  scale = clampValue(scale, state.panZoom.minScale, state.panZoom.maxScale);
-  const deltaX = centerX - snapshot.startCenterX;
-  const deltaY = centerY - snapshot.startCenterY;
-  const nextTranslation = constrainPanTranslation(
-    scale,
-    snapshot.startTranslateX + deltaX,
-    snapshot.startTranslateY + deltaY,
-  );
-  applyPanZoomTransform(scale, nextTranslation.translateX, nextTranslation.translateY);
-}
-
-function finalizePanZoomBounds() {
-  const { scale, translateX, translateY, minScale } = state.panZoom;
-  if (scale <= minScale + 0.01) {
-    resetPanZoomTransform();
-    return;
-  }
-  const constrained = constrainPanTranslation(scale, translateX, translateY);
-  applyPanZoomTransform(scale, constrained.translateX, constrained.translateY);
-}
-
-function constrainPanTranslation(scale, translateX, translateY) {
-  if (!wallWrapper) {
-    return { translateX, translateY };
-  }
-  const rect = wallWrapper.getBoundingClientRect();
-  const halfWidth = Math.max(0, (rect.width * (scale - 1)) / 2);
-  const halfHeight = Math.max(0, (rect.height * (scale - 1)) / 2);
-  return {
-    translateX: clampValue(translateX, -halfWidth, halfWidth),
-    translateY: clampValue(translateY, -halfHeight, halfHeight),
-  };
-}
-
-function applyPanZoomTransform(scale, translateX, translateY) {
-  state.panZoom.scale = Number.isFinite(scale) ? scale : state.panZoom.scale;
-  state.panZoom.translateX = Number.isFinite(translateX) ? translateX : state.panZoom.translateX;
-  state.panZoom.translateY = Number.isFinite(translateY) ? translateY : state.panZoom.translateY;
-  if (!wallSvg) {
-    return;
-  }
-  const almostDefault = Math.abs(state.panZoom.scale - 1) < 0.001
-    && Math.abs(state.panZoom.translateX) < 0.5
-    && Math.abs(state.panZoom.translateY) < 0.5;
-  if (almostDefault) {
-    wallSvg.style.transform = "";
-    wallSvg.dataset.zoomed = "false";
-  } else {
-    wallSvg.style.transform = `translate(${state.panZoom.translateX}px, ${state.panZoom.translateY}px) scale(${state.panZoom.scale})`;
-    wallSvg.dataset.zoomed = "true";
-  }
-}
-
-function resetPanZoomTransform() {
-  state.panZoom.pointerMap.clear();
-  state.panZoom.snapshot = null;
-  applyPanZoomTransform(1, 0, 0);
-}
-
-function extractFirstTwoPointers() {
-  const pointerMap = state.panZoom.pointerMap;
-  if (!pointerMap || pointerMap.size < 2) {
-    return [null, null];
-  }
-  const iterator = pointerMap.values();
-  const first = iterator.next().value ?? null;
-  const second = iterator.next().value ?? null;
-  return [first, second];
-}
-
-function distanceBetweenPoints(a, b) {
-  if (!a || !b) {
-    return 0;
-  }
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return Math.hypot(dx, dy);
-}
-
-function clampValue(value, min, max) {
-  if (!Number.isFinite(value)) {
-    return min;
-  }
-  if (value < min) {
-    return min;
-  }
-  if (value > max) {
-    return max;
-  }
-  return value;
 }
 
 function createUuid() {
