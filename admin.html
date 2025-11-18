@@ -45,6 +45,7 @@
             <tr>
               <th scope="col">編號</th>
               <th scope="col">資訊</th>
+              <th scope="col">狀態</th>
               <th scope="col">旋轉角度</th>
               <th scope="col">留言</th>
               <th scope="col">操作</th>
@@ -66,6 +67,9 @@
           <span class="updated"></span>
         </div>
       </td>
+      <td class="entry-status" data-label="狀態">
+        <span class="status-badge" data-state="pending">審核中</span>
+      </td>
       <td class="entry-rotation" data-label="旋轉角度">
         <input type="number" class="rotation-input" min="0" max="359" step="1" inputmode="numeric" required>
       </td>
@@ -73,6 +77,7 @@
         <textarea class="note-input" rows="4" maxlength="800" required></textarea>
       </td>
       <td class="entry-actions" data-label="操作">
+        <button type="button" class="approve-btn" data-action="approve">通過</button>
         <button type="button" class="primary-btn" data-action="save">儲存</button>
         <button type="button" class="danger-btn" data-action="delete">刪除</button>
       </td>

@@ -21,37 +21,153 @@ body {
   height: 100%;
 }
 
+html {
+  overflow: hidden;
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
+  overflow: hidden;
   font-family: "Noto Sans TC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: radial-gradient(circle at 30% 20%, rgba(244, 192, 96, 0.2), transparent 55%),
-    radial-gradient(circle at 70% 30%, rgba(255, 255, 255, 0.1), transparent 50%),
-    var(--bg-color);
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255, 192, 124, 0.42), transparent 54%),
+    radial-gradient(circle at 78% 14%, rgba(255, 146, 122, 0.45), transparent 58%),
+    radial-gradient(circle at 62% 48%, rgba(255, 208, 168, 0.18), transparent 65%),
+    linear-gradient(180deg, #081325 0%, #1b2849 35%, #62325a 72%, #1b1128 100%);
   color: var(--text-primary);
   display: flex;
   flex-direction: column;
- 
-  fill: rgba(255, 214, 153, 0.15);
-  stroke: rgba(255, 196, 111, 0.45);
-  stroke-width: 5;
+  position: relative;
+  z-index: 0;
 }
 
 main {
-  flex: 1 1 auto;
+  /* Reserve breathing room for floating UI and keep wall centered */
+  --main-padding-top: clamp(3rem, 7vh, 4.25rem);
+  --main-padding-bottom: clamp(9rem, 32vh, 12rem);
+  --main-padding-inline: clamp(1rem, 6vw, 2.4rem);
+  flex: 1;
+  display: grid;
+  place-items: center;
   width: 100%;
+  padding: var(--main-padding-top) var(--main-padding-inline) var(--main-padding-bottom);
+  position: relative;
+  z-index: 0;
+}
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: -12% -20% -8% -20%;
+  pointer-events: none;
+  z-index: -2;
+  opacity: 0.75;
+}
+
+body::before {
+  background:
+    radial-gradient(ellipse at 18% 22%, rgba(255, 210, 150, 0.55) 0%, transparent 60%),
+    radial-gradient(circle at 72% 12%, rgba(255, 124, 108, 0.45) 0%, transparent 58%),
+    radial-gradient(circle at 45% 38%, rgba(255, 188, 140, 0.35) 0%, transparent 62%);
+  filter: blur(82px);
+}
+
+body::after {
+  background:
+    radial-gradient(circle at 30% 78%, rgba(132, 190, 255, 0.28) 0%, transparent 58%),
+    radial-gradient(circle at 78% 82%, rgba(255, 161, 123, 0.32) 0%, transparent 62%),
+    radial-gradient(circle at 52% 64%, rgba(255, 215, 170, 0.25) 0%, transparent 60%);
+  filter: blur(110px);
+  mix-blend-mode: screen;
+}
+
+main::before {
+  content: "";
+  position: absolute;
+  inset: -6% -18% -25% -18%;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse at 48% 12%, rgba(255, 214, 156, 0.38) 0%, transparent 58%),
+    radial-gradient(ellipse at 60% 32%, rgba(255, 156, 116, 0.24) 0%, transparent 55%),
+    linear-gradient(180deg, rgba(255, 184, 140, 0.18) 0%, rgba(39, 18, 46, 0.72) 62%, rgba(10, 8, 22, 0.9) 100%);
+  filter: blur(70px);
+}
+
+.wall-section {
+  width: 100%;
+  min-height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.wall-section {
-  flex: 1 1 auto;
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  padding: clamp(1.5rem, 4vh, 2.8rem) 0;
+.effect-preview {
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.effect-preview-glow {
+  fill: url(#placementGlowGradient);
+  opacity: 0.55;
+  filter: url(#softGlowFilter);
+}
+
+.effect-preview-ring {
+  fill: none;
+  stroke: rgba(255, 226, 173, 0.95);
+  stroke-width: 8;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+
+.effect-impact {
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.effect-impact .impact-glow {
+  fill: url(#placementGlowGradient);
+  opacity: 0.75;
+  filter: url(#softGlowFilter);
+}
+
+.effect-impact .impact-halo {
+  fill: none;
+  stroke: rgba(255, 238, 205, 0.9);
+  stroke-width: 10;
+  stroke-linecap: round;
+}
+
+.effect-impact .impact-wave {
+  fill: none;
+  stroke: rgba(255, 214, 153, 0.85);
+  stroke-width: 8;
+  stroke-linecap: round;
+}
+
+.effect-impact .impact-ring {
+  fill: none;
+  stroke: rgba(255, 193, 120, 0.9);
+  stroke-width: 3;
+  stroke-dasharray: 6 10;
+}
+
+.effect-impact .impact-core {
+  fill: rgba(255, 248, 232, 0.9);
+}
+
+.effect-impact .impact-spark {
+  stroke: rgba(255, 214, 153, 0.95);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.effect-impact .impact-ember {
+  fill: rgba(255, 222, 177, 0.9);
+  filter: url(#softGlowFilter);
 }
 
 .wall-wrapper {
@@ -59,56 +175,33 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: min(100vw - 4rem, calc((100vh - 6rem) * 1.96795));
+  width: min(
+    calc(100vw - var(--main-padding-inline, 2rem) * 2),
+    calc((100vh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem)) * 1.96795)
+  );
   max-width: 1500px;
   aspect-ratio: 3500 / 1779.31;
   margin: 0 auto;
   overflow: visible;
 }
 
-.wall-aurora,
-.wall-stars {
-  position: absolute;
-  inset: -6%;
-  pointer-events: none;
-  z-index: -1;
-}
-
-.wall-aurora {
-  background: conic-gradient(from 120deg at 50% 38%, rgba(244, 192, 96, 0.3), rgba(244, 170, 70, 0.08), rgba(116, 186, 255, 0.24), rgba(186, 132, 255, 0.16), rgba(244, 192, 96, 0.3));
-  filter: blur(48px);
-  opacity: 0.92;
-  animation: auroraDrift 18s ease-in-out infinite;
-}
-
-.wall-stars {
-  background-image:
-    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.4) 0, transparent 45%),
-    radial-gradient(circle at 82% 62%, rgba(255, 255, 255, 0.48) 0, transparent 42%),
-    radial-gradient(circle at 46% 78%, rgba(244, 192, 96, 0.4) 0, transparent 36%),
-    radial-gradient(circle at 68% 18%, rgba(116, 186, 255, 0.35) 0, transparent 38%);
-  opacity: 0.82;
-  animation: starPulse 12s ease-in-out infinite alternate;
-}
-
 #wallSvg {
   width: 100%;
   height: auto;
-  max-height: calc(100vh - 6rem);
+  max-height: calc(100vh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem));
   display: block;
-  transition: width 240ms ease, filter 620ms ease;
-  filter: drop-shadow(0 40px 60px rgba(0, 0, 0, 0.45)) drop-shadow(0 0 45px rgba(244, 170, 70, 0.25));
+  transition: width 240ms ease;
 }
 
 #stickersLayer {
   pointer-events: none;
 }
 
-#dragOverlay {
+#effectsLayer {
   pointer-events: none;
 }
 
-#effectsLayer {
+#dragOverlay {
   pointer-events: none;
 }
 
@@ -124,63 +217,23 @@ main {
   pointer-events: none;
 }
 
-.wall {
-  filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45)) drop-shadow(0 0 56px rgba(255, 244, 221, 0.35));
-  animation: eaglePulse 7.5s ease-in-out infinite alternate;
-}
-
-#wallSvg.wall-flash {
-  animation: wallFlash 640ms ease-out;
-}
-
-.placement-burst circle {
-  fill: rgba(244, 192, 96, 0.28);
-  stroke: rgba(255, 244, 221, 0.7);
-  stroke-width: 2;
-}
-
-.placement-burst line {
-  stroke: rgba(255, 244, 221, 0.85);
-  stroke-width: 3;
-  stroke-linecap: round;
-  opacity: 0.95;
-}
-
-.impact-ring circle {
-  fill: rgba(255, 255, 255, 0.05);
-  stroke: rgba(244, 170, 70, 0.8);
-  stroke-width: 3;
-}
-
-.impact-ring .sparkle {
-  fill: rgba(255, 250, 235, 0.9);
-  opacity: 0.9;
-}
-
-@keyframes wallFlash {
-  0% {
-    filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45)) drop-shadow(0 0 56px rgba(255, 244, 221, 0.35)) brightness(0.9);
-  }
-  30% {
-    filter: drop-shadow(0 0 42px rgba(255, 214, 153, 0.75)) drop-shadow(0 0 110px rgba(255, 250, 235, 0.65)) brightness(1.4);
-  }
-  100% {
-    filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45)) drop-shadow(0 0 56px rgba(255, 244, 221, 0.35)) brightness(1);
-  }
-}
-
 @media (min-width: 1024px) {
-  .wall-section {
-    padding: clamp(1.1rem, 3vh, 2.4rem) 0;
+  main {
+    --main-padding-top: clamp(2.25rem, 4vh, 3.5rem);
+    --main-padding-bottom: clamp(2.8rem, 5vh, 4rem);
+    --main-padding-inline: clamp(1.5rem, 5vw, 3.5rem);
   }
 
   .wall-wrapper {
-    width: min(100vw - clamp(0.5rem, 3vw, 2rem), calc((100vh - 4rem) * 1.96795));
+    width: min(
+      100vw - clamp(0.5rem, 3vw, 2rem),
+      calc((100vh - var(--main-padding-top) - var(--main-padding-bottom)) * 1.96795)
+    );
     max-width: min(2048px, 99vw);
   }
 
   #wallSvg {
-    max-height: calc(100vh - 4rem);
+    max-height: calc(100vh - var(--main-padding-top) - var(--main-padding-bottom));
   }
 
   .drag-palette {
@@ -197,6 +250,18 @@ main {
   opacity: 0.6;
 }
 
+.sticker-node.review-pending {
+  opacity: 0.78;
+}
+
+.sticker-node.review-blocked {
+  animation: pending-review-flash 320ms ease;
+}
+
+.sticker-node.review-blocked.review-pending {
+  opacity: 0.82;
+}
+
 .sticker-node.invalid {
   filter: drop-shadow(0 0 14px rgba(255, 93, 93, 0.85));
 }
@@ -204,6 +269,18 @@ main {
 .sticker-node.in-flight {
   opacity: 0;
   pointer-events: none;
+}
+
+@keyframes pending-review-flash {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(255, 214, 153, 0));
+  }
+  45% {
+    filter: drop-shadow(0 0 18px rgba(255, 214, 153, 0.9));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(255, 214, 153, 0));
+  }
 }
 
 .drag-palette {
@@ -362,52 +439,6 @@ body:has(.floating-menu:focus-within) .floating-menu {
 .control-disabled {
   opacity: 0.48;
   cursor: not-allowed !important;
-}
-
-@keyframes auroraDrift {
-  0% {
-    transform: scale(1.05) rotate(0deg);
-    opacity: 0.85;
-  }
-  40% {
-    transform: scale(1.18) rotate(14deg);
-    opacity: 1;
-  }
-  70% {
-    transform: scale(1.08) rotate(-10deg);
-    opacity: 0.92;
-  }
-  100% {
-    transform: scale(1.05) rotate(0deg);
-    opacity: 0.85;
-  }
-}
-
-@keyframes starPulse {
-  0% {
-    opacity: 0.6;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.05);
-  }
-  100% {
-    opacity: 0.6;
-    transform: scale(1);
-  }
-}
-
-@keyframes eaglePulse {
-  0% {
-    filter: drop-shadow(0 0 18px rgba(244, 192, 96, 0.32)) drop-shadow(0 0 40px rgba(116, 186, 255, 0.18));
-  }
-  50% {
-    filter: drop-shadow(0 0 36px rgba(244, 192, 96, 0.58)) drop-shadow(0 0 80px rgba(255, 244, 221, 0.32));
-  }
-  100% {
-    filter: drop-shadow(0 0 20px rgba(116, 186, 255, 0.35)) drop-shadow(0 0 60px rgba(244, 170, 70, 0.28));
-  }
 }
 
 #statusToast {
@@ -796,11 +827,6 @@ body.zoomed-in #wallWrapper::-webkit-scrollbar-thumb {
   .floating-menu {
     left: 50%;
     transform: translate(-50%, -130%);
-  }
-
-  .wall-section {
-    padding-top: clamp(1.1rem, 3vh, 1.8rem);
-    padding-bottom: clamp(240px, 38vh, 320px);
   }
 
   .wall-wrapper {

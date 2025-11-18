@@ -16,6 +16,10 @@
   box-sizing: border-box;
 }
 
+:where([hidden]) {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -201,7 +205,7 @@ body {
 .entries-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 760px;
+  min-width: 840px;
 }
 
 .entries-table thead {
@@ -250,6 +254,33 @@ body {
   color: var(--text-muted);
 }
 
+.entry-status {
+  vertical-align: middle;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.status-badge[data-state="pending"] {
+  background: rgba(255, 214, 153, 0.18);
+  color: var(--accent);
+}
+
+.status-badge[data-state="approved"] {
+  background: rgba(103, 245, 154, 0.18);
+  color: var(--success);
+}
+
 .rotation-input {
   width: 100%;
   border-radius: 12px;
@@ -276,6 +307,28 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+
+.approve-btn {
+  border: 1px solid rgba(103, 245, 154, 0.65);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.88rem;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  background: rgba(103, 245, 154, 0.16);
+  color: var(--success);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.approve-btn:hover,
+.approve-btn:focus-visible {
+  transform: translateY(-1px);
+  background: rgba(103, 245, 154, 0.25);
+}
+
+.entry-row.pending-review {
+  background: rgba(244, 192, 96, 0.08);
 }
 
 .entry-row.dirty {
@@ -356,5 +409,7 @@ body {
 
   .entry-actions {
     flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.35rem;
   }
 }

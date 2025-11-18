@@ -40,6 +40,17 @@ const state = {
 
 let supabaseClient = null;
 
+function syncPanelVisibility() {
+  if (loginPanel) {
+    loginPanel.hidden = state.authorized;
+    loginPanel.setAttribute("aria-hidden", state.authorized ? "true" : "false");
+  }
+  if (dashboard) {
+    dashboard.hidden = !state.authorized;
+    dashboard.setAttribute("aria-hidden", state.authorized ? "false" : "true");
+  }
+}
+
 let dateFormatter = null;
 try {
   dateFormatter = new Intl.DateTimeFormat("zh-TW", {
@@ -70,6 +81,8 @@ document.addEventListener("DOMContentLoaded", () => {
   passwordInput?.focus();
 });
 
+syncPanelVisibility();
+
 async function handleLogin(event) {
   event.preventDefault();
   if (state.authorized) {
@@ -95,8 +108,7 @@ async function handleLogin(event) {
 
   state.authorized = true;
   passwordInput.value = "";
-  loginPanel.hidden = true;
-  dashboard.hidden = false;
+  syncPanelVisibility();
   if (exportBtn) {
     exportBtn.disabled = false;
   }
@@ -109,8 +121,7 @@ function handleLogout() {
   state.entries = [];
   renderEntries();
   emptyState.hidden = true;
-  dashboard.hidden = true;
-  loginPanel.hidden = false;
+  syncPanelVisibility();
   supabaseClient = null;
   if (exportBtn) {
     exportBtn.disabled = true;
@@ -147,8 +158,8 @@ async function loadStickers(showToastOnError = false) {
   emptyState.hidden = true;
   try {
     const { data, error } = await supabaseClient
-      .from("wall_stickers")
-      .select("id, note, rotation_angle, created_at, updated_at")
+      .from("wall_sticker_entries")
+      .select("id, note, rotation_angle, created_at, updated_at, is_approved")
       .order("created_at", { ascending: false });
     if (error) {
       throw error;
@@ -157,6 +168,7 @@ async function loadStickers(showToastOnError = false) {
       ? data.map((entry) => ({
           ...entry,
           rotation_angle: normalizeRotation(entry.rotation_angle),
+          is_approved: Boolean(entry.is_approved),
         }))
       : [];
     renderEntries();
@@ -187,12 +199,16 @@ function renderEntries() {
   state.entries.forEach((entry, index) => {
     const clone = rowTemplate.content.firstElementChild.cloneNode(true);
     clone.dataset.id = entry.id;
+    const approved = Boolean(entry.is_approved);
+    clone.classList.toggle("pending-review", !approved);
     const numberCell = clone.querySelector(".entry-number");
     const idCell = clone.querySelector(".entry-id");
     const createdCell = clone.querySelector(".created");
     const updatedCell = clone.querySelector(".updated");
     const rotationInput = clone.querySelector(".rotation-input");
     const noteInputNode = clone.querySelector(".note-input");
+    const statusBadge = clone.querySelector(".status-badge");
+    const approveButton = clone.querySelector('button[data-action="approve"]');
 
     if (numberCell) {
       numberCell.textContent = `#${index + 1}`;
@@ -208,6 +224,10 @@ function renderEntries() {
         ? `更新：${formatDate(entry.updated_at)}`
         : "更新：—";
     }
+    if (statusBadge) {
+      statusBadge.textContent = approved ? "已通過" : "審核中";
+      statusBadge.dataset.state = approved ? "approved" : "pending";
+    }
     if (rotationInput) {
       const rotationValue = normalizeRotation(entry.rotation_angle);
       const rotationText = rotationValue.toString();
@@ -219,6 +239,15 @@ function renderEntries() {
       noteInputNode.value = entry.note ?? "";
       noteInputNode.dataset.originalValue = noteInputNode.value;
       noteInputNode.setAttribute("aria-label", `留言 #${index + 1} 的內容`);
+    }
+    if (approveButton) {
+      approveButton.hidden = approved;
+      approveButton.disabled = approved;
+      if (approved) {
+        approveButton.setAttribute("aria-hidden", "true");
+      } else {
+        approveButton.removeAttribute("aria-hidden");
+      }
     }
 
     fragment.appendChild(clone);
@@ -261,6 +290,8 @@ function handleTableClick(event) {
     void saveEntry(row, button);
   } else if (action === "delete") {
     void deleteEntry(row, button);
+  } else if (action === "approve") {
+    void approveEntry(row, button);
   }
 }
 
@@ -312,7 +343,15 @@ async function saveEntry(row, button) {
     if (error) {
       throw error;
     }
-    updateLocalEntry(id, note, rotation, data?.updated_at ?? null);
+    const patch = {
+      note,
+      rotation_angle: rotation,
+      updated_at: data?.updated_at ?? null,
+    };
+    if (typeof data?.is_approved !== "undefined") {
+      patch.is_approved = data.is_approved;
+    }
+    updateLocalEntry(id, patch);
     const rotationText = rotation.toString();
     rotationInput.value = rotationText;
     rotationInput.dataset.originalValue = rotationText;
@@ -327,6 +366,49 @@ async function saveEntry(row, button) {
   } finally {
     button.disabled = false;
     button.textContent = saveLabel ?? "儲存";
+  }
+}
+
+async function approveEntry(row, button) {
+  const id = row.dataset.id;
+  if (!id) {
+    showToast("找不到這筆留言的 ID。", "danger");
+    return;
+  }
+  if (!supabaseClient) {
+    showToast("尚未建立管理連線，請重新登入。", "danger");
+    return;
+  }
+  const existing = state.entries.find((entry) => entry.id === id);
+  if (existing?.is_approved) {
+    showToast("此留言已通過審核。", "info");
+    return;
+  }
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "通過中…";
+  try {
+    const { data, error } = await supabaseClient
+      .from("wall_stickers")
+      .update({ is_approved: true })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) {
+      throw error;
+    }
+    updateLocalEntry(id, {
+      is_approved: true,
+      updated_at: data?.updated_at ?? new Date().toISOString(),
+    });
+    showToast("已通過這則留言。", "success");
+    renderEntries();
+  } catch (error) {
+    console.error("Failed to approve entry", error);
+    showToast("審核失敗，請稍後再試。", "danger");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel ?? "通過";
   }
 }
 
@@ -370,17 +452,22 @@ async function deleteEntry(row, button) {
   }
 }
 
-function updateLocalEntry(id, note, rotation, updatedAt) {
+function updateLocalEntry(id, changes = {}) {
   const target = state.entries.find((entry) => entry.id === id);
   if (!target) {
     return;
   }
-  target.note = note;
-  target.rotation_angle = rotation;
-  if (updatedAt) {
-    target.updated_at = updatedAt;
-  } else {
-    target.updated_at = new Date().toISOString();
+  if (Object.prototype.hasOwnProperty.call(changes, "note")) {
+    target.note = changes.note;
+  }
+  if (Object.prototype.hasOwnProperty.call(changes, "rotation_angle")) {
+    target.rotation_angle = normalizeRotation(changes.rotation_angle);
+  }
+  if (Object.prototype.hasOwnProperty.call(changes, "is_approved")) {
+    target.is_approved = Boolean(changes.is_approved);
+  }
+  if (Object.prototype.hasOwnProperty.call(changes, "updated_at")) {
+    target.updated_at = changes.updated_at ?? new Date().toISOString();
   }
 }
 
@@ -388,7 +475,11 @@ function updateTotalCount() {
   if (!totalCountNode) {
     return;
   }
-  totalCountNode.textContent = state.entries.length.toString();
+  const total = state.entries.length;
+  const pending = state.entries.filter((entry) => !entry.is_approved).length;
+  totalCountNode.textContent = pending
+    ? `${total}（待審 ${pending}）`
+    : total.toString();
 }
 
 function handleExportEntries() {
@@ -402,7 +493,8 @@ function handleExportEntries() {
   }
   const lines = state.entries.map((entry, index) => {
     const note = (entry.note ?? "").replace(/\r?\n/g, "\n");
-    return `#${index + 1}\nID：${entry.id}\n留言：${note}`;
+    const status = entry.is_approved ? "已通過" : "審核中";
+    return `#${index + 1}\nID：${entry.id}\n狀態：${status}\n留言：${note}`;
   });
   const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);

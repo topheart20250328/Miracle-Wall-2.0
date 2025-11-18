@@ -48,6 +48,7 @@ const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 const MIN_DISTANCE = STICKER_DIAMETER + 8;
 const DRAG_ACTIVATION_DISTANCE = 12;
+const POSITION_CONFLICT_CODE = "POSITION_CONFLICT";
 const PLACEMENT_MESSAGES = {
   idle: "請先點下方貼紙以啟用點擊放置模式，\n或直接拖曳貼紙。",
   click: "點擊老鷹任一位置貼上貼紙，\n按 Esc 或再次點擊可取消。",
@@ -70,6 +71,7 @@ const state = {
   zoomResolve: null,
   closing: false,
   lastClickWarning: 0,
+  lastPendingToast: 0,
   zoomMode: "normal",
   deviceId: initialDeviceId ?? null,
 };
@@ -110,8 +112,10 @@ async function loadExistingStickers() {
     return;
   }
   const { data, error } = await supabase
-    .from("wall_stickers")
-    .select("id, x_norm, y_norm, note, rotation_angle, created_at, updated_at, device_id")
+    .from("wall_sticker_entries")
+    .select(
+      "id, x_norm, y_norm, note, rotation_angle, created_at, updated_at, device_id, is_approved, can_view_note",
+    )
     .order("created_at", { ascending: true });
   if (error) {
     showToast("讀取貼紙失敗，請稍後再試", "danger");
@@ -130,14 +134,17 @@ async function loadExistingStickers() {
       y,
       xNorm: record.x_norm,
       yNorm: record.y_norm,
-      note: record.note,
+      note: record.note ?? "",
       rotation,
       node,
       created_at: record.created_at,
       updated_at: record.updated_at,
       deviceId: record.device_id ?? null,
+      isApproved: Boolean(record.is_approved),
+      canViewNote: Boolean(record.can_view_note),
     });
     runPopAnimation(node);
+    updateStickerReviewState(state.stickers.get(record.id));
   });
   updateBoardCounter();
 }
@@ -520,7 +527,7 @@ function beginPlacement(x, y) {
   const rotation = randomRotationAngle();
   const node = createStickerNode(tempId, x, y, true, rotation);
   stickersLayer.appendChild(node);
-  spawnPlacementBurst(x, y);
+  playPlacementPreviewEffect(x, y);
   if (!state.deviceId) {
     state.deviceId = ensureDeviceId();
   }
@@ -534,6 +541,8 @@ function beginPlacement(x, y) {
     locked: false,
     lockReason: null,
     deviceId: state.deviceId ?? null,
+    isApproved: false,
+    canViewNote: true,
   };
   dialogTitle.textContent = "新增神蹟留言";
   noteInput.value = "";
@@ -619,6 +628,8 @@ async function handleFormSubmit(event) {
   if (pending?.locked) {
     if (pending.lockReason === "device") {
       formError.textContent = "此留言僅能由原建立裝置於 24 小時內修改";
+    } else if (pending.lockReason === "approved") {
+      formError.textContent = "留言已通過審核，如需調整請聯繫管理員";
     } else {
       formError.textContent = "";
     }
@@ -641,7 +652,7 @@ async function handleFormSubmit(event) {
 
 async function handleDeleteSticker() {
   const pending = state.pending;
-  if (!pending || pending.isNew || pending.locked) {
+  if (!pending || pending.isNew || (pending.locked && pending.lockReason !== "approved")) {
     return;
   }
   if (pending.deviceId && state.deviceId && pending.deviceId !== state.deviceId) {
@@ -701,6 +712,41 @@ function handleDialogCancel(event) {
   void closeDialogWithResult("cancelled");
 }
 
+function isPositionConflictError(error) {
+  if (!error) {
+    return false;
+  }
+  const code = typeof error.code === "string" ? error.code.toUpperCase() : "";
+  const message = typeof error.message === "string" ? error.message.toUpperCase() : "";
+  const details = typeof error.details === "string" ? error.details.toUpperCase() : "";
+  return (
+    code.includes(POSITION_CONFLICT_CODE)
+    || message.includes(POSITION_CONFLICT_CODE)
+    || details.includes(POSITION_CONFLICT_CODE)
+  );
+}
+
+function handlePlacementConflict(pending) {
+  if (!pending?.node) {
+    formError.textContent = "這個位置剛被其他人貼上，請重新選擇位置。";
+    showToast("這個位置剛被其他人貼上，請重新選擇位置", "danger");
+    return;
+  }
+  pending.node.classList.add("pending");
+  const fallback = findAvailableSpot({ x: pending.x, y: pending.y });
+  if (fallback) {
+    positionStickerNode(pending.node, fallback.x, fallback.y);
+    pending.x = fallback.x;
+    pending.y = fallback.y;
+    formError.textContent = "這個位置剛被其他人貼上，已為你換到附近的新位置，請再儲存一次。";
+    showToast("這個位置剛被其他人貼上，已為你換到附近的位置", "info");
+    playPlacementPreviewEffect(fallback.x, fallback.y);
+  } else {
+    formError.textContent = "這個位置剛被其他人貼上，請關閉視窗後換個位置再試一次。";
+    showToast("這個位置剛被其他人貼上，請換個位置", "danger");
+  }
+}
+
 async function closeDialogWithResult(result) {
   if (state.closing) {
     return;
@@ -726,47 +772,55 @@ async function saveNewSticker(pending, message) {
   pending.node.classList.add("pending");
   const rotation = normalizeRotation(pending.rotation);
   const payload = {
-    x_norm: pending.x / viewBox.width,
-    y_norm: pending.y / viewBox.height,
-    note: message,
-    rotation_angle: rotation,
-    device_id: state.deviceId ?? null,
+    p_x_norm: pending.x / viewBox.width,
+    p_y_norm: pending.y / viewBox.height,
+    p_note: message,
+    p_rotation_angle: rotation,
+    p_device_id: state.deviceId ?? null,
   };
-  const { data, error } = await supabase
-    .from("wall_stickers")
-    .insert(payload)
-    .select()
-    .single();
+  const { data, error } = await supabase.rpc("create_wall_sticker", payload);
   pending.node.classList.remove("pending");
   if (error) {
-    formError.textContent = "儲存失敗，請稍後再試";
-    console.error(error);
+    if (isPositionConflictError(error)) {
+      handlePlacementConflict(pending);
+    } else {
+      formError.textContent = "儲存失敗，請稍後再試";
+      console.error(error);
+    }
     return;
   }
-  const newId = data.id;
+  const inserted = Array.isArray(data) ? data[0] : data;
+  if (!inserted?.id) {
+    formError.textContent = "儲存失敗，請稍後再試";
+    console.error("Unexpected insert payload", data);
+    return;
+  }
+  const newId = inserted.id;
   pending.node.dataset.id = newId;
   pending.id = newId;
   pending.isNew = false;
   pending.rotation = rotation;
   pending.deviceId = payload.device_id ?? null;
   pending.lockReason = null;
-  state.stickers.set(newId, {
+  const newRecord = {
     id: newId,
     x: pending.x,
     y: pending.y,
-    xNorm: payload.x_norm,
-    yNorm: payload.y_norm,
+    xNorm: inserted.x_norm ?? payload.p_x_norm,
+    yNorm: inserted.y_norm ?? payload.p_y_norm,
     note: message,
     rotation,
     node: pending.node,
-    created_at: data.created_at,
-    updated_at: data.updated_at,
-    deviceId: data.device_id ?? payload.device_id ?? null,
-  });
+    created_at: inserted.created_at,
+    updated_at: inserted.updated_at,
+    deviceId: inserted.device_id ?? payload.p_device_id ?? null,
+    isApproved: Boolean(inserted.is_approved),
+    canViewNote: true,
+  };
+  state.stickers.set(newId, newRecord);
   setStickerRotation(pending.node, rotation);
+  updateStickerReviewState(newRecord);
   runPopAnimation(pending.node);
-  spawnImpactShockwave(pending.x, pending.y);
-  triggerWallFlash();
   updateBoardCounter();
   await closeDialogWithResult("saved");
   showToast("留言已保存", "success");
@@ -799,6 +853,11 @@ async function updateStickerMessage(pending, message) {
     if (data?.device_id) {
       record.deviceId = data.device_id;
     }
+    if (typeof data?.is_approved !== "undefined") {
+      record.isApproved = Boolean(data.is_approved);
+    }
+    record.canViewNote = true;
+    updateStickerReviewState(record);
     runPulseAnimation(record.node);
   }
   await closeDialogWithResult("saved");
@@ -822,22 +881,52 @@ function createStickerNode(id, x, y, isPending = false, rotation = 0) {
   group.addEventListener("click", (event) => {
     event.stopPropagation();
     const stickerId = group.dataset.id;
-    if (!state.pending && stickerId && state.stickers.has(stickerId)) {
-      setPlacementMode("idle");
-      openStickerModal(stickerId);
+    if (!state.pending && stickerId) {
+      handleStickerActivation(stickerId);
     }
   });
   group.addEventListener("keydown", (event) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       const stickerId = group.dataset.id;
-      if (!state.pending && stickerId && state.stickers.has(stickerId)) {
-        setPlacementMode("idle");
-        openStickerModal(stickerId);
+      if (!state.pending && stickerId) {
+        handleStickerActivation(stickerId);
       }
     }
   });
   return group;
+}
+
+function handleStickerActivation(stickerId) {
+  setPlacementMode("idle");
+  const record = state.stickers.get(stickerId);
+  if (!record) {
+    return;
+  }
+  if (!record.isApproved && !record.canViewNote) {
+    triggerPendingReviewFeedback(record);
+    return;
+  }
+  openStickerModal(stickerId);
+}
+
+function triggerPendingReviewFeedback(record) {
+  const node = record?.node;
+  if (node) {
+    node.classList.add("review-blocked");
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        setTimeout(() => node.classList.remove("review-blocked"), 420);
+      });
+    } else {
+      setTimeout(() => node.classList.remove("review-blocked"), 420);
+    }
+  }
+  const now = Date.now();
+  if (now - (state.lastPendingToast ?? 0) > 1400) {
+    showToast("這則留言尚在審核中，暫時無法查看", "info");
+    state.lastPendingToast = now;
+  }
 }
 
 function positionStickerNode(node, x, y) {
@@ -851,6 +940,21 @@ function positionStickerNode(node, x, y) {
   node.dataset.cx = x.toFixed(2);
   node.dataset.cy = y.toFixed(2);
   applyStickerTransform(node);
+}
+
+function updateStickerReviewState(record) {
+  if (!record || !record.node) {
+    return;
+  }
+  const node = record.node;
+  const approved = Boolean(record.isApproved);
+  node.classList.toggle("review-pending", !approved);
+  if (!approved) {
+    node.setAttribute("aria-label", "審核中留言");
+  } else {
+    node.setAttribute("aria-label", "留言");
+  }
+  node.dataset.approved = approved ? "true" : "false";
 }
 
 function openStickerModal(id) {
@@ -867,6 +971,8 @@ function openStickerModal(id) {
     rotation: record.rotation ?? 0,
     deviceId: record.deviceId ?? null,
     lockReason: null,
+    isApproved: Boolean(record.isApproved),
+    canViewNote: Boolean(record.canViewNote),
   };
   dialogTitle.textContent = "神蹟留言";
   noteInput.value = record.note ?? "";
@@ -877,6 +983,8 @@ function openStickerModal(id) {
   state.pending.locked = Boolean(lockReason);
   if (lockReason === "device") {
     formError.textContent = "此留言僅能由原建立裝置於 24 小時內修改";
+  } else if (lockReason === "approved") {
+    formError.textContent = "留言已通過審核，如需調整請聯繫管理員";
   }
   setNoteLocked(Boolean(lockReason), { reason: lockReason });
   updateDeleteButton();
@@ -1004,169 +1112,6 @@ function updateBoardCounter() {
   boardCounter.hidden = false;
 }
 
-function spawnPlacementBurst(x, y, options = {}) {
-  if (!effectsLayer || !window.anime) {
-    return;
-  }
-
-  const {
-    radius = 68,
-    rays = 9,
-    duration = 640,
-    rayJitter = 0.2,
-  } = options;
-
-  const group = document.createElementNS(svgNS, "g");
-  group.classList.add("placement-burst");
-  group.setAttribute("transform", `translate(${x} ${y})`);
-
-  const core = document.createElementNS(svgNS, "circle");
-  core.setAttribute("r", "0");
-  group.appendChild(core);
-
-  const rayEntries = [];
-  for (let i = 0; i < rays; i += 1) {
-    const line = document.createElementNS(svgNS, "line");
-    line.setAttribute("x1", "0");
-    line.setAttribute("y1", "0");
-    line.setAttribute("x2", "0");
-    line.setAttribute("y2", "0");
-    line.style.opacity = "0";
-    group.appendChild(line);
-
-    const baseAngle = (Math.PI * 2 * i) / rays;
-    rayEntries.push({
-      node: line,
-      angle: baseAngle + randomBetween(-rayJitter, rayJitter),
-      length: radius * randomBetween(0.6, 1.05),
-    });
-  }
-
-  effectsLayer.appendChild(group);
-
-  window.anime({
-    targets: core,
-    r: [8, radius],
-    opacity: [0.95, 0],
-    easing: "easeOutCubic",
-    duration,
-  });
-
-  rayEntries.forEach((entry, index) => {
-    window.anime({
-      targets: entry.node,
-      x2: [0, Math.cos(entry.angle) * entry.length],
-      y2: [0, Math.sin(entry.angle) * entry.length],
-      opacity: [
-        { value: 1, duration: 130 },
-        { value: 0, duration: duration - 130 },
-      ],
-      delay: 28 * index,
-      easing: "easeOutExpo",
-      duration,
-      complete: index === rayEntries.length - 1 ? () => group.remove() : undefined,
-    });
-  });
-}
-
-function spawnImpactShockwave(x, y, options = {}) {
-  if (!effectsLayer || !window.anime) {
-    return;
-  }
-
-  const {
-    outerRadius = 140,
-    coreRadius = 24,
-    sparkCount = 8,
-    duration = 780,
-  } = options;
-
-  const group = document.createElementNS(svgNS, "g");
-  group.classList.add("impact-ring");
-  group.setAttribute("transform", `translate(${x} ${y})`);
-
-  const ring = document.createElementNS(svgNS, "circle");
-  ring.setAttribute("r", "0");
-  group.appendChild(ring);
-
-  const core = document.createElementNS(svgNS, "circle");
-  core.classList.add("sparkle");
-  core.setAttribute("r", "0");
-  group.appendChild(core);
-
-  const sparks = [];
-  for (let i = 0; i < sparkCount; i += 1) {
-    const spark = document.createElementNS(svgNS, "circle");
-    spark.classList.add("sparkle");
-    spark.setAttribute("r", "2");
-    spark.setAttribute("cx", "0");
-    spark.setAttribute("cy", "0");
-    group.appendChild(spark);
-    sparks.push({
-      node: spark,
-      angle: (Math.PI * 2 * i) / sparkCount + randomBetween(-0.2, 0.2),
-      distance: outerRadius * randomBetween(0.35, 0.85),
-    });
-  }
-
-  effectsLayer.appendChild(group);
-
-  window.anime({
-    targets: ring,
-    r: [10, outerRadius],
-    opacity: [0.8, 0],
-    strokeWidth: [6, 1],
-    easing: "easeOutCubic",
-    duration,
-  });
-
-  window.anime({
-    targets: core,
-    r: [0, coreRadius],
-    opacity: [
-      { value: 1, duration: 150 },
-      { value: 0, duration: duration - 150 },
-    ],
-    easing: "easeOutExpo",
-    duration,
-  });
-
-  sparks.forEach((spark, index) => {
-    window.anime({
-      targets: spark.node,
-      cx: [0, Math.cos(spark.angle) * spark.distance],
-      cy: [0, Math.sin(spark.angle) * spark.distance],
-      r: [2 + randomBetween(0, 1.6), 0],
-      opacity: [
-        { value: 1, duration: 120 },
-        { value: 0, duration: duration - 120 },
-      ],
-      delay: 40 * index,
-      easing: "easeOutQuad",
-      duration,
-      complete: index === sparks.length - 1 ? () => group.remove() : undefined,
-    });
-  });
-}
-
-function triggerWallFlash() {
-  if (!wallSvg) {
-    return;
-  }
-
-  wallSvg.classList.remove("wall-flash");
-  void wallSvg.offsetWidth;
-  wallSvg.classList.add("wall-flash");
-
-  window.setTimeout(() => {
-    wallSvg.classList.remove("wall-flash");
-  }, 620);
-}
-
-function randomBetween(min, max) {
-  return Math.random() * (max - min) + min;
-}
-
 function showToast(message, tone = "info") {
   statusToast.textContent = message;
   statusToast.dataset.tone = tone;
@@ -1177,6 +1122,274 @@ function showToast(message, tone = "info") {
   state.toastTimer = setTimeout(() => {
     statusToast.classList.remove("visible");
   }, 2600);
+}
+
+function playPlacementPreviewEffect(x, y) {
+  if (!effectsLayer) {
+    return;
+  }
+  const cx = Number(x);
+  const cy = Number(y);
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+    return;
+  }
+  const group = document.createElementNS(svgNS, "g");
+  group.classList.add("effect-preview");
+
+  const glow = document.createElementNS(svgNS, "circle");
+  glow.classList.add("effect-preview-glow");
+  glow.setAttribute("cx", cx.toFixed(2));
+  glow.setAttribute("cy", cy.toFixed(2));
+  glow.setAttribute("r", "0");
+  glow.setAttribute("opacity", "0.6");
+
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.classList.add("effect-preview-ring");
+  ring.setAttribute("cx", cx.toFixed(2));
+  ring.setAttribute("cy", cy.toFixed(2));
+  ring.setAttribute("r", "0");
+  ring.setAttribute("opacity", "0.9");
+
+  group.appendChild(glow);
+  group.appendChild(ring);
+  effectsLayer.appendChild(group);
+
+  const removeGroup = () => {
+    if (group.isConnected) {
+      group.remove();
+    }
+  };
+
+  if (window.anime && typeof window.anime.timeline === "function") {
+    const timeline = window.anime.timeline({ easing: "easeOutCubic" });
+    timeline
+      .add(
+        {
+          targets: glow,
+          r: [0, STICKER_DIAMETER * 3.6],
+          opacity: [0.6, 0],
+          duration: 620,
+        },
+        0,
+      )
+      .add(
+        {
+          targets: ring,
+          r: [0, STICKER_DIAMETER * 2.1],
+          strokeWidth: [8, 0],
+          opacity: [0.9, 0],
+          duration: 520,
+          easing: "easeOutQuad",
+        },
+        40,
+      );
+    if (timeline.finished && typeof timeline.finished.then === "function") {
+      timeline.finished.then(removeGroup).catch(removeGroup);
+    } else {
+      setTimeout(removeGroup, 640);
+    }
+  } else {
+    setTimeout(removeGroup, 640);
+  }
+}
+
+function playPlacementImpactEffect(node) {
+  if (!effectsLayer || !node) {
+    return;
+  }
+  const cx = Number(node.dataset.cx);
+  const cy = Number(node.dataset.cy);
+  if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+    return;
+  }
+  const group = document.createElementNS(svgNS, "g");
+  group.classList.add("effect-impact");
+
+  const glow = document.createElementNS(svgNS, "circle");
+  glow.classList.add("impact-glow");
+  glow.setAttribute("cx", cx.toFixed(2));
+  glow.setAttribute("cy", cy.toFixed(2));
+  glow.setAttribute("r", "0");
+  glow.setAttribute("opacity", "0.75");
+
+  const halo = document.createElementNS(svgNS, "circle");
+  halo.classList.add("impact-halo");
+  halo.setAttribute("cx", cx.toFixed(2));
+  halo.setAttribute("cy", cy.toFixed(2));
+  halo.setAttribute("r", (STICKER_RADIUS * 0.6).toFixed(2));
+  halo.setAttribute("opacity", "0.9");
+
+  const wave = document.createElementNS(svgNS, "circle");
+  wave.classList.add("impact-wave");
+  wave.setAttribute("cx", cx.toFixed(2));
+  wave.setAttribute("cy", cy.toFixed(2));
+  wave.setAttribute("r", (STICKER_RADIUS * 0.75).toFixed(2));
+  wave.setAttribute("opacity", "0.9");
+
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.classList.add("impact-ring");
+  ring.setAttribute("cx", cx.toFixed(2));
+  ring.setAttribute("cy", cy.toFixed(2));
+  ring.setAttribute("r", (STICKER_RADIUS * 0.5).toFixed(2));
+  ring.setAttribute("opacity", "0.95");
+  ring.setAttribute("stroke-dashoffset", "18");
+
+  const core = document.createElementNS(svgNS, "circle");
+  core.classList.add("impact-core");
+  core.setAttribute("cx", cx.toFixed(2));
+  core.setAttribute("cy", cy.toFixed(2));
+  core.setAttribute("r", "0");
+  core.setAttribute("opacity", "1");
+
+  group.appendChild(glow);
+  group.appendChild(halo);
+  group.appendChild(wave);
+  group.appendChild(ring);
+  group.appendChild(core);
+
+  const sparks = [];
+  const sparkCount = 8;
+  const sparkLength = STICKER_DIAMETER * 2.1;
+  for (let i = 0; i < sparkCount; i += 1) {
+    const angle = (Math.PI * 2 * i) / sparkCount;
+    const spark = document.createElementNS(svgNS, "line");
+    spark.classList.add("impact-spark");
+    spark.setAttribute("x1", cx.toFixed(2));
+    spark.setAttribute("y1", cy.toFixed(2));
+    spark.setAttribute("x2", cx.toFixed(2));
+    spark.setAttribute("y2", cy.toFixed(2));
+    spark.dataset.x2 = (cx + Math.cos(angle) * sparkLength).toFixed(2);
+    spark.dataset.y2 = (cy + Math.sin(angle) * sparkLength).toFixed(2);
+    group.appendChild(spark);
+    sparks.push(spark);
+  }
+
+  const embers = [];
+  const emberCount = 6;
+  for (let i = 0; i < emberCount; i += 1) {
+    const ember = document.createElementNS(svgNS, "circle");
+    ember.classList.add("impact-ember");
+    const theta = Math.random() * Math.PI * 2;
+    const distance = STICKER_RADIUS * (0.4 + Math.random() * 2.2);
+    const ex = cx + Math.cos(theta) * distance;
+    const ey = cy + Math.sin(theta) * distance;
+    ember.setAttribute("cx", ex.toFixed(2));
+    ember.setAttribute("cy", ey.toFixed(2));
+    ember.setAttribute("r", "0");
+    ember.setAttribute("opacity", "0.9");
+    group.appendChild(ember);
+    embers.push(ember);
+  }
+
+  effectsLayer.appendChild(group);
+
+  if (window.anime && typeof window.anime.timeline === "function") {
+    const cleanup = () => {
+      if (group.isConnected) {
+        group.remove();
+      }
+    };
+    const timeline = window.anime.timeline({ easing: "easeOutCubic" });
+    timeline
+      .add(
+        {
+          targets: glow,
+          r: [0, STICKER_DIAMETER * 4.2],
+          opacity: [0.75, 0],
+          duration: 880,
+        },
+        0,
+      )
+      .add(
+        {
+          targets: halo,
+          r: [STICKER_RADIUS * 0.6, STICKER_DIAMETER * 2.4],
+          strokeWidth: [10, 0],
+          opacity: [0.9, 0],
+          duration: 560,
+          easing: "easeOutQuad",
+        },
+        0,
+      )
+      .add(
+        {
+          targets: wave,
+          r: [STICKER_RADIUS * 0.75, STICKER_DIAMETER * 3.4],
+          opacity: [0.9, 0],
+          strokeWidth: [8, 0],
+          duration: 700,
+          easing: "easeOutCubic",
+        },
+        80,
+      )
+      .add(
+        {
+          targets: ring,
+          r: [STICKER_RADIUS * 0.5, STICKER_DIAMETER * 2.9],
+          opacity: [0.95, 0],
+          strokeWidth: [3, 0],
+          strokeDashoffset: [18, 0],
+          duration: 620,
+          easing: "easeOutQuad",
+        },
+        120,
+      )
+      .add(
+        {
+          targets: core,
+          r: [0, STICKER_RADIUS * 0.55],
+          opacity: [1, 0],
+          duration: 340,
+          easing: "easeOutQuad",
+        },
+        0,
+      )
+      .add(
+        {
+          targets: sparks,
+          x2: (el) => Number(el.dataset.x2),
+          y2: (el) => Number(el.dataset.y2),
+          opacity: [0, 1],
+          duration: 280,
+          easing: "easeOutExpo",
+          delay: window.anime.stagger(18),
+        },
+        0,
+      )
+      .add(
+        {
+          targets: sparks,
+          opacity: [1, 0],
+          strokeWidth: [3, 0],
+          duration: 260,
+          easing: "easeInQuad",
+          delay: window.anime.stagger(22),
+        },
+        320,
+      )
+      .add(
+        {
+          targets: embers,
+          r: [0, 5.5],
+          opacity: [0.9, 0],
+          duration: 540,
+          easing: "easeOutCubic",
+          delay: window.anime.stagger(60, { start: 100 }),
+        },
+        100,
+      );
+    if (timeline.finished && typeof timeline.finished.then === "function") {
+      timeline.finished.then(cleanup).catch(cleanup);
+    } else {
+      setTimeout(cleanup, 880);
+    }
+  } else {
+    setTimeout(() => {
+      if (group.isConnected) {
+        group.remove();
+      }
+    }, 720);
+  }
 }
 
 function runPopAnimation(node) {
@@ -1485,9 +1698,13 @@ function animateStickerReturn(pendingSnapshot, result) {
     return Promise.resolve();
   }
   const returnToPalette = Boolean(pendingSnapshot.isNew && result !== "saved");
+  const shouldPlayImpact = !returnToPalette && result === "saved";
   const hasAnime = Boolean(window.anime && typeof window.anime.timeline === "function");
   if (!hasAnime) {
     finalizeReturnWithoutAnimation(node, returnToPalette);
+    if (shouldPlayImpact) {
+      playPlacementImpactEffect(node);
+    }
     return Promise.resolve();
   }
 
@@ -1495,6 +1712,9 @@ function animateStickerReturn(pendingSnapshot, result) {
   const targetRaw = returnToPalette ? getPaletteTargetRect() : node.getBoundingClientRect();
   if (!centerRect || !targetRaw || !targetRaw.width || !targetRaw.height) {
     finalizeReturnWithoutAnimation(node, returnToPalette);
+    if (shouldPlayImpact) {
+      playPlacementImpactEffect(node);
+    }
     return Promise.resolve();
   }
 
@@ -1508,6 +1728,9 @@ function animateStickerReturn(pendingSnapshot, result) {
   });
   if (!overlay) {
     finalizeReturnWithoutAnimation(node, returnToPalette);
+    if (shouldPlayImpact) {
+      playPlacementImpactEffect(node);
+    }
     return Promise.resolve();
   }
 
@@ -1515,6 +1738,9 @@ function animateStickerReturn(pendingSnapshot, result) {
   if (!targetRect) {
     overlay.remove();
     finalizeReturnWithoutAnimation(node, returnToPalette);
+    if (shouldPlayImpact) {
+      playPlacementImpactEffect(node);
+    }
     return Promise.resolve();
   }
 
@@ -1538,6 +1764,9 @@ function animateStickerReturn(pendingSnapshot, result) {
       }
       overlay.remove();
       finalizeReturnWithoutAnimation(node, returnToPalette);
+      if (shouldPlayImpact) {
+        playPlacementImpactEffect(node);
+      }
       if (state.zoomResolve === finalizeAndResolve) {
         state.zoomResolve = null;
       }
@@ -1750,10 +1979,14 @@ function resolveLockReason(record) {
   if (!record) {
     return null;
   }
+  const recordDeviceId = record.deviceId ?? record.device_id ?? null;
+  const ownsRecord = !recordDeviceId || !state.deviceId || recordDeviceId === state.deviceId;
+  if (record.isApproved && ownsRecord) {
+    return "approved";
+  }
   if (isStickerLocked(record)) {
     return "time";
   }
-  const recordDeviceId = record.deviceId ?? record.device_id ?? null;
   if (recordDeviceId && state.deviceId && recordDeviceId !== state.deviceId) {
     return "device";
   }
@@ -1780,7 +2013,7 @@ function setNoteLocked(locked, options = {}) {
   if (!isLocked && !options.preserveMessage) {
     formError.textContent = "";
   }
-  updateDialogSubtitle(isLocked);
+  updateDialogSubtitle(isLocked, options.reason ?? null);
 }
 
 function updateDeleteButton() {
@@ -1789,7 +2022,12 @@ function updateDeleteButton() {
   }
   const pending = state.pending;
   const ownDevice = !pending?.deviceId || !state.deviceId || pending.deviceId === state.deviceId;
-  const canDelete = Boolean(pending && !pending.isNew && !pending.locked && ownDevice);
+  const canDelete = Boolean(
+    pending
+      && !pending.isNew
+      && ownDevice
+      && (!pending.locked || pending.lockReason === "approved")
+  );
   deleteStickerBtn.hidden = !canDelete;
   deleteStickerBtn.disabled = !canDelete;
   if (canDelete) {
@@ -1799,13 +2037,18 @@ function updateDeleteButton() {
   }
 }
 
-function updateDialogSubtitle(isLocked) {
+function updateDialogSubtitle(isLocked, reason = null) {
   if (!dialogSubtitle) {
     return;
   }
   if (isLocked) {
-    dialogSubtitle.textContent = "";
-    dialogSubtitle.hidden = true;
+    if (reason === "approved") {
+      dialogSubtitle.textContent = "此留言已通過審核，內容目前為唯讀";
+      dialogSubtitle.hidden = false;
+    } else {
+      dialogSubtitle.textContent = "";
+      dialogSubtitle.hidden = true;
+    }
     return;
   }
   dialogSubtitle.textContent = SUBTITLE_TEXT;
