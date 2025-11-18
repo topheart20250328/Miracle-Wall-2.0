@@ -10,8 +10,7 @@ const ambientLayer = document.getElementById("ambientLayer");
 const dragOverlay = document.getElementById("dragOverlay");
 const eaglePaths = Array.from(document.querySelectorAll(".eagle-shape"));
 const paletteSticker = document.getElementById("paletteSticker");
-const zoomInBtn = document.getElementById("zoomInBtn");
-const zoomOutBtn = document.getElementById("zoomOutBtn");
+const zoomSlider = document.getElementById("zoomSlider");
 const zoomResetBtn = document.getElementById("zoomResetBtn");
 const zoomIndicator = document.getElementById("zoomIndicator");
 const marqueeLayer = document.getElementById("marqueeLayer");
@@ -430,8 +429,15 @@ function initZoomControls() {
   wallStage.addEventListener("pointermove", handleStagePointerMove);
   wallStage.addEventListener("pointerup", handleStagePointerUp);
   wallStage.addEventListener("pointercancel", handleStagePointerUp);
-  zoomInBtn?.addEventListener("click", () => stepZoom(1));
-  zoomOutBtn?.addEventListener("click", () => stepZoom(-1));
+  if (zoomSlider) {
+    const sliderMin = zoomState.minScale * 100;
+    const sliderMax = zoomState.maxScale * 100;
+    zoomSlider.min = String(sliderMin);
+    zoomSlider.max = String(sliderMax);
+    zoomSlider.value = String(zoomState.scale * 100);
+    zoomSlider.step = "5";
+    zoomSlider.addEventListener("input", handleZoomSliderInput);
+  }
   zoomResetBtn?.addEventListener("click", resetZoomView);
   updateZoomStageMetrics();
 }
@@ -549,11 +555,6 @@ function releasePointer(pointerId) {
   }
 }
 
-function stepZoom(direction) {
-  const delta = direction > 0 ? 0.5 : -0.5;
-  setZoomScale(zoomState.scale + delta);
-}
-
 function resetZoomView() {
   panState.pointerId = null;
   panState.moved = false;
@@ -614,20 +615,40 @@ function updateZoomIndicator() {
     const percentage = Math.round(zoomState.scale * 100);
     zoomIndicator.textContent = `${percentage}%`;
   }
-  setZoomButtonState(zoomInBtn, zoomState.scale >= zoomState.maxScale - 0.01);
-  setZoomButtonState(zoomOutBtn, zoomState.scale <= zoomState.minScale + 0.01);
-  if (zoomResetBtn) {
-    zoomResetBtn.disabled = false;
-    zoomResetBtn.setAttribute("aria-disabled", "false");
-  }
+  syncZoomSlider();
+  updateZoomResetState();
 }
 
-function setZoomButtonState(button, disabled) {
-  if (!button) {
+function handleZoomSliderInput(event) {
+  const value = Number(event.target.value);
+  if (Number.isNaN(value)) {
     return;
   }
-  button.disabled = disabled;
-  button.setAttribute("aria-disabled", disabled ? "true" : "false");
+  const sliderScale = value / 100;
+  setZoomScale(sliderScale);
+}
+
+function syncZoomSlider() {
+  if (!zoomSlider) {
+    return;
+  }
+  const percent = clampNumber(Math.round(zoomState.scale * 100), Number(zoomSlider.min) || 100, Number(zoomSlider.max) || 500);
+  if (Number(zoomSlider.value) !== percent) {
+    zoomSlider.value = String(percent);
+  }
+  zoomSlider.setAttribute("aria-valuetext", `${percent}%`);
+}
+
+function updateZoomResetState() {
+  if (!zoomResetBtn) {
+    return;
+  }
+  const nearScale = Math.abs(zoomState.scale - 1) < 0.01;
+  const nearX = Math.abs(zoomState.x) < 0.5;
+  const nearY = Math.abs(zoomState.y) < 0.5;
+  const disabled = nearScale && nearX && nearY;
+  zoomResetBtn.disabled = disabled;
+  zoomResetBtn.setAttribute("aria-disabled", disabled ? "true" : "false");
 }
 
 function clampPan() {

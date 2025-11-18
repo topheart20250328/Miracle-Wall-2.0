@@ -133,9 +133,18 @@
           </svg>
         </div>
         <div class="zoom-controls" role="group" aria-label="縮放控制">
-          <button type="button" id="zoomOutBtn" class="zoom-btn" aria-label="縮小">-</button>
+          <label for="zoomSlider" class="sr-only">縮放百分比</label>
+          <input
+            type="range"
+            id="zoomSlider"
+            class="zoom-slider"
+            min="100"
+            max="500"
+            step="5"
+            value="100"
+            aria-label="縮放百分比"
+          >
           <span id="zoomIndicator" class="zoom-indicator" aria-live="polite">100%</span>
-          <button type="button" id="zoomInBtn" class="zoom-btn" aria-label="放大">+</button>
           <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
         </div>
       </div>
