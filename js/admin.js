@@ -493,8 +493,7 @@ function handleExportEntries() {
   }
   const lines = state.entries.map((entry, index) => {
     const note = (entry.note ?? "").replace(/\r?\n/g, "\n");
-    const status = entry.is_approved ? "已通過" : "審核中";
-    return `#${index + 1}\nID：${entry.id}\n狀態：${status}\n留言：${note}`;
+    return `#${index + 1}\n留言：${note}`;
   });
   const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);

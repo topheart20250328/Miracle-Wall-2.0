@@ -5,13 +5,9 @@ const wallSvg = document.getElementById("wallSvg");
 const wallWrapper = document.getElementById("wallWrapper");
 const stickersLayer = document.getElementById("stickersLayer");
 const effectsLayer = document.getElementById("effectsLayer");
+const ambientLayer = document.getElementById("ambientLayer");
 const dragOverlay = document.getElementById("dragOverlay");
 const eaglePaths = Array.from(document.querySelectorAll(".eagle-shape"));
-const randomButton = document.getElementById("randomPlacementBtn");
-const toggleBoardBtn = document.getElementById("toggleBoardBtn");
-const zoomInBtn = document.getElementById("zoomInBtn");
-const zoomOutBtn = document.getElementById("zoomOutBtn");
-const boardCounter = document.getElementById("boardCounter");
 const paletteSticker = document.getElementById("paletteSticker");
 const statusToast = document.getElementById("statusToast");
 const noteDialog = document.getElementById("noteDialog");
@@ -27,7 +23,15 @@ const flipFront = document.getElementById("flipFront");
 const flipBack = document.getElementById("flipBack");
 const saveButton = noteForm.querySelector('button[type="submit"]');
 const deleteStickerBtn = document.getElementById("deleteStickerBtn");
-const placementStatus = document.getElementById("placementStatus");
+const mediaPrefersReducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function"
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : null;
+const ambientState = {
+  nodes: [],
+  animation: null,
+  currentCount: 0,
+  resizeTimer: null,
+};
 const DEVICE_STORAGE_KEY = "wallDeviceId";
 let timestampFormatter = null;
 try {
@@ -50,21 +54,20 @@ const MIN_DISTANCE = STICKER_DIAMETER + 8;
 const DRAG_ACTIVATION_DISTANCE = 12;
 const POSITION_CONFLICT_CODE = "POSITION_CONFLICT";
 const PLACEMENT_MESSAGES = {
-  idle: "請先點下方貼紙以啟用點擊放置模式，\n或直接拖曳貼紙。",
-  click: "點擊老鷹任一位置貼上貼紙，\n按 Esc 或再次點擊可取消。",
-  drag: "拖曳貼紙中，鬆開手即可貼上。",
+  idle: "點擊下方貼紙放置",
+  click: "在老鷹上點擊以貼上",
+  drag: "拖曳到老鷹上方並鬆開以貼上",
 };
 const SUBTITLE_TEXT = "（最多 800 字，留言於一日後鎖定）";
-const ZOOM_SCALE = 3;
 
 const state = {
   stickers: new Map(),
   pending: null,
   drag: null,
   placementMode: "idle",
-  counterVisible: false,
-  controlsLocked: true,
   toastTimer: null,
+  toastPersistent: false,
+  toastContext: null,
   flipAnimation: null,
   zoomOverlay: null,
   zoomAnimation: null,
@@ -72,22 +75,37 @@ const state = {
   closing: false,
   lastClickWarning: 0,
   lastPendingToast: 0,
-  zoomMode: "normal",
   deviceId: initialDeviceId ?? null,
+  panZoom: {
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+    minScale: 1,
+    maxScale: 2.6,
+    pointerMap: new Map(),
+    snapshot: null,
+  },
 };
+
+if (mediaPrefersReducedMotion) {
+  const handleMotionPreferenceChange = (event) => {
+    if (event.matches) {
+      destroyAmbientGlow();
+    } else {
+      refreshAmbientGlow(true);
+    }
+  };
+  if (typeof mediaPrefersReducedMotion.addEventListener === "function") {
+    mediaPrefersReducedMotion.addEventListener("change", handleMotionPreferenceChange);
+  } else if (typeof mediaPrefersReducedMotion.addListener === "function") {
+    mediaPrefersReducedMotion.addListener(handleMotionPreferenceChange);
+  }
+}
 
 init().catch((err) => console.error(err));
 
 function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
-  if (!state.controlsLocked) {
-    randomButton?.addEventListener("click", () => handleRandomPlacement());
-    toggleBoardBtn?.addEventListener("click", toggleCounter);
-    zoomInBtn?.addEventListener("click", handleZoomIn);
-    zoomOutBtn?.addEventListener("click", handleZoomOut);
-  } else {
-    applyControlLock();
-  }
   wallSvg.addEventListener("click", handleEagleClick);
   paletteSticker?.addEventListener("pointerdown", handlePalettePointerDown);
   paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
@@ -98,9 +116,12 @@ function init() {
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
   document.addEventListener("keydown", handleGlobalKeyDown);
   window.addEventListener("resize", handleViewportChange);
+  initPanZoomControls();
   setPlacementMode("idle", { force: true });
+  updatePlacementHint();
+  hideStatusMessage(true);
   updateDialogSubtitle(false);
-  updateZoomButtons();
+  initAmbientGlow();
   if (!isSupabaseConfigured()) {
     showToast("請先在 supabase-config.js 填入專案設定", "danger");
   }
@@ -146,7 +167,6 @@ async function loadExistingStickers() {
     runPopAnimation(node);
     updateStickerReviewState(state.stickers.get(record.id));
   });
-  updateBoardCounter();
 }
 
 function handleEagleClick(event) {
@@ -156,7 +176,7 @@ function handleEagleClick(event) {
   if (state.placementMode !== "click") {
     const now = Date.now();
     if (now - state.lastClickWarning > 1400) {
-      showToast("請先點下方貼紙以啟用點擊放置模式", "info");
+      showToast("點擊下方貼紙放置", "info");
       state.lastClickWarning = now;
     }
     return;
@@ -168,23 +188,6 @@ function handleEagleClick(event) {
     return;
   }
   setPlacementMode("idle");
-  beginPlacement(candidate.x, candidate.y);
-}
-
-function handleRandomPlacement() {
-  if (state.controlsLocked) {
-    return;
-  }
-  if (state.pending) {
-    showToast("請先完成目前的留言", "danger");
-    return;
-  }
-  setPlacementMode("idle");
-  const candidate = findAvailableSpot();
-  if (!candidate) {
-    showToast("貼紙已接近滿版，暫無可用位置", "danger");
-    return;
-  }
   beginPlacement(candidate.x, candidate.y);
 }
 
@@ -353,10 +356,6 @@ function handleGlobalKeyDown(event) {
     setPlacementMode("idle");
     handled = true;
   }
-  if (state.zoomMode === "zoomed") {
-    setZoomMode("normal");
-    handled = true;
-  }
   if (handled) {
     event.preventDefault();
   }
@@ -365,9 +364,6 @@ function handleGlobalKeyDown(event) {
 function setPlacementMode(mode, options = {}) {
   const normalized = mode === "click" || mode === "drag" ? mode : "idle";
   if (!options.force && state.placementMode === normalized) {
-    if (normalized !== "drag") {
-      updatePlacementStatus();
-    }
     return;
   }
   state.placementMode = normalized;
@@ -379,119 +375,12 @@ function setPlacementMode(mode, options = {}) {
   if (paletteSticker) {
     paletteSticker.setAttribute("aria-pressed", normalized === "click" ? "true" : "false");
   }
-  updatePlacementStatus();
-}
-
-function updatePlacementStatus() {
-  if (!placementStatus) {
-    return;
-  }
-  const message = PLACEMENT_MESSAGES[state.placementMode] ?? PLACEMENT_MESSAGES.idle;
-  placementStatus.textContent = message;
-  placementStatus.hidden = false;
-}
-
-function handleZoomIn() {
-  if (state.controlsLocked) {
-    return;
-  }
-  setZoomMode("zoomed");
-}
-
-function handleZoomOut() {
-  if (state.controlsLocked) {
-    return;
-  }
-  setZoomMode("normal");
-}
-
-function setZoomMode(mode) {
-  const normalized = mode === "zoomed" ? "zoomed" : "normal";
-  if (state.zoomMode === normalized) {
-    return;
-  }
-  state.zoomMode = normalized;
-  if (normalized === "zoomed") {
-    document.body?.classList.add("zoomed-in");
-    wallWrapper?.classList.add("zoomed");
-    if (wallSvg) {
-      wallSvg.style.width = `${ZOOM_SCALE * 100}%`;
-      wallSvg.style.height = "auto";
-      wallSvg.style.maxHeight = "none";
-    }
-    if (wallWrapper) {
-      wallWrapper.scrollTop = 0;
-      requestAnimationFrame(() => centerZoomViewport());
-    }
-  } else {
-    document.body?.classList.remove("zoomed-in");
-    wallWrapper?.classList.remove("zoomed");
-    if (wallSvg) {
-      wallSvg.style.removeProperty("width");
-      wallSvg.style.removeProperty("height");
-      wallSvg.style.removeProperty("max-height");
-    }
-    if (wallWrapper) {
-      wallWrapper.scrollLeft = 0;
-      wallWrapper.scrollTop = 0;
-    }
-  }
-  updateZoomButtons();
-}
-
-function applyControlLock() {
-  const buttons = [randomButton, toggleBoardBtn, zoomInBtn, zoomOutBtn];
-  buttons.forEach((button) => {
-    if (!button) {
-      return;
-    }
-    button.disabled = true;
-    button.setAttribute("aria-disabled", "true");
-    button.classList.add("control-disabled");
-  });
-  if (boardCounter) {
-    boardCounter.hidden = true;
-  }
-  updateZoomButtons();
-}
-
-function updateZoomButtons() {
-  const zoomed = state.zoomMode === "zoomed";
-  const locked = state.controlsLocked;
-  if (zoomInBtn) {
-    const disabled = locked || zoomed;
-    zoomInBtn.disabled = disabled;
-    if (disabled) {
-      zoomInBtn.setAttribute("aria-disabled", "true");
-    } else {
-      zoomInBtn.removeAttribute("aria-disabled");
-    }
-  }
-  if (zoomOutBtn) {
-    const disabled = locked || !zoomed;
-    zoomOutBtn.disabled = disabled;
-    if (disabled) {
-      zoomOutBtn.setAttribute("aria-disabled", "true");
-    } else {
-      zoomOutBtn.removeAttribute("aria-disabled");
-    }
-  }
-}
-
-function centerZoomViewport() {
-  if (!wallWrapper || state.zoomMode !== "zoomed") {
-    return;
-  }
-  const centerX = (wallWrapper.scrollWidth - wallWrapper.clientWidth) / 2;
-  if (Number.isFinite(centerX)) {
-    wallWrapper.scrollLeft = Math.max(0, centerX);
-  }
+  updatePlacementHint(true);
 }
 
 function handleViewportChange() {
-  if (state.zoomMode === "zoomed") {
-    requestAnimationFrame(() => centerZoomViewport());
-  }
+  scheduleAmbientGlowRefresh();
+  finalizePanZoomBounds();
 }
 
 function ensureDeviceId() {
@@ -626,9 +515,7 @@ async function handleFormSubmit(event) {
   }
   const pending = state.pending;
   if (pending?.locked) {
-    if (pending.lockReason === "device") {
-      formError.textContent = "此留言僅能由原建立裝置於 24 小時內修改";
-    } else if (pending.lockReason === "approved") {
+    if (pending.lockReason === "approved") {
       formError.textContent = "留言已通過審核，如需調整請聯繫管理員";
     } else {
       formError.textContent = "";
@@ -685,7 +572,6 @@ async function handleDeleteSticker() {
       pending.node.remove();
     }
     state.stickers.delete(pending.id);
-    updateBoardCounter();
     pending.deleted = true;
     pending.node = null;
     await closeDialogWithResult("deleted");
@@ -821,14 +707,13 @@ async function saveNewSticker(pending, message) {
   setStickerRotation(pending.node, rotation);
   updateStickerReviewState(newRecord);
   runPopAnimation(pending.node);
-  updateBoardCounter();
   await closeDialogWithResult("saved");
   showToast("留言已保存", "success");
 }
 
 async function updateStickerMessage(pending, message) {
   if (pending.deviceId && state.deviceId && pending.deviceId !== state.deviceId) {
-    formError.textContent = "此留言僅能由原建立裝置於 24 小時內修改";
+    formError.textContent = "";
     return;
   }
   let updateQuery = supabase
@@ -924,7 +809,7 @@ function triggerPendingReviewFeedback(record) {
   }
   const now = Date.now();
   if (now - (state.lastPendingToast ?? 0) > 1400) {
-    showToast("這則留言尚在審核中，暫時無法查看", "info");
+    showToast("留言審核中，暫時無法查看", "info");
     state.lastPendingToast = now;
   }
 }
@@ -981,10 +866,10 @@ function openStickerModal(id) {
   const lockReason = resolveLockReason(record);
   state.pending.lockReason = lockReason;
   state.pending.locked = Boolean(lockReason);
-  if (lockReason === "device") {
-    formError.textContent = "此留言僅能由原建立裝置於 24 小時內修改";
-  } else if (lockReason === "approved") {
+  if (lockReason === "approved") {
     formError.textContent = "留言已通過審核，如需調整請聯繫管理員";
+  } else {
+    formError.textContent = "";
   }
   setNoteLocked(Boolean(lockReason), { reason: lockReason });
   updateDeleteButton();
@@ -1093,35 +978,74 @@ function clientToSvg(clientX, clientY) {
   return { x: transformed.x, y: transformed.y };
 }
 
-function toggleCounter() {
-  if (state.controlsLocked) {
-    return;
-  }
-  state.counterVisible = !state.counterVisible;
-  boardCounter.hidden = !state.counterVisible;
-  if (state.counterVisible) {
-    updateBoardCounter();
-  }
-}
-
-function updateBoardCounter() {
-  if (!state.counterVisible) {
-    return;
-  }
-  boardCounter.textContent = `目前貼紙：${state.stickers.size.toLocaleString("zh-Hant")} 張`;
-  boardCounter.hidden = false;
-}
+const STATUS_TOAST_TIMEOUT = 2600;
 
 function showToast(message, tone = "info") {
-  statusToast.textContent = message;
-  statusToast.dataset.tone = tone;
-  statusToast.classList.add("visible");
+  setStatusMessage(message, tone, { context: "toast" });
+}
+
+function setStatusMessage(message, tone = "info", options = {}) {
+  if (!statusToast) {
+    return;
+  }
+  const { persist = false, context = null } = options;
   if (state.toastTimer) {
     clearTimeout(state.toastTimer);
+    state.toastTimer = null;
   }
-  state.toastTimer = setTimeout(() => {
-    statusToast.classList.remove("visible");
-  }, 2600);
+  statusToast.textContent = message;
+  statusToast.dataset.tone = tone;
+  statusToast.dataset.context = context ?? "";
+  statusToast.classList.add("visible");
+  statusToast.removeAttribute("aria-hidden");
+  state.toastPersistent = Boolean(persist);
+  state.toastContext = context ?? null;
+  if (!persist) {
+    state.toastTimer = setTimeout(() => {
+      state.toastTimer = null;
+      hideStatusMessage(true);
+      updatePlacementHint();
+    }, STATUS_TOAST_TIMEOUT);
+  }
+}
+
+function hideStatusMessage(force = false) {
+  if (!statusToast) {
+    return;
+  }
+  if (!force && state.toastPersistent) {
+    return;
+  }
+  if (state.toastTimer) {
+    clearTimeout(state.toastTimer);
+    state.toastTimer = null;
+  }
+  statusToast.classList.remove("visible");
+  statusToast.setAttribute("aria-hidden", "true");
+  statusToast.textContent = "";
+  statusToast.dataset.tone = "";
+  statusToast.dataset.context = "";
+  state.toastPersistent = false;
+  state.toastContext = null;
+}
+
+function updatePlacementHint(force = false) {
+  if (!statusToast) {
+    return;
+  }
+  const mode = state.placementMode;
+  const statusVisible = statusToast.classList.contains("visible");
+  const hasForeignContext = statusVisible && state.toastContext && state.toastContext !== "placement";
+  if (!force && hasForeignContext) {
+    return;
+  }
+  if (mode === "click") {
+    setStatusMessage(PLACEMENT_MESSAGES.click, "info", { persist: true, context: "placement" });
+  } else if (mode === "drag") {
+    setStatusMessage(PLACEMENT_MESSAGES.drag, "info", { persist: true, context: "placement" });
+  } else if (state.toastContext === "placement") {
+    hideStatusMessage(true);
+  }
 }
 
 function playPlacementPreviewEffect(x, y) {
@@ -1390,6 +1314,176 @@ function playPlacementImpactEffect(node) {
       }
     }, 720);
   }
+}
+
+function initAmbientGlow() {
+  if (!ambientLayer) {
+    return;
+  }
+  if (mediaPrefersReducedMotion?.matches) {
+    destroyAmbientGlow();
+    return;
+  }
+  if (!window.anime || typeof window.anime.timeline !== "function") {
+    return;
+  }
+  destroyAmbientGlow();
+
+  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
+  const pathEntries = pathNodes
+    .map((path) => {
+      try {
+        const length = path.getTotalLength();
+        if (!Number.isFinite(length) || length <= 0) {
+          return null;
+        }
+        return { path, length };
+      } catch (error) {
+        console.warn("Ambient glow path sampling failed", error);
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  if (!pathEntries.length) {
+    return;
+  }
+
+  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
+  if (!Number.isFinite(combinedLength) || combinedLength <= 0) {
+    return;
+  }
+
+  const isCompactViewport = typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(max-width: 768px)").matches;
+  const sparkCount = isCompactViewport ? 12 : 22;
+  const averageSpacing = combinedLength / sparkCount;
+  const jitterWindow = Math.min(averageSpacing * 0.6, 220);
+
+  for (let i = 0; i < sparkCount; i += 1) {
+    const offset = averageSpacing * i + (Math.random() - 0.5) * jitterWindow;
+    const normalizedCombined = ((offset % combinedLength) + combinedLength) % combinedLength;
+
+    let remaining = normalizedCombined;
+    let targetEntry = pathEntries[0];
+    for (const entry of pathEntries) {
+      if (remaining <= entry.length) {
+        targetEntry = entry;
+        break;
+      }
+      remaining -= entry.length;
+    }
+
+    let point;
+    try {
+      point = targetEntry.path.getPointAtLength(Math.max(0, remaining));
+    } catch (error) {
+      continue;
+    }
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+      continue;
+    }
+
+    const jitterX = window.anime.random(-28, 28);
+    const jitterY = window.anime.random(-26, 26);
+    const maxRadius = window.anime.random(18, 36);
+    const maxOpacity = window.anime.random(55, 88) / 100;
+    const strokeWidth = window.anime.random(12, 26) / 10;
+
+    const spark = document.createElementNS(svgNS, "circle");
+    spark.classList.add("ambient-spark");
+    spark.setAttribute("cx", (point.x + jitterX).toFixed(2));
+    spark.setAttribute("cy", (point.y + jitterY).toFixed(2));
+    spark.setAttribute("r", "0");
+    spark.setAttribute("opacity", "0");
+    spark.setAttribute("fill", "url(#eagleGlowGradient)");
+    spark.setAttribute("stroke", "rgba(255, 228, 188, 0.6)");
+    spark.setAttribute("stroke-width", strokeWidth.toFixed(2));
+    spark.dataset.maxRadius = maxRadius.toFixed(2);
+    spark.dataset.maxOpacity = maxOpacity.toFixed(2);
+    ambientLayer.appendChild(spark);
+    ambientState.nodes.push(spark);
+  }
+
+  ambientState.currentCount = ambientState.nodes.length;
+  if (!ambientState.currentCount) {
+    return;
+  }
+
+  const startDelay = window.anime.random(0, 360);
+  const timeline = window.anime.timeline({ loop: true, autoplay: true });
+  timeline
+    .add({
+      targets: ambientState.nodes,
+      r: (el) => Number(el.dataset.maxRadius ?? 24),
+      opacity: (el) => Number(el.dataset.maxOpacity ?? 0.7),
+      duration: 1600,
+      easing: "easeOutCubic",
+      delay: window.anime.stagger(180, { start: startDelay }),
+    })
+    .add({
+      targets: ambientState.nodes,
+      r: 0,
+      opacity: 0,
+      duration: 1700,
+      easing: "easeInQuad",
+      delay: window.anime.stagger(210, { direction: "reverse" }),
+    });
+
+  ambientState.animation = timeline;
+}
+
+function destroyAmbientGlow() {
+  if (ambientState.animation && typeof ambientState.animation.pause === "function") {
+    ambientState.animation.pause();
+  }
+  ambientState.animation = null;
+  ambientState.nodes.forEach((node) => {
+    if (node?.isConnected) {
+      node.remove();
+    }
+  });
+  ambientState.nodes.length = 0;
+  ambientState.currentCount = 0;
+  if (ambientState.resizeTimer) {
+    clearTimeout(ambientState.resizeTimer);
+    ambientState.resizeTimer = null;
+  }
+}
+
+function refreshAmbientGlow(force = false) {
+  if (!ambientLayer) {
+    destroyAmbientGlow();
+    return;
+  }
+  if (mediaPrefersReducedMotion?.matches) {
+    destroyAmbientGlow();
+    return;
+  }
+  if (!force) {
+    const isCompactViewport = typeof window !== "undefined"
+      && typeof window.matchMedia === "function"
+      && window.matchMedia("(max-width: 768px)").matches;
+    const desiredCount = isCompactViewport ? 12 : 22;
+    if (ambientState.currentCount === desiredCount) {
+      return;
+    }
+  }
+  initAmbientGlow();
+}
+
+function scheduleAmbientGlowRefresh() {
+  if (!ambientLayer) {
+    return;
+  }
+  if (ambientState.resizeTimer) {
+    clearTimeout(ambientState.resizeTimer);
+  }
+  ambientState.resizeTimer = window.setTimeout(() => {
+    ambientState.resizeTimer = null;
+    refreshAmbientGlow();
+  }, 260);
 }
 
 function runPopAnimation(node) {
@@ -1734,7 +1828,7 @@ function animateStickerReturn(pendingSnapshot, result) {
     return Promise.resolve();
   }
 
-  const targetRect = normalizeTargetRect(targetRaw, true);
+  const targetRect = normalizeTargetRect(targetRaw, returnToPalette);
   if (!targetRect) {
     overlay.remove();
     finalizeReturnWithoutAnimation(node, returnToPalette);
@@ -1882,11 +1976,26 @@ function getPaletteTargetRect() {
   if (!paletteSticker) {
     return null;
   }
+  const svg = paletteSticker.querySelector("svg");
+  if (svg) {
+    const svgRect = svg.getBoundingClientRect();
+    if (svgRect && svgRect.width && svgRect.height) {
+      return {
+        left: svgRect.left,
+        top: svgRect.top,
+        width: svgRect.width,
+        height: svgRect.height,
+      };
+    }
+  }
   const rect = paletteSticker.getBoundingClientRect();
   if (!rect.width || !rect.height) {
     return null;
   }
-  return rect;
+  const size = Math.min(rect.width, rect.height);
+  const left = rect.left + (rect.width - size) / 2;
+  const top = rect.top + (rect.height - size) / 2;
+  return { left, top, width: size, height: size };
 }
 
 function normalizeTargetRect(rect, preferSquare = false) {
@@ -2053,6 +2162,201 @@ function updateDialogSubtitle(isLocked, reason = null) {
   }
   dialogSubtitle.textContent = SUBTITLE_TEXT;
   dialogSubtitle.hidden = false;
+}
+
+function initPanZoomControls() {
+  if (!wallSvg) {
+    return;
+  }
+  resetPanZoomTransform();
+  wallSvg.style.transformOrigin = "50% 50%";
+  wallSvg.addEventListener("pointerdown", handlePanZoomPointerDown);
+  wallSvg.addEventListener("pointermove", handlePanZoomPointerMove);
+  wallSvg.addEventListener("pointerup", handlePanZoomPointerUp);
+  wallSvg.addEventListener("pointercancel", handlePanZoomPointerUp);
+}
+
+function handlePanZoomPointerDown(event) {
+  if (event.pointerType !== "touch" || noteDialog?.open) {
+    return;
+  }
+  if (typeof wallSvg.setPointerCapture === "function") {
+    wallSvg.setPointerCapture(event.pointerId);
+  }
+  const pointerMap = state.panZoom.pointerMap;
+  pointerMap.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (pointerMap.size === 2) {
+    event.preventDefault();
+    beginPinchGesture();
+  }
+}
+
+function handlePanZoomPointerMove(event) {
+  if (event.pointerType !== "touch") {
+    return;
+  }
+  const pointerMap = state.panZoom.pointerMap;
+  if (!pointerMap.has(event.pointerId)) {
+    return;
+  }
+  pointerMap.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (pointerMap.size >= 2) {
+    event.preventDefault();
+    if (!state.panZoom.snapshot) {
+      beginPinchGesture();
+    }
+    updatePinchGesture();
+  }
+}
+
+function handlePanZoomPointerUp(event) {
+  if (event.pointerType !== "touch") {
+    return;
+  }
+  if (typeof wallSvg.releasePointerCapture === "function") {
+    wallSvg.releasePointerCapture(event.pointerId);
+  }
+  const pointerMap = state.panZoom.pointerMap;
+  pointerMap.delete(event.pointerId);
+  if (pointerMap.size >= 2) {
+    beginPinchGesture();
+    return;
+  }
+  state.panZoom.snapshot = null;
+  finalizePanZoomBounds();
+}
+
+function beginPinchGesture() {
+  const [first, second] = extractFirstTwoPointers();
+  if (!first || !second || !wallWrapper) {
+    state.panZoom.snapshot = null;
+    return;
+  }
+  const distance = distanceBetweenPoints(first, second);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    state.panZoom.snapshot = null;
+    return;
+  }
+  const rect = wallWrapper.getBoundingClientRect();
+  const centerX = ((first.x + second.x) / 2) - rect.left - rect.width / 2;
+  const centerY = ((first.y + second.y) / 2) - rect.top - rect.height / 2;
+  state.panZoom.snapshot = {
+    startDistance: distance,
+    startScale: state.panZoom.scale,
+    startTranslateX: state.panZoom.translateX,
+    startTranslateY: state.panZoom.translateY,
+    startCenterX: centerX,
+    startCenterY: centerY,
+  };
+}
+
+function updatePinchGesture() {
+  const snapshot = state.panZoom.snapshot;
+  if (!snapshot || !wallWrapper) {
+    return;
+  }
+  const [first, second] = extractFirstTwoPointers();
+  if (!first || !second) {
+    return;
+  }
+  const distance = distanceBetweenPoints(first, second);
+  if (!snapshot.startDistance || !Number.isFinite(distance) || distance <= 0) {
+    return;
+  }
+  const rect = wallWrapper.getBoundingClientRect();
+  const centerX = ((first.x + second.x) / 2) - rect.left - rect.width / 2;
+  const centerY = ((first.y + second.y) / 2) - rect.top - rect.height / 2;
+  let scale = snapshot.startScale * (distance / snapshot.startDistance);
+  scale = clampValue(scale, state.panZoom.minScale, state.panZoom.maxScale);
+  const deltaX = centerX - snapshot.startCenterX;
+  const deltaY = centerY - snapshot.startCenterY;
+  const nextTranslation = constrainPanTranslation(
+    scale,
+    snapshot.startTranslateX + deltaX,
+    snapshot.startTranslateY + deltaY,
+  );
+  applyPanZoomTransform(scale, nextTranslation.translateX, nextTranslation.translateY);
+}
+
+function finalizePanZoomBounds() {
+  const { scale, translateX, translateY, minScale } = state.panZoom;
+  if (scale <= minScale + 0.01) {
+    resetPanZoomTransform();
+    return;
+  }
+  const constrained = constrainPanTranslation(scale, translateX, translateY);
+  applyPanZoomTransform(scale, constrained.translateX, constrained.translateY);
+}
+
+function constrainPanTranslation(scale, translateX, translateY) {
+  if (!wallWrapper) {
+    return { translateX, translateY };
+  }
+  const rect = wallWrapper.getBoundingClientRect();
+  const halfWidth = Math.max(0, (rect.width * (scale - 1)) / 2);
+  const halfHeight = Math.max(0, (rect.height * (scale - 1)) / 2);
+  return {
+    translateX: clampValue(translateX, -halfWidth, halfWidth),
+    translateY: clampValue(translateY, -halfHeight, halfHeight),
+  };
+}
+
+function applyPanZoomTransform(scale, translateX, translateY) {
+  state.panZoom.scale = Number.isFinite(scale) ? scale : state.panZoom.scale;
+  state.panZoom.translateX = Number.isFinite(translateX) ? translateX : state.panZoom.translateX;
+  state.panZoom.translateY = Number.isFinite(translateY) ? translateY : state.panZoom.translateY;
+  if (!wallSvg) {
+    return;
+  }
+  const almostDefault = Math.abs(state.panZoom.scale - 1) < 0.001
+    && Math.abs(state.panZoom.translateX) < 0.5
+    && Math.abs(state.panZoom.translateY) < 0.5;
+  if (almostDefault) {
+    wallSvg.style.transform = "";
+    wallSvg.dataset.zoomed = "false";
+  } else {
+    wallSvg.style.transform = `translate(${state.panZoom.translateX}px, ${state.panZoom.translateY}px) scale(${state.panZoom.scale})`;
+    wallSvg.dataset.zoomed = "true";
+  }
+}
+
+function resetPanZoomTransform() {
+  state.panZoom.pointerMap.clear();
+  state.panZoom.snapshot = null;
+  applyPanZoomTransform(1, 0, 0);
+}
+
+function extractFirstTwoPointers() {
+  const pointerMap = state.panZoom.pointerMap;
+  if (!pointerMap || pointerMap.size < 2) {
+    return [null, null];
+  }
+  const iterator = pointerMap.values();
+  const first = iterator.next().value ?? null;
+  const second = iterator.next().value ?? null;
+  return [first, second];
+}
+
+function distanceBetweenPoints(a, b) {
+  if (!a || !b) {
+    return 0;
+  }
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.hypot(dx, dy);
+}
+
+function clampValue(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  if (value < min) {
+    return min;
+  }
+  if (value > max) {
+    return max;
+  }
+  return value;
 }
 
 function createUuid() {
