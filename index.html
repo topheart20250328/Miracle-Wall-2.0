@@ -7,13 +7,74 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;500;700&display=swap" rel="stylesheet">
+  <link rel="preload" href="css/styles.css" as="style">
+  <link rel="icon" type="image/png" sizes="32x32" href="png/logo.png">
+  <link rel="apple-touch-icon" href="png/logo.png">
+  <meta name="theme-color" content="#101418">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Top Heart Miracle Wall 2.0｜分享神蹟、見證與感動，一起建造同心的教會。">
+  <meta property="og:title" content="Top Heart Miracle Wall 2.0">
+  <meta property="og:description" content="分享你的見證經歷，讓感動在神蹟牆上持續燃燒。">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://topheart.example/miracle-wall">
+  <meta property="og:image" content="png/logo.png">
+  <meta property="og:image:alt" content="Top Heart Miracle Wall logo">
+  <meta property="og:locale" content="zh_TW">
+  <meta property="og:site_name" content="Top Heart Church">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Top Heart Miracle Wall 2.0">
+  <meta name="twitter:description" content="即時瀏覽、分享並記錄每一則神蹟留言。">
+  <meta name="twitter:image" content="png/logo.png">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <main>
     <section class="wall-section">
-      <div class="wall-wrapper" id="wallWrapper">
-        <svg id="wallSvg" viewBox="0 0 3500 1779.31" role="img" aria-labelledby="wallTitle" preserveAspectRatio="xMidYMid meet">
+      <div id="marqueeLayer" class="marquee-layer" aria-hidden="true">
+        <div class="marquee-line" style="--marquee-duration: 24s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+        <div class="marquee-line" style="--marquee-duration: 28s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+        <div class="marquee-line" style="--marquee-duration: 26s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+        <div class="marquee-line" style="--marquee-duration: 30s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+        <div class="marquee-line" style="--marquee-duration: 32s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+        <div class="marquee-line" style="--marquee-duration: 34s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+        <div class="marquee-line" style="--marquee-duration: 36s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+        <div class="marquee-line" style="--marquee-duration: 38s;">
+          <div class="marquee-track">
+            <span class="marquee-text"></span>
+          </div>
+        </div>
+      </div>
+      <div class="wall-stage" id="wallStage">
+        <div class="wall-wrapper" id="wallWrapper">
+          <svg id="wallSvg" viewBox="0 0 3500 1779.31" role="img" aria-labelledby="wallTitle" preserveAspectRatio="xMidYMid meet">
           <title id="wallTitle">Top Church Miracle Wall</title>
           <defs>
             <symbol id="heartSticker" viewBox="0 0 2000 2000">
@@ -69,16 +130,23 @@
           <g id="effectsLayer" aria-hidden="true"></g>
           <g id="stickersLayer" clip-path="url(#eagleClip)"></g>
           <g id="dragOverlay" aria-hidden="true"></g>
-        </svg>
-        <div class="drag-palette" aria-label="貼紙工具">
-          <div id="paletteSticker" class="palette-sticker" draggable="false" role="button" aria-pressed="false" tabindex="0" aria-label="貼紙樣本，點擊啟用或拖曳貼上">
-            <svg viewBox="0 0 2000 2000" aria-hidden="true">
-              <use href="#heartSticker"></use>
-            </svg>
-          </div>
+          </svg>
         </div>
-        <div id="statusToast" role="status" aria-live="polite"></div>
+        <div class="zoom-controls" role="group" aria-label="縮放控制">
+          <button type="button" id="zoomOutBtn" class="zoom-btn" aria-label="縮小">-</button>
+          <span id="zoomIndicator" class="zoom-indicator" aria-live="polite">100%</span>
+          <button type="button" id="zoomInBtn" class="zoom-btn" aria-label="放大">+</button>
+          <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
+        </div>
       </div>
+      <div class="drag-palette" aria-label="貼紙工具">
+        <div id="paletteSticker" class="palette-sticker" draggable="false" role="button" aria-pressed="false" tabindex="0" aria-label="貼紙樣本，點擊啟用或拖曳貼上">
+          <svg viewBox="0 0 2000 2000" aria-hidden="true">
+            <use href="#heartSticker"></use>
+          </svg>
+        </div>
+      </div>
+      <div id="statusToast" role="status" aria-live="polite"></div>
     </section>
   </main>
 
@@ -91,7 +159,7 @@
       <div class="flip-card">
         <div class="flip-card-inner" id="flipCardInner" data-state="front">
           <section class="flip-face front" id="flipFront" aria-hidden="false">
-            <img src="svg/Top Heart Mark.svg" alt="Top Heart Mark" class="flip-sticker" draggable="false">
+            <img src="svg/Top Heart Mark.svg" alt="Top Heart Mark" class="flip-sticker" draggable="false" loading="lazy" decoding="async">
           </section>
           <section class="flip-face back" id="flipBack" aria-hidden="true">
             <div class="flip-body">

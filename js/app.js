@@ -1,15 +1,29 @@
 import { supabase, isSupabaseConfigured, deviceId as initialDeviceId } from "./supabase-config.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
-  initViewportGestures();
-const wallSvg = document.getElementById("wallSvg");
+const wallStage = document.getElementById("wallStage");
 const wallWrapper = document.getElementById("wallWrapper");
+const wallSvg = document.getElementById("wallSvg");
 const stickersLayer = document.getElementById("stickersLayer");
 const effectsLayer = document.getElementById("effectsLayer");
 const ambientLayer = document.getElementById("ambientLayer");
 const dragOverlay = document.getElementById("dragOverlay");
 const eaglePaths = Array.from(document.querySelectorAll(".eagle-shape"));
 const paletteSticker = document.getElementById("paletteSticker");
+const zoomInBtn = document.getElementById("zoomInBtn");
+const zoomOutBtn = document.getElementById("zoomOutBtn");
+const zoomResetBtn = document.getElementById("zoomResetBtn");
+const zoomIndicator = document.getElementById("zoomIndicator");
+const marqueeLayer = document.getElementById("marqueeLayer");
+const marqueeLines = marqueeLayer ? Array.from(marqueeLayer.querySelectorAll(".marquee-line")) : [];
+const MAX_ACTIVE_MARQUEE_LINES = 3;
+const MIN_ACTIVE_MARQUEE_LINES = 2;
+const MARQUEE_STAGGER_DELAY_MS = 3800;
+const MARQUEE_RESPAWN_DELAY_MS = 900;
+const MARQUEE_SEED_JITTER_MS = 900;
+const MARQUEE_RESPAWN_JITTER_MS = 450;
+const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)";
+const MOBILE_SEED_BURST_COUNT = 2;
 const statusToast = document.getElementById("statusToast");
 const noteDialog = document.getElementById("noteDialog");
 const noteForm = document.getElementById("noteForm");
@@ -60,6 +74,34 @@ const PLACEMENT_MESSAGES = {
   drag: "拖曳到老鷹上方並鬆開以貼上",
 };
 const SUBTITLE_TEXT = "（最多 800 字，留言於一日後鎖定）";
+const zoomState = {
+  scale: 1,
+  minScale: 1,
+  maxScale: 5,
+  x: 0,
+  y: 0,
+};
+const panState = {
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  originX: 0,
+  originY: 0,
+  moved: false,
+  pointers: new Map(),
+  pinchStartDistance: 0,
+  pinchStartScale: 1,
+};
+const marqueeState = {
+  pool: [],
+  activeLines: new Set(),
+  activeMessages: new Set(),
+  pendingTimeouts: new Set(),
+  lineCursor: 0,
+  activeLimit: 0,
+  initialized: false,
+  mobileViewport: null,
+};
 
 const state = {
   stickers: new Map(),
@@ -73,22 +115,6 @@ const state = {
   zoomOverlay: null,
   zoomAnimation: null,
   zoomResolve: null,
-  viewport: {
-    scale: 1,
-    translateX: 0,
-    translateY: 0,
-    minScale: 1,
-    maxScale: 2.4,
-    suppressClickUntil: 0,
-  },
-  pinch: {
-    active: false,
-    pointers: new Map(),
-    initialDistance: 0,
-    initialScale: 1,
-    initialCentroid: null,
-    contentFocus: null,
-  },
   closing: false,
   lastClickWarning: 0,
   lastPendingToast: 0,
@@ -124,6 +150,7 @@ function init() {
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
   document.addEventListener("keydown", handleGlobalKeyDown);
   window.addEventListener("resize", handleViewportChange);
+  initZoomControls();
   setPlacementMode("idle", { force: true });
   updatePlacementHint();
   hideStatusMessage(true);
@@ -174,13 +201,11 @@ async function loadExistingStickers() {
     runPopAnimation(node);
     updateStickerReviewState(state.stickers.get(record.id));
   });
+  updateMarqueePool();
+  initMarqueeTicker();
 }
 
 function handleEagleClick(event) {
-  if (state.viewport?.suppressClickUntil && Date.now() < state.viewport.suppressClickUntil) {
-    return;
-  }
-  state.viewport.suppressClickUntil = 0;
   if (event.target.closest(".sticker-node") || state.pending) {
     return;
   }
@@ -391,161 +416,485 @@ function setPlacementMode(mode, options = {}) {
 
 function handleViewportChange() {
   scheduleAmbientGlowRefresh();
-  clampViewportTransform();
+  updateZoomStageMetrics();
 }
 
-function initViewportGestures() {
-  if (!wallSvg || typeof window === "undefined" || typeof window.PointerEvent === "undefined") {
+function initZoomControls() {
+  if (!wallStage || !wallWrapper) {
     return;
   }
-  const listenerOptions = { passive: false };
-  wallSvg.addEventListener("pointerdown", handleViewportPointerDown, listenerOptions);
-  wallSvg.addEventListener("pointermove", handleViewportPointerMove, listenerOptions);
-  wallSvg.addEventListener("pointerup", handleViewportPointerEnd, listenerOptions);
-  wallSvg.addEventListener("pointercancel", handleViewportPointerEnd, listenerOptions);
+  applyViewTransform();
+  updateZoomIndicator();
+  wallStage.addEventListener("wheel", handleStageWheel, { passive: false });
+  wallStage.addEventListener("pointerdown", handleStagePointerDown);
+  wallStage.addEventListener("pointermove", handleStagePointerMove);
+  wallStage.addEventListener("pointerup", handleStagePointerUp);
+  wallStage.addEventListener("pointercancel", handleStagePointerUp);
+  zoomInBtn?.addEventListener("click", () => stepZoom(1));
+  zoomOutBtn?.addEventListener("click", () => stepZoom(-1));
+  zoomResetBtn?.addEventListener("click", resetZoomView);
+  updateZoomStageMetrics();
 }
 
-function handleViewportPointerDown(event) {
-  if (event.pointerType !== "touch" || !state.pinch) {
+function updateZoomStageMetrics() {
+  clampPan();
+  applyViewTransform();
+  updateZoomIndicator();
+}
+
+function handleStageWheel(event) {
+  if (!wallStage) {
     return;
   }
-  if (!state.pinch.pointers.has(event.pointerId) && state.pinch.pointers.size >= 2) {
+  const wantsZoom = event.ctrlKey || event.metaKey;
+  if (!wantsZoom) {
     return;
   }
-  state.pinch.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (typeof wallSvg.setPointerCapture === "function") {
-    try {
-      wallSvg.setPointerCapture(event.pointerId);
-    } catch (error) {
-      console.debug("pointer capture unavailable", error);
+  event.preventDefault();
+  const delta = -event.deltaY / 600;
+  const nextScale = zoomState.scale * (1 + delta);
+  setZoomScale(nextScale, event);
+}
+
+function handleStagePointerDown(event) {
+  if (!isZoomTarget(event)) {
+    return;
+  }
+  if (event.pointerType === "touch") {
+    panState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (panState.pointers.size === 2) {
+      panState.pinchStartDistance = getPointerDistance();
+      panState.pinchStartScale = zoomState.scale;
+      panState.pointerId = null;
+      panState.moved = false;
+      return;
     }
   }
-  if (state.pinch.pointers.size === 2) {
-    startPinchGesture();
-    event.preventDefault();
-  }
-}
-
-function handleViewportPointerMove(event) {
-  if (event.pointerType !== "touch" || !state.pinch?.pointers?.has(event.pointerId)) {
+  if (event.pointerType === "mouse" && event.button !== 0) {
     return;
   }
-  state.pinch.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-  if (state.pinch.active && state.pinch.pointers.size >= 2) {
-    event.preventDefault();
-    updatePinchGesture();
-  }
+  panState.pointerId = event.pointerId;
+  panState.startX = event.clientX;
+  panState.startY = event.clientY;
+  panState.originX = zoomState.x;
+  panState.originY = zoomState.y;
+  panState.moved = false;
 }
 
-function handleViewportPointerEnd(event) {
-  if (!state.pinch?.pointers?.has(event.pointerId)) {
-    return;
-  }
-  const wasPinching = state.pinch.active;
-  state.pinch.pointers.delete(event.pointerId);
-  if (typeof wallSvg.releasePointerCapture === "function") {
-    try {
-      wallSvg.releasePointerCapture(event.pointerId);
-    } catch (error) {
-      console.debug("release pointer capture unavailable", error);
+function handleStagePointerMove(event) {
+  if (panState.pointers.has(event.pointerId)) {
+    panState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (panState.pointers.size === 2) {
+      const distance = getPointerDistance();
+      if (distance && panState.pinchStartDistance) {
+        const scaleFactor = distance / panState.pinchStartDistance;
+        const midpoint = getPointerMidpoint();
+        if (midpoint) {
+          setZoomScale(panState.pinchStartScale * scaleFactor, midpoint);
+          event.preventDefault();
+        }
+      }
+      return;
     }
   }
-  if (state.pinch.pointers.size < 2) {
-    state.pinch.active = false;
-    state.pinch.initialDistance = 0;
-    state.pinch.initialCentroid = null;
-    state.pinch.contentFocus = null;
+  if (panState.pointerId !== event.pointerId) {
+    return;
   }
-  if (wasPinching && event.pointerType === "touch") {
+  const dx = event.clientX - panState.startX;
+  const dy = event.clientY - panState.startY;
+  if (!panState.moved) {
+    panState.moved = Math.hypot(dx, dy) > 8;
+    if (panState.moved && typeof wallStage?.setPointerCapture === "function") {
+      try {
+        wallStage.setPointerCapture(event.pointerId);
+      } catch (error) {
+        console.warn("Pointer capture failed", error);
+      }
+    }
+  }
+  if (!panState.moved && event.pointerType !== "touch") {
+    return;
+  }
+  updatePanPosition(panState.originX + dx, panState.originY + dy);
+  if (event.pointerType === "touch") {
     event.preventDefault();
-    state.viewport.suppressClickUntil = Date.now() + 600;
   }
 }
 
-function startPinchGesture() {
-  const pointers = Array.from(state.pinch.pointers.values());
-  if (pointers.length < 2) {
-    return;
+function handleStagePointerUp(event) {
+  if (panState.pointerId === event.pointerId) {
+    releasePointer(event.pointerId);
+    panState.pointerId = null;
+    panState.moved = false;
   }
-  const distance = distanceBetweenPoints(pointers[0], pointers[1]);
-  if (!Number.isFinite(distance) || distance <= 0) {
-    return;
-  }
-  state.pinch.initialDistance = distance;
-  state.pinch.initialScale = state.viewport.scale;
-  state.pinch.initialCentroid = centroidFromPoints(pointers);
-  const safeScale = state.viewport.scale || 1;
-  state.pinch.contentFocus = {
-    x: (state.pinch.initialCentroid.x - state.viewport.translateX) / safeScale,
-    y: (state.pinch.initialCentroid.y - state.viewport.translateY) / safeScale,
-  };
-  state.pinch.active = true;
-  state.viewport.suppressClickUntil = Date.now() + 600;
-}
-
-function updatePinchGesture() {
-  const pointers = Array.from(state.pinch.pointers.values());
-  if (pointers.length < 2 || !state.pinch.initialDistance) {
-    return;
-  }
-  const distance = distanceBetweenPoints(pointers[0], pointers[1]);
-  if (!Number.isFinite(distance) || distance <= 0) {
-    return;
-  }
-  const ratio = distance / state.pinch.initialDistance;
-  let nextScale = state.pinch.initialScale * (Number.isFinite(ratio) ? ratio : 1);
-  nextScale = clampValue(nextScale, state.viewport.minScale, state.viewport.maxScale);
-  const centroid = centroidFromPoints(pointers);
-  const focus = state.pinch.contentFocus ?? {
-    x: (centroid.x - state.viewport.translateX) / (state.viewport.scale || 1),
-    y: (centroid.y - state.viewport.translateY) / (state.viewport.scale || 1),
-  };
-  const nextTranslateX = centroid.x - focus.x * nextScale;
-  const nextTranslateY = centroid.y - focus.y * nextScale;
-  applyViewportTransform(nextScale, nextTranslateX, nextTranslateY);
-}
-
-function clampViewportTransform() {
-  const { scale, translateX, translateY } = state.viewport;
-  const clamped = clampViewportTranslation(scale, translateX, translateY);
-  if (clamped.x !== translateX || clamped.y !== translateY) {
-    applyViewportTransform(scale, clamped.x, clamped.y);
+  if (panState.pointers.has(event.pointerId)) {
+    panState.pointers.delete(event.pointerId);
+    if (panState.pointers.size < 2) {
+      panState.pinchStartDistance = 0;
+      if (panState.pointers.size === 1) {
+        panState.pointerId = null;
+        panState.moved = false;
+      }
+    }
   }
 }
 
-function applyViewportTransform(scale, translateX, translateY) {
-  if (!wallSvg) {
-    return;
+function releasePointer(pointerId) {
+  if (typeof wallStage?.releasePointerCapture === "function") {
+    try {
+      wallStage.releasePointerCapture(pointerId);
+    } catch {
+      // ignore
+    }
   }
-  const clampedScale = clampValue(scale, state.viewport.minScale, state.viewport.maxScale);
-  const translation = clampViewportTranslation(clampedScale, translateX, translateY);
-  state.viewport.scale = clampedScale;
-  state.viewport.translateX = translation.x;
-  state.viewport.translateY = translation.y;
-  const scaleValue = clampedScale.toFixed(4);
-  const translateXValue = translation.x.toFixed(2);
-  const translateYValue = translation.y.toFixed(2);
-  wallSvg.style.transform = `matrix(${scaleValue}, 0, 0, ${scaleValue}, ${translateXValue}, ${translateYValue})`;
-  wallSvg.classList.toggle("viewport-zoomed", clampedScale > 1.02);
 }
 
-function clampViewportTranslation(scale, translateX, translateY) {
-  if (!wallSvg) {
-    return { x: translateX, y: translateY };
-  }
-  const baseWidth = wallSvg.clientWidth || 0;
-  const baseHeight = wallSvg.clientHeight || 0;
-  if (!baseWidth || !baseHeight) {
-    return { x: translateX, y: translateY };
-  }
-  const scaledWidth = baseWidth * scale;
-  const scaledHeight = baseHeight * scale;
-  const maxOffsetX = Math.max(0, (scaledWidth - baseWidth) / 2);
-  const maxOffsetY = Math.max(0, (scaledHeight - baseHeight) / 2);
-  const clampedX = clampValue(translateX, -maxOffsetX, maxOffsetX);
-  const clampedY = clampValue(translateY, -maxOffsetY, maxOffsetY);
-  return { x: clampedX, y: clampedY };
+function stepZoom(direction) {
+  const delta = direction > 0 ? 0.5 : -0.5;
+  setZoomScale(zoomState.scale + delta);
 }
+
+function resetZoomView() {
+  panState.pointerId = null;
+  panState.moved = false;
+  panState.pointers.clear();
+  panState.pinchStartDistance = 0;
+  zoomState.scale = 1;
+  zoomState.x = 0;
+  zoomState.y = 0;
+  clampPan();
+  applyViewTransform();
+  updateZoomIndicator();
+}
+
+function setZoomScale(nextScale, anchorEvent) {
+  const clamped = clampNumber(nextScale, zoomState.minScale, zoomState.maxScale);
+  if (clamped === zoomState.scale || !wallStage) {
+    updateZoomIndicator();
+    return;
+  }
+  const stageRect = wallStage.getBoundingClientRect();
+  const centerX = stageRect.left + stageRect.width / 2;
+  const centerY = stageRect.top + stageRect.height / 2;
+  const anchorX = (anchorEvent?.clientX ?? centerX) - centerX;
+  const anchorY = (anchorEvent?.clientY ?? centerY) - centerY;
+  const relativeX = (anchorX - zoomState.x) / zoomState.scale;
+  const relativeY = (anchorY - zoomState.y) / zoomState.scale;
+  zoomState.scale = clamped;
+  zoomState.x = anchorX - relativeX * clamped;
+  zoomState.y = anchorY - relativeY * clamped;
+  clampPan();
+  applyViewTransform();
+  updateZoomIndicator();
+}
+
+function updatePanPosition(nextX, nextY) {
+  zoomState.x = nextX;
+  zoomState.y = nextY;
+  clampPan();
+  applyViewTransform();
+}
+
+function applyViewTransform() {
+  if (!wallWrapper) {
+    return;
+  }
+  const nearZeroX = Math.abs(zoomState.x) < 0.01;
+  const nearZeroY = Math.abs(zoomState.y) < 0.01;
+  const nearUnitScale = Math.abs(zoomState.scale - 1) < 0.001;
+  if (nearZeroX && nearZeroY && nearUnitScale) {
+    wallWrapper.style.transform = "";
+    return;
+  }
+  wallWrapper.style.transform = `translate(${zoomState.x}px, ${zoomState.y}px) scale(${zoomState.scale})`;
+}
+
+function updateZoomIndicator() {
+  if (zoomIndicator) {
+    const percentage = Math.round(zoomState.scale * 100);
+    zoomIndicator.textContent = `${percentage}%`;
+  }
+  setZoomButtonState(zoomInBtn, zoomState.scale >= zoomState.maxScale - 0.01);
+  setZoomButtonState(zoomOutBtn, zoomState.scale <= zoomState.minScale + 0.01);
+  if (zoomResetBtn) {
+    zoomResetBtn.disabled = false;
+    zoomResetBtn.setAttribute("aria-disabled", "false");
+  }
+}
+
+function setZoomButtonState(button, disabled) {
+  if (!button) {
+    return;
+  }
+  button.disabled = disabled;
+  button.setAttribute("aria-disabled", disabled ? "true" : "false");
+}
+
+function clampPan() {
+  if (!wallStage || !wallWrapper) {
+    return;
+  }
+  const stageRect = wallStage.getBoundingClientRect();
+  const contentWidth = wallWrapper.offsetWidth;
+  const contentHeight = wallWrapper.offsetHeight;
+  const scaledWidth = contentWidth * zoomState.scale;
+  const scaledHeight = contentHeight * zoomState.scale;
+  const freePanX = stageRect.width * 0.5;
+  const freePanY = stageRect.height * 0.5;
+  const halfWidthDiff = (scaledWidth - stageRect.width) / 2;
+  const halfHeightDiff = (scaledHeight - stageRect.height) / 2;
+  const maxX = Math.max(freePanX, halfWidthDiff);
+  const maxY = Math.max(freePanY, halfHeightDiff);
+  zoomState.x = clampNumber(zoomState.x, -maxX, maxX);
+  zoomState.y = clampNumber(zoomState.y, -maxY, maxY);
+}
+
+function updateMarqueePool() {
+  if (!marqueeLines.length) {
+    return;
+  }
+  marqueeState.pool = Array.from(state.stickers.values())
+    .filter((record) => record.isApproved && (record.note ?? "").trim().length)
+    .map((record) => record.note.trim());
+  if (marqueeState.initialized) {
+    refreshMarqueeFlow();
+  }
+}
+
+function initMarqueeTicker() {
+  if (!marqueeLines.length) {
+    return;
+  }
+  initMarqueeViewportWatcher();
+  resetMarqueeTicker();
+  setupMarqueeLineListeners();
+  marqueeState.initialized = true;
+  refreshMarqueeFlow(true, true);
+}
+
+function initMarqueeViewportWatcher() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    marqueeState.mobileViewport = null;
+    return;
+  }
+  marqueeState.mobileViewport = window.matchMedia(MOBILE_VIEWPORT_QUERY);
+  const handler = () => refreshMarqueeFlow(false, true);
+  if (typeof marqueeState.mobileViewport.addEventListener === "function") {
+    marqueeState.mobileViewport.addEventListener("change", handler);
+  } else if (typeof marqueeState.mobileViewport.addListener === "function") {
+    marqueeState.mobileViewport.addListener(handler);
+  }
+}
+
+function resetMarqueeTicker() {
+  clearMarqueeTimeouts();
+  marqueeState.activeLines.forEach((line) => line.classList.remove("is-active"));
+  marqueeState.activeLines.clear();
+  marqueeState.activeMessages.clear();
+  marqueeState.lineCursor = 0;
+  marqueeLines.forEach((line) => {
+    line.classList.remove("is-active");
+    line.dataset.message = "";
+  });
+}
+
+function setupMarqueeLineListeners() {
+  marqueeLines.forEach((line) => {
+    const track = line.querySelector(".marquee-track");
+    if (!track || track.dataset.marqueeBound === "true") {
+      return;
+    }
+    track.dataset.marqueeBound = "true";
+    track.addEventListener("animationend", handleMarqueeAnimationEnd);
+  });
+}
+
+function refreshMarqueeFlow(seed = false, immediate = false) {
+  if (!marqueeLines.length) {
+    return;
+  }
+  updateMarqueeActiveLimit();
+  clearMarqueeTimeouts();
+  ensureMarqueeFlow(seed, immediate);
+}
+
+function updateMarqueeActiveLimit() {
+  if (!marqueeLines.length) {
+    marqueeState.activeLimit = 0;
+    return;
+  }
+  const desiredMax = Math.min(MAX_ACTIVE_MARQUEE_LINES, marqueeLines.length);
+  const desired = Math.max(MIN_ACTIVE_MARQUEE_LINES, desiredMax);
+  if (marqueeState.activeLimit === desired) {
+    return;
+  }
+  marqueeState.activeLimit = desired;
+  while (marqueeState.activeLines.size > marqueeState.activeLimit) {
+    const line = marqueeState.activeLines.values().next().value;
+    deactivateMarqueeLine(line);
+  }
+}
+
+function ensureMarqueeFlow(seed = false, immediate = false) {
+  const deficit = Math.max(0, marqueeState.activeLimit - marqueeState.activeLines.size);
+  const isMobileSeed = seed && Boolean(marqueeState.mobileViewport?.matches);
+  for (let i = 0; i < deficit; i += 1) {
+    const baseDelay = seed ? i * MARQUEE_STAGGER_DELAY_MS : (i === 0 ? 0 : MARQUEE_RESPAWN_DELAY_MS);
+    const jitter = seed && i === 0 ? 0 : seed ? MARQUEE_SEED_JITTER_MS : MARQUEE_RESPAWN_JITTER_MS;
+    const shouldBurst = isMobileSeed && i < MOBILE_SEED_BURST_COUNT;
+    queueMarqueeActivation(baseDelay, jitter, { immediate: immediate || shouldBurst });
+  }
+}
+
+function queueMarqueeActivation(delay = 0, jitter = 0, options = {}) {
+  const { immediate = false } = options;
+  const totalDelay = immediate ? 0 : Math.max(0, delay + (jitter ? Math.random() * jitter : 0));
+  const timerId = window.setTimeout(() => {
+    marqueeState.pendingTimeouts.delete(timerId);
+    startNextMarqueeLine();
+  }, totalDelay);
+  marqueeState.pendingTimeouts.add(timerId);
+}
+
+function clearMarqueeTimeouts() {
+  marqueeState.pendingTimeouts.forEach((id) => clearTimeout(id));
+  marqueeState.pendingTimeouts.clear();
+}
+
+function startNextMarqueeLine() {
+  if (marqueeState.activeLines.size >= marqueeState.activeLimit) {
+    return;
+  }
+  const line = findNextIdleMarqueeLine();
+  if (!line) {
+    return;
+  }
+  const message = pickUniqueMarqueeMessage();
+  if (!message) {
+    return;
+  }
+  const normalized = applyMarqueeText(line, message);
+  if (!normalized) {
+    return;
+  }
+  marqueeState.activeLines.add(line);
+  marqueeState.activeMessages.add(normalized);
+  restartMarqueeAnimation(line);
+}
+
+function restartMarqueeAnimation(line) {
+  const track = line.querySelector(".marquee-track");
+  if (!track) {
+    return;
+  }
+  line.classList.remove("is-active");
+  void track.offsetWidth;
+  requestAnimationFrame(() => line.classList.add("is-active"));
+}
+
+function findNextIdleMarqueeLine() {
+  if (!marqueeLines.length) {
+    return null;
+  }
+  const idleLines = marqueeLines.filter((line) => !marqueeState.activeLines.has(line));
+  if (!idleLines.length) {
+    return null;
+  }
+  const randomIndex = Math.floor(Math.random() * idleLines.length);
+  return idleLines[randomIndex];
+}
+
+function pickUniqueMarqueeMessage() {
+  const available = getAvailableMarqueeMessages();
+  if (!available.length) {
+    return null;
+  }
+  const offset = Math.floor(Math.random() * available.length);
+  for (let i = 0; i < available.length; i += 1) {
+    const candidate = available[(offset + i) % available.length];
+    const normalized = normalizeMarqueeText(candidate);
+    if (!marqueeState.activeMessages.has(normalized)) {
+      return candidate;
+    }
+  }
+  return available[offset];
+}
+
+function getAvailableMarqueeMessages() {
+  return marqueeState.pool.length ? marqueeState.pool : ["神蹟留言即將出現"];
+}
+
+function handleMarqueeAnimationEnd(event) {
+  if (event.animationName !== "marquee-slide") {
+    return;
+  }
+  const track = event.currentTarget;
+  const line = track?.closest(".marquee-line");
+  if (!line) {
+    return;
+  }
+  deactivateMarqueeLine(line);
+  ensureMarqueeFlow(false, true);
+}
+
+function deactivateMarqueeLine(line) {
+  if (!line) {
+    return;
+  }
+  line.classList.remove("is-active");
+  const normalized = line.dataset.message;
+  if (normalized) {
+    marqueeState.activeMessages.delete(normalized);
+  }
+  marqueeState.activeLines.delete(line);
+  line.dataset.message = "";
+}
+
+function applyMarqueeText(line, text) {
+  if (!line) {
+    return "";
+  }
+  const displayText = (text ?? "").trim() || "神蹟留言即將出現";
+  const normalized = normalizeMarqueeText(displayText);
+  const track = line.querySelector(".marquee-track");
+  if (track) {
+    const span = track.querySelector(".marquee-text");
+    if (span) {
+      span.textContent = displayText;
+    }
+  }
+  line.dataset.message = normalized;
+  return normalized;
+}
+
+function normalizeMarqueeText(text) {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+function getPointerDistance() {
+  if (panState.pointers.size < 2) {
+    return 0;
+  }
+  const values = Array.from(panState.pointers.values());
+  const [a, b] = values;
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function getPointerMidpoint() {
+  if (panState.pointers.size < 2) {
+    return null;
+  }
+  const values = Array.from(panState.pointers.values());
+  const [a, b] = values;
+  return { clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 };
+}
+
+function isZoomTarget(event) {
+  if (!wallStage) {
+    return false;
+  }
+  const blocked = event.target.closest(".palette-sticker, .zoom-controls, #noteDialog, .note-dialog, .dialog-actions");
+  return !blocked;
 }
 
 function ensureDeviceId() {
@@ -1124,47 +1473,18 @@ function randomWithinViewBox() {
   };
 }
 
+function clampNumber(value, min, max) {
+  if (Number.isNaN(value)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
 function clampToViewBox(value, isY = false) {
   if (isY) {
     return Math.min(viewBox.y + viewBox.height - STICKER_RADIUS, Math.max(viewBox.y + STICKER_RADIUS, value));
   }
   return Math.min(viewBox.x + viewBox.width - STICKER_RADIUS, Math.max(viewBox.x + STICKER_RADIUS, value));
-}
-
-function distanceBetweenPoints(a, b) {
-  if (!a || !b) {
-    return 0;
-  }
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function centroidFromPoints(points) {
-  if (!Array.isArray(points) || !points.length) {
-    return { x: 0, y: 0 };
-  }
-  const sum = points.reduce(
-    (acc, point) => {
-      acc.x += point.x;
-      acc.y += point.y;
-      return acc;
-    },
-    { x: 0, y: 0 },
-  );
-  return { x: sum.x / points.length, y: sum.y / points.length };
-}
-
-function clampValue(value, min, max) {
-  if (!Number.isFinite(value)) {
-    return Number.isFinite(min) ? min : 0;
-  }
-  let result = value;
-  if (Number.isFinite(min) && result < min) {
-    result = min;
-  }
-  if (Number.isFinite(max) && result > max) {
-    result = max;
-  }
-  return result;
 }
 
 function clientToSvg(clientX, clientY) {

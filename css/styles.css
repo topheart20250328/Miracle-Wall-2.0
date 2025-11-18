@@ -9,6 +9,9 @@
   --shadow-xl: 0 25px 60px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
   --sticker-diameter: 36px;
+  --marquee-speed-factor: 0.6;
+  --marquee-start-offset: calc(100vw + 100%);
+  --marquee-end-offset: calc(-100vw - 100%);
   font-size: 16px;
 }
 
@@ -102,6 +105,80 @@ main::before {
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
+}
+
+.marquee-layer {
+  position: fixed;
+  inset: 0;
+  padding: clamp(1rem, 4vh, 2rem) clamp(1rem, 4vw, 2.25rem);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.6rem;
+  z-index: 5;
+}
+
+.marquee-line {
+  overflow: hidden;
+  font-size: clamp(1.75rem, 3vw, 2.35rem);
+  letter-spacing: 0.15em;
+  color: #ffffff;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.marquee-line.is-active {
+  opacity: 1;
+}
+
+.marquee-track {
+  display: inline-flex;
+  align-items: center;
+  min-width: max-content;
+  gap: 4rem;
+  white-space: nowrap;
+  transform: translateX(var(--marquee-start-offset, calc(100vw + 100%)));
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: none;
+  animation-duration: calc(var(--marquee-duration, 30s) / var(--marquee-speed-factor, 0.3));
+  animation-timing-function: linear;
+  animation-iteration-count: 1;
+  animation-fill-mode: forwards;
+}
+
+.marquee-line.is-active .marquee-track {
+  animation-name: marquee-slide;
+}
+
+.marquee-text {
+  white-space: nowrap;
+}
+
+@keyframes marquee-slide {
+  0% {
+    transform: translateX(var(--marquee-start-offset, calc(100vw + 100%)));
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(var(--marquee-end-offset, calc(-100vw - 100%)));
+    opacity: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  :root {
+    --marquee-speed-factor: 0.75;
+  }
 }
 
 .effect-preview {
@@ -218,7 +295,7 @@ main::before {
   }
 }
 
-.wall-wrapper {
+.wall-stage {
   position: relative;
   display: flex;
   align-items: center;
@@ -231,6 +308,19 @@ main::before {
   aspect-ratio: 3500 / 1779.31;
   margin: 0 auto;
   overflow: visible;
+  z-index: 20;
+}
+
+.wall-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+  will-change: transform;
+  transform-origin: center;
 }
 
 #wallSvg {
@@ -239,9 +329,6 @@ main::before {
   max-height: calc(100vh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem));
   display: block;
   transition: width 240ms ease;
-  touch-action: none;
-  transform-origin: 0 0;
-  will-change: transform;
 }
 
 #ambientLayer {
@@ -279,7 +366,7 @@ main::before {
     --main-padding-inline: clamp(1.5rem, 5vw, 3.5rem);
   }
 
-  .wall-wrapper {
+  .wall-stage {
     width: min(
       100vw - clamp(0.5rem, 3vw, 2rem),
       calc((100vh - var(--main-padding-top) - var(--main-padding-bottom)) * 1.96795)
@@ -363,7 +450,57 @@ main::before {
   border-radius: 999px;
   box-shadow: none;
   backdrop-filter: none;
-  z-index: 80;
+  z-index: 1400;
+}
+
+.zoom-controls {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + clamp(0.5rem, 2.4vh, 1.2rem));
+  left: clamp(0.6rem, 4vw, 1.2rem);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(12, 12, 16, 0.62);
+  box-shadow: 0 18px 34px rgba(5, 5, 8, 0.5);
+  backdrop-filter: blur(14px);
+  z-index: 1500;
+}
+
+.zoom-btn,
+.zoom-reset {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.zoom-btn:hover,
+.zoom-btn:focus-visible,
+.zoom-reset:hover,
+.zoom-reset:focus-visible {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fffef6;
+  transform: translateY(-1px);
+}
+
+.zoom-indicator {
+  min-width: 3.6rem;
+  text-align: center;
+  font-size: 0.95rem;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.zoom-reset {
+  font-size: 0.95rem;
+  padding-inline: 0.7rem;
 }
 
 .palette-sticker {
@@ -825,7 +962,7 @@ body.placement-active #paletteSticker svg {
 }
 
 @media (max-width: 900px) {
-  .wall-wrapper {
+  .wall-stage {
     width: min(92vw, 900px);
     max-width: none;
   }
@@ -837,9 +974,37 @@ body.placement-active #paletteSticker svg {
     transform: translateX(-50%);
     width: auto;
     margin: 0;
-    z-index: 60;
+    z-index: 1400;
   }
 
+}
+
+@media (max-width: 640px) {
+  .drag-palette {
+    bottom: calc(env(safe-area-inset-bottom) + clamp(3.4rem, 10vh, 5rem));
+  }
+
+  .zoom-controls {
+    top: auto;
+    bottom: calc(env(safe-area-inset-bottom) + 0.65rem);
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    padding: 0.3rem 0.65rem;
+    gap: 0.3rem;
+    justify-content: center;
+  }
+
+  .zoom-btn,
+  .zoom-reset {
+    padding: 0.3rem 0.65rem;
+    font-size: 0.9rem;
+  }
+
+  .zoom-indicator {
+    min-width: 3.1rem;
+    font-size: 0.88rem;
+  }
 }
 
 @media (max-width: 520px) {
