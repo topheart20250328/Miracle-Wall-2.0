@@ -10,9 +10,8 @@
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
   --sticker-diameter: 36px;
   --marquee-speed-factor: 0.6;
-  --marquee-edge-cushion: clamp(1.5rem, 4vw, 3rem);
-  --marquee-start-offset: calc(100% + var(--marquee-edge-cushion));
-  --marquee-end-offset: calc(-100% - var(--marquee-edge-cushion));
+  --marquee-start-offset: calc(100vw + 100%);
+  --marquee-end-offset: calc(-100vw - 100%);
   font-size: 16px;
 }
 
@@ -153,7 +152,7 @@ main::before {
   min-width: max-content;
   gap: 4rem;
   white-space: nowrap;
-  transform: translate3d(var(--marquee-start-offset, 100%), 0, 0);
+  transform: translateX(var(--marquee-start-offset, calc(100vw + 100%)));
   opacity: 0;
   will-change: transform, opacity;
   animation: none;
@@ -173,7 +172,7 @@ main::before {
 
 @keyframes marquee-slide {
   0% {
-    transform: translate3d(var(--marquee-start-offset, 100%), 0, 0);
+    transform: translateX(var(--marquee-start-offset, calc(100vw + 100%)));
     opacity: 0;
   }
   8% {
@@ -183,7 +182,7 @@ main::before {
     opacity: 1;
   }
   100% {
-    transform: translate3d(var(--marquee-end-offset, -100%), 0, 0);
+    transform: translateX(var(--marquee-end-offset, calc(-100vw - 100%)));
     opacity: 0;
   }
 }
