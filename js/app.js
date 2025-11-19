@@ -13,6 +13,11 @@ const paletteSticker = document.getElementById("paletteSticker");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomResetBtn = document.getElementById("zoomResetBtn");
 const zoomIndicator = document.getElementById("zoomIndicator");
+const settingsBtn = document.getElementById("settingsBtn");
+const settingsDialog = document.getElementById("settingsDialog");
+const settingsCloseBtn = document.getElementById("settingsCloseBtn");
+const settingsForm = document.getElementById("settingsForm");
+const audioToggle = document.getElementById("audioToggle");
 const marqueeLayer = document.getElementById("marqueeLayer");
 const marqueeLines = marqueeLayer ? Array.from(marqueeLayer.querySelectorAll(".marquee-line")) : [];
 const MAX_ACTIVE_MARQUEE_LINES = 3;
@@ -50,6 +55,9 @@ const ambientState = {
   resizeTimer: null,
 };
 const DEVICE_STORAGE_KEY = "wallDeviceId";
+const AUDIO_PREF_KEY = "wallAudioPreference";
+const AUDIO_PREF_ON = "on";
+const AUDIO_PREF_OFF = "off";
 let timestampFormatter = null;
 try {
   timestampFormatter = new Intl.DateTimeFormat("zh-TW", {
@@ -131,11 +139,18 @@ const state = {
   lastPendingToast: 0,
   deviceId: initialDeviceId ?? null,
 };
+const userAgent = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
+const isIOSDevice = /iPad|iPhone|iPod/i.test(userAgent);
+const isLineInApp = /Line\//i.test(userAgent);
+const requiresStickerForceRedraw = isIOSDevice || isLineInApp;
 const backgroundAudioState = {
   unlocked: !backgroundAudio,
   attempting: false,
   listenersBound: false,
   lastError: null,
+  enabled: loadAudioPreference() !== AUDIO_PREF_OFF,
+  resumeOnVisible: false,
+  tryUnlock: null,
 };
 
 if (mediaPrefersReducedMotion) {
@@ -155,6 +170,7 @@ if (mediaPrefersReducedMotion) {
 
 init().catch((err) => console.error(err));
 setupBackgroundAudioAutoplay();
+initSettingsDialog();
 
 function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
@@ -228,18 +244,9 @@ function setupBackgroundAudioAutoplay() {
     return;
   }
   const interactionEvents = ["pointerdown", "touchstart", "keydown"];
-  const handleInteraction = (event) => {
-    tryUnlock(event.type);
-  };
-  const detachInteractionListeners = () => {
-    if (!backgroundAudioState.listenersBound) {
-      return;
-    }
-    interactionEvents.forEach((eventName) => document.removeEventListener(eventName, handleInteraction));
-    backgroundAudioState.listenersBound = false;
-  };
+
   const tryUnlock = (reason = "auto") => {
-    if (backgroundAudioState.unlocked || backgroundAudioState.attempting) {
+    if (!backgroundAudioState.enabled || backgroundAudioState.unlocked || backgroundAudioState.attempting) {
       return;
     }
     backgroundAudioState.attempting = true;
@@ -262,17 +269,160 @@ function setupBackgroundAudioAutoplay() {
         console.warn("背景音樂播放遭到阻擋 (" + reason + ")", error);
       });
   };
-  interactionEvents.forEach((eventName) => document.addEventListener(eventName, handleInteraction, { passive: true }));
-  backgroundAudioState.listenersBound = true;
-  document.addEventListener("visibilitychange", () => {
-    if (!backgroundAudioState.unlocked || !backgroundAudio) {
+
+  backgroundAudioState.tryUnlock = tryUnlock;
+
+  const handleInteraction = (event) => {
+    if (!backgroundAudioState.enabled) {
       return;
     }
-    if (document.visibilityState === "visible" && backgroundAudio.paused) {
-      backgroundAudio.play().catch((error) => console.warn("背景音樂恢復播放失敗", error));
+    tryUnlock(event.type);
+  };
+
+  const detachInteractionListeners = () => {
+    if (!backgroundAudioState.listenersBound) {
+      return;
+    }
+    interactionEvents.forEach((eventName) => document.removeEventListener(eventName, handleInteraction));
+    backgroundAudioState.listenersBound = false;
+  };
+
+  interactionEvents.forEach((eventName) => document.addEventListener(eventName, handleInteraction, { passive: true }));
+  backgroundAudioState.listenersBound = true;
+
+  const handleVisibilityChange = () => {
+    if (!backgroundAudio) {
+      return;
+    }
+    if (document.visibilityState === "hidden") {
+      if (!backgroundAudio.paused && backgroundAudioState.enabled) {
+        backgroundAudioState.resumeOnVisible = true;
+        backgroundAudio.pause().catch((error) => console.warn("背景音樂暫停失敗", error));
+      } else {
+        backgroundAudioState.resumeOnVisible = false;
+      }
+      return;
+    }
+    if (document.visibilityState === "visible") {
+      if (backgroundAudioState.resumeOnVisible && backgroundAudioState.enabled) {
+        tryUnlock("visibility");
+      }
+      backgroundAudioState.resumeOnVisible = false;
+    }
+  };
+
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  if (backgroundAudioState.enabled) {
+    tryUnlock("auto");
+  } else {
+    backgroundAudio.muted = true;
+    backgroundAudio.pause().catch((error) => console.warn("背景音樂靜音失敗", error));
+  }
+  updateAudioToggleUI();
+}
+
+function initSettingsDialog() {
+  if (!settingsBtn || !settingsDialog) {
+    return;
+  }
+  const openDialog = () => {
+    updateAudioToggleUI();
+    if (typeof settingsDialog.showModal === "function") {
+      if (!settingsDialog.open) {
+        settingsDialog.showModal();
+      }
+    } else {
+      settingsDialog.setAttribute("open", "open");
+    }
+  };
+  const closeDialog = () => {
+    if (typeof settingsDialog.close === "function" && settingsDialog.open) {
+      settingsDialog.close();
+    } else {
+      settingsDialog.removeAttribute("open");
+    }
+    settingsBtn?.focus();
+  };
+  settingsBtn.addEventListener("click", openDialog);
+  settingsCloseBtn?.addEventListener("click", closeDialog);
+  settingsDialog.addEventListener("click", (event) => {
+    if (event.target === settingsDialog) {
+      closeDialog();
     }
   });
-  tryUnlock("auto");
+  settingsDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeDialog();
+  });
+  settingsDialog.addEventListener("close", () => {
+    updateAudioToggleUI();
+  });
+  settingsForm?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    closeDialog();
+  });
+  audioToggle?.addEventListener("change", (event) => {
+    setAudioPreference(Boolean(event.target.checked));
+  });
+  updateAudioToggleUI();
+}
+
+function setAudioPreference(enabled) {
+  backgroundAudioState.enabled = Boolean(enabled);
+  persistAudioPreference(enabled ? AUDIO_PREF_ON : AUDIO_PREF_OFF);
+  updateAudioToggleUI();
+  applyAudioPreference();
+}
+
+function applyAudioPreference() {
+  if (!backgroundAudio) {
+    return;
+  }
+  if (!backgroundAudioState.enabled) {
+    backgroundAudio.muted = true;
+    backgroundAudioState.resumeOnVisible = false;
+    backgroundAudio.pause().catch((error) => console.warn("背景音樂靜音失敗", error));
+    return;
+  }
+  backgroundAudio.muted = false;
+  if (backgroundAudioState.unlocked) {
+    if (backgroundAudio.paused) {
+      backgroundAudio.play().catch((error) => console.warn("背景音樂播放失敗", error));
+    }
+    return;
+  }
+  backgroundAudioState.tryUnlock?.("preference");
+}
+
+function updateAudioToggleUI() {
+  if (!audioToggle) {
+    return;
+  }
+  audioToggle.checked = Boolean(backgroundAudioState.enabled);
+}
+
+function loadAudioPreference() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return AUDIO_PREF_ON;
+  }
+  try {
+    return window.localStorage.getItem(AUDIO_PREF_KEY) ?? AUDIO_PREF_ON;
+  } catch (error) {
+    console.warn("讀取音訊偏好失敗", error);
+    return AUDIO_PREF_ON;
+  }
+}
+
+function persistAudioPreference(value) {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(AUDIO_PREF_KEY, value);
+  } catch (error) {
+    console.warn("寫入音訊偏好失敗", error);
+  }
 }
 
 function handleEagleClick(event) {
@@ -682,6 +832,22 @@ function applyPanDelta(deltaX, deltaY) {
 
 function invalidateStickerRendering() {
   if (!stickersLayer || typeof window === "undefined") {
+    return;
+  }
+  if (requiresStickerForceRedraw) {
+    const parent = stickersLayer.parentNode;
+    if (!parent) {
+      return;
+    }
+    const nextSibling = stickersLayer.nextSibling;
+    parent.removeChild(stickersLayer);
+    window.requestAnimationFrame(() => {
+      if (nextSibling && nextSibling.parentNode === parent) {
+        parent.insertBefore(stickersLayer, nextSibling);
+      } else {
+        parent.appendChild(stickersLayer);
+      }
+    });
     return;
   }
   const originals = Array.from(stickersLayer.children);
@@ -1616,15 +1782,18 @@ function resetNoteInputScrollPosition() {
 }
 
 function clientToSvg(clientX, clientY) {
-  const matrix = wallSvg.getScreenCTM();
-  if (!matrix) {
+  if (!wallSvg) {
     return null;
   }
-  const point = wallSvg.createSVGPoint();
-  point.x = clientX;
-  point.y = clientY;
-  const transformed = point.matrixTransform(matrix.inverse());
-  return { x: transformed.x, y: transformed.y };
+  const rect = wallSvg.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return null;
+  }
+  const normalizedX = (clientX - rect.left) / rect.width;
+  const normalizedY = (clientY - rect.top) / rect.height;
+  const svgX = viewBox.x + normalizedX * viewBox.width;
+  const svgY = viewBox.y + normalizedY * viewBox.height;
+  return { x: svgX, y: svgY };
 }
 
 const STATUS_TOAST_TIMEOUT = 2600;

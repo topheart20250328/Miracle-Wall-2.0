@@ -133,6 +133,7 @@
           </svg>
         </div>
         <div class="zoom-controls" role="group" aria-label="縮放控制">
+          <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
           <label for="zoomSlider" class="sr-only">縮放百分比</label>
           <input
             type="range"
@@ -183,6 +184,35 @@
         <button type="button" id="cancelModalBtn" class="ghost">返回</button>
         <button type="button" id="deleteStickerBtn" class="danger" hidden>刪除</button>
         <button type="submit" class="primary">儲存</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle">
+    <form method="dialog" id="settingsForm" class="settings-form">
+      <header class="settings-header">
+        <div>
+          <p class="settings-kicker">偏好設定</p>
+          <h2 id="settingsTitle">顯示與音訊</h2>
+        </div>
+        <button type="button" id="settingsCloseBtn" class="settings-close" aria-label="關閉設定">✕</button>
+      </header>
+      <section class="settings-section" aria-labelledby="audioSettingLabel">
+        <div class="settings-row">
+          <div>
+            <p id="audioSettingLabel" class="settings-label">背景音樂</p>
+            <p class="settings-description">切換播放狀態，縮小或離開頁面時會自動停止。</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="audioToggle" role="switch" aria-labelledby="audioSettingLabel">
+            <span class="switch-track" aria-hidden="true">
+              <span class="switch-thumb"></span>
+            </span>
+          </label>
+        </div>
+      </section>
+      <footer class="settings-footer">
+        <button type="submit" class="settings-primary" value="close">完成</button>
       </footer>
     </form>
   </dialog>
