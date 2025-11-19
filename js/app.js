@@ -21,9 +21,12 @@ const MARQUEE_STAGGER_DELAY_MS = 3800;
 const MARQUEE_RESPAWN_DELAY_MS = 900;
 const MARQUEE_SEED_JITTER_MS = 900;
 const MARQUEE_RESPAWN_JITTER_MS = 450;
+const MARQUEE_RECENT_COUNT = 5;
+const MARQUEE_RECENT_WEIGHT = 3;
 const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)";
 const MOBILE_SEED_BURST_COUNT = 2;
 const statusToast = document.getElementById("statusToast");
+const backgroundAudio = document.getElementById("backgroundAudio");
 const noteDialog = document.getElementById("noteDialog");
 const noteForm = document.getElementById("noteForm");
 const noteInput = document.getElementById("noteInput");
@@ -61,7 +64,14 @@ try {
   console.warn("Timestamp formatter unavailable", error);
 }
 
-const viewBox = wallSvg.viewBox.baseVal;
+const liveViewBox = wallSvg.viewBox.baseVal;
+const viewBox = {
+  x: liveViewBox.x,
+  y: liveViewBox.y,
+  width: liveViewBox.width,
+  height: liveViewBox.height,
+};
+const WALL_ASPECT_RATIO = viewBox.width && viewBox.height ? viewBox.width / viewBox.height : 1;
 const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 const MIN_DISTANCE = STICKER_DIAMETER + 8;
@@ -77,15 +87,17 @@ const zoomState = {
   scale: 1,
   minScale: 1,
   maxScale: 5,
-  x: 0,
-  y: 0,
+};
+const viewportState = {
+  offsetX: 0,
+  offsetY: 0,
 };
 const panState = {
   pointerId: null,
   startX: 0,
   startY: 0,
-  originX: 0,
-  originY: 0,
+  startOffsetX: 0,
+  startOffsetY: 0,
   moved: false,
   pointers: new Map(),
   pinchStartDistance: 0,
@@ -119,6 +131,12 @@ const state = {
   lastPendingToast: 0,
   deviceId: initialDeviceId ?? null,
 };
+const backgroundAudioState = {
+  unlocked: !backgroundAudio,
+  attempting: false,
+  listenersBound: false,
+  lastError: null,
+};
 
 if (mediaPrefersReducedMotion) {
   const handleMotionPreferenceChange = (event) => {
@@ -136,6 +154,7 @@ if (mediaPrefersReducedMotion) {
 }
 
 init().catch((err) => console.error(err));
+setupBackgroundAudioAutoplay();
 
 function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
@@ -202,6 +221,58 @@ async function loadExistingStickers() {
   });
   updateMarqueePool();
   initMarqueeTicker();
+}
+
+function setupBackgroundAudioAutoplay() {
+  if (!backgroundAudio) {
+    return;
+  }
+  const interactionEvents = ["pointerdown", "touchstart", "keydown"];
+  const handleInteraction = (event) => {
+    tryUnlock(event.type);
+  };
+  const detachInteractionListeners = () => {
+    if (!backgroundAudioState.listenersBound) {
+      return;
+    }
+    interactionEvents.forEach((eventName) => document.removeEventListener(eventName, handleInteraction));
+    backgroundAudioState.listenersBound = false;
+  };
+  const tryUnlock = (reason = "auto") => {
+    if (backgroundAudioState.unlocked || backgroundAudioState.attempting) {
+      return;
+    }
+    backgroundAudioState.attempting = true;
+    const attempt = backgroundAudio.play();
+    if (!attempt || typeof attempt.then !== "function") {
+      backgroundAudioState.unlocked = true;
+      backgroundAudioState.attempting = false;
+      detachInteractionListeners();
+      return;
+    }
+    attempt
+      .then(() => {
+        backgroundAudioState.unlocked = true;
+        backgroundAudioState.attempting = false;
+        detachInteractionListeners();
+      })
+      .catch((error) => {
+        backgroundAudioState.attempting = false;
+        backgroundAudioState.lastError = error;
+        console.warn("背景音樂播放遭到阻擋 (" + reason + ")", error);
+      });
+  };
+  interactionEvents.forEach((eventName) => document.addEventListener(eventName, handleInteraction, { passive: true }));
+  backgroundAudioState.listenersBound = true;
+  document.addEventListener("visibilitychange", () => {
+    if (!backgroundAudioState.unlocked || !backgroundAudio) {
+      return;
+    }
+    if (document.visibilityState === "visible" && backgroundAudio.paused) {
+      backgroundAudio.play().catch((error) => console.warn("背景音樂恢復播放失敗", error));
+    }
+  });
+  tryUnlock("auto");
 }
 
 function handleEagleClick(event) {
@@ -422,7 +493,7 @@ function initZoomControls() {
   if (!wallStage || !wallWrapper) {
     return;
   }
-  applyViewTransform();
+  applyZoomTransform();
   updateZoomIndicator();
   wallStage.addEventListener("wheel", handleStageWheel, { passive: false });
   wallStage.addEventListener("pointerdown", handleStagePointerDown);
@@ -443,8 +514,7 @@ function initZoomControls() {
 }
 
 function updateZoomStageMetrics() {
-  clampPan();
-  applyViewTransform();
+  applyZoomTransform();
   updateZoomIndicator();
 }
 
@@ -482,8 +552,8 @@ function handleStagePointerDown(event) {
   panState.pointerId = event.pointerId;
   panState.startX = event.clientX;
   panState.startY = event.clientY;
-  panState.originX = zoomState.x;
-  panState.originY = zoomState.y;
+  panState.startOffsetX = viewportState.offsetX;
+  panState.startOffsetY = viewportState.offsetY;
   panState.moved = false;
 }
 
@@ -521,7 +591,7 @@ function handleStagePointerMove(event) {
   if (!panState.moved && event.pointerType !== "touch") {
     return;
   }
-  updatePanPosition(panState.originX + dx, panState.originY + dy);
+  applyPanDelta(dx, dy);
   if (event.pointerType === "touch") {
     event.preventDefault();
   }
@@ -561,10 +631,9 @@ function resetZoomView() {
   panState.pointers.clear();
   panState.pinchStartDistance = 0;
   zoomState.scale = 1;
-  zoomState.x = 0;
-  zoomState.y = 0;
-  clampPan();
-  applyViewTransform();
+  viewportState.offsetX = 0;
+  viewportState.offsetY = 0;
+  applyZoomTransform();
   updateZoomIndicator();
 }
 
@@ -574,40 +643,56 @@ function setZoomScale(nextScale, anchorEvent) {
     updateZoomIndicator();
     return;
   }
-  const stageRect = wallStage.getBoundingClientRect();
-  const centerX = stageRect.left + stageRect.width / 2;
-  const centerY = stageRect.top + stageRect.height / 2;
-  const anchorX = (anchorEvent?.clientX ?? centerX) - centerX;
-  const anchorY = (anchorEvent?.clientY ?? centerY) - centerY;
-  const relativeX = (anchorX - zoomState.x) / zoomState.scale;
-  const relativeY = (anchorY - zoomState.y) / zoomState.scale;
+  const anchorPoint = anchorEvent ?? getStageCenterPoint();
+  let offsetX = viewportState.offsetX;
+  let offsetY = viewportState.offsetY;
+  if (anchorPoint) {
+    const stageRect = wallStage.getBoundingClientRect();
+    if (stageRect.width && stageRect.height) {
+      const centerX = stageRect.left + stageRect.width / 2;
+      const centerY = stageRect.top + stageRect.height / 2;
+      const relativeX = anchorPoint.clientX - centerX;
+      const relativeY = anchorPoint.clientY - centerY;
+      const scaleDelta = clamped / zoomState.scale;
+      offsetX = relativeX - scaleDelta * (relativeX - viewportState.offsetX);
+      offsetY = relativeY - scaleDelta * (relativeY - viewportState.offsetY);
+    }
+  }
   zoomState.scale = clamped;
-  zoomState.x = anchorX - relativeX * clamped;
-  zoomState.y = anchorY - relativeY * clamped;
-  clampPan();
-  applyViewTransform();
+  viewportState.offsetX = offsetX;
+  viewportState.offsetY = offsetY;
+  applyZoomTransform();
   updateZoomIndicator();
 }
 
-function updatePanPosition(nextX, nextY) {
-  zoomState.x = nextX;
-  zoomState.y = nextY;
-  clampPan();
-  applyViewTransform();
+function applyZoomTransform() {
+  if (!wallSvg) {
+    return;
+  }
+  wallSvg.style.transformOrigin = "center";
+  wallSvg.style.transform = `translate3d(${viewportState.offsetX}px, ${viewportState.offsetY}px, 0) scale(${zoomState.scale})`;
+  invalidateStickerRendering();
 }
 
-function applyViewTransform() {
-  if (!wallWrapper) {
+function applyPanDelta(deltaX, deltaY) {
+  viewportState.offsetX = panState.startOffsetX + deltaX;
+  viewportState.offsetY = panState.startOffsetY + deltaY;
+  applyZoomTransform();
+}
+
+function invalidateStickerRendering() {
+  if (!stickersLayer || typeof window === "undefined") {
     return;
   }
-  const nearZeroX = Math.abs(zoomState.x) < 0.01;
-  const nearZeroY = Math.abs(zoomState.y) < 0.01;
-  const nearUnitScale = Math.abs(zoomState.scale - 1) < 0.001;
-  if (nearZeroX && nearZeroY && nearUnitScale) {
-    wallWrapper.style.transform = "";
+  const originals = Array.from(stickersLayer.children);
+  if (!originals.length) {
     return;
   }
-  wallWrapper.style.transform = `translate(${zoomState.x}px, ${zoomState.y}px) scale(${zoomState.scale})`;
+  const fragment = document.createDocumentFragment();
+  originals.forEach((node) => fragment.appendChild(node));
+  window.requestAnimationFrame(() => {
+    stickersLayer.appendChild(fragment);
+  });
 }
 
 function updateZoomIndicator() {
@@ -625,7 +710,19 @@ function handleZoomSliderInput(event) {
     return;
   }
   const sliderScale = value / 100;
-  setZoomScale(sliderScale);
+  const centerEvent = getStageCenterPoint();
+  setZoomScale(sliderScale, centerEvent);
+}
+
+function getStageCenterPoint() {
+  if (!wallStage) {
+    return null;
+  }
+  const rect = wallStage.getBoundingClientRect();
+  return {
+    clientX: rect.left + rect.width / 2,
+    clientY: rect.top + rect.height / 2,
+  };
 }
 
 function syncZoomSlider() {
@@ -644,39 +741,31 @@ function updateZoomResetState() {
     return;
   }
   const nearScale = Math.abs(zoomState.scale - 1) < 0.01;
-  const nearX = Math.abs(zoomState.x) < 0.5;
-  const nearY = Math.abs(zoomState.y) < 0.5;
-  const disabled = nearScale && nearX && nearY;
-  zoomResetBtn.disabled = disabled;
-  zoomResetBtn.setAttribute("aria-disabled", disabled ? "true" : "false");
+  const nearOffsetX = Math.abs(viewportState.offsetX) < 1;
+  const nearOffsetY = Math.abs(viewportState.offsetY) < 1;
+  const atDefault = nearScale && nearOffsetX && nearOffsetY;
+  zoomResetBtn.disabled = false;
+  zoomResetBtn.setAttribute("aria-disabled", "false");
+  zoomResetBtn.classList.toggle("is-inactive", atDefault);
 }
 
-function clampPan() {
-  if (!wallStage || !wallWrapper) {
-    return;
-  }
-  const stageRect = wallStage.getBoundingClientRect();
-  const contentWidth = wallWrapper.offsetWidth;
-  const contentHeight = wallWrapper.offsetHeight;
-  const scaledWidth = contentWidth * zoomState.scale;
-  const scaledHeight = contentHeight * zoomState.scale;
-  const freePanX = stageRect.width * 0.5;
-  const freePanY = stageRect.height * 0.5;
-  const halfWidthDiff = (scaledWidth - stageRect.width) / 2;
-  const halfHeightDiff = (scaledHeight - stageRect.height) / 2;
-  const maxX = Math.max(freePanX, halfWidthDiff);
-  const maxY = Math.max(freePanY, halfHeightDiff);
-  zoomState.x = clampNumber(zoomState.x, -maxX, maxX);
-  zoomState.y = clampNumber(zoomState.y, -maxY, maxY);
-}
 
 function updateMarqueePool() {
   if (!marqueeLines.length) {
     return;
   }
-  marqueeState.pool = Array.from(state.stickers.values())
-    .filter((record) => record.isApproved && (record.note ?? "").trim().length)
-    .map((record) => record.note.trim());
+  const approvedRecords = Array.from(state.stickers.values()).filter((record) => record.isApproved && (record.note ?? "").trim().length);
+  const baseNotes = approvedRecords.map((record) => record.note.trim());
+  if (baseNotes.length && MARQUEE_RECENT_WEIGHT > 1) {
+    const recentRecords = approvedRecords.slice(-MARQUEE_RECENT_COUNT);
+    recentRecords.forEach((record) => {
+      const note = record.note.trim();
+      for (let i = 1; i < MARQUEE_RECENT_WEIGHT; i += 1) {
+        baseNotes.push(note);
+      }
+    });
+  }
+  marqueeState.pool = baseNotes;
   if (marqueeState.initialized) {
     refreshMarqueeFlow();
   }
@@ -970,6 +1059,7 @@ function beginPlacement(x, y) {
   };
   dialogTitle.textContent = "新增神蹟留言";
   noteInput.value = "";
+  resetNoteInputScrollPosition();
   formError.textContent = "";
   setTimestampDisplay(null);
   setNoteLocked(false);
@@ -1344,7 +1434,7 @@ function triggerPendingReviewFeedback(record) {
   }
   const now = Date.now();
   if (now - (state.lastPendingToast ?? 0) > 1400) {
-    showToast("留言審核中，暫時無法查看", "info");
+    showToast("審核中，無法查看", "info");
     state.lastPendingToast = now;
   }
 }
@@ -1396,6 +1486,7 @@ function openStickerModal(id) {
   };
   dialogTitle.textContent = "神蹟留言";
   noteInput.value = record.note ?? "";
+  resetNoteInputScrollPosition();
   formError.textContent = "";
   setTimestampDisplay(record);
   const lockReason = resolveLockReason(record);
@@ -1506,6 +1597,22 @@ function clampToViewBox(value, isY = false) {
     return Math.min(viewBox.y + viewBox.height - STICKER_RADIUS, Math.max(viewBox.y + STICKER_RADIUS, value));
   }
   return Math.min(viewBox.x + viewBox.width - STICKER_RADIUS, Math.max(viewBox.x + STICKER_RADIUS, value));
+}
+
+function resetNoteInputScrollPosition() {
+  if (!noteInput) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    noteInput.scrollTop = 0;
+    if (typeof noteInput.setSelectionRange === "function") {
+      try {
+        noteInput.setSelectionRange(0, 0);
+      } catch {
+        // ignore selection errors (e.g., readOnly inputs on some devices)
+      }
+    }
+  });
 }
 
 function clientToSvg(clientX, clientY) {

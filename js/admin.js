@@ -196,6 +196,7 @@ function renderEntries() {
     return;
   }
   const fragment = document.createDocumentFragment();
+  const total = state.entries.length;
   state.entries.forEach((entry, index) => {
     const clone = rowTemplate.content.firstElementChild.cloneNode(true);
     clone.dataset.id = entry.id;
@@ -210,8 +211,9 @@ function renderEntries() {
     const statusBadge = clone.querySelector(".status-badge");
     const approveButton = clone.querySelector('button[data-action="approve"]');
 
+    const displayNumber = total - index;
     if (numberCell) {
-      numberCell.textContent = `#${index + 1}`;
+      numberCell.textContent = `#${displayNumber}`;
     }
     if (idCell) {
       idCell.textContent = entry.id;
@@ -233,12 +235,12 @@ function renderEntries() {
       const rotationText = rotationValue.toString();
       rotationInput.value = rotationText;
       rotationInput.dataset.originalValue = rotationText;
-      rotationInput.setAttribute("aria-label", `留言 #${index + 1} 的旋轉角度`);
+      rotationInput.setAttribute("aria-label", `留言 #${displayNumber} 的旋轉角度`);
     }
     if (noteInputNode) {
       noteInputNode.value = entry.note ?? "";
       noteInputNode.dataset.originalValue = noteInputNode.value;
-      noteInputNode.setAttribute("aria-label", `留言 #${index + 1} 的內容`);
+      noteInputNode.setAttribute("aria-label", `留言 #${displayNumber} 的內容`);
     }
     if (approveButton) {
       approveButton.hidden = approved;

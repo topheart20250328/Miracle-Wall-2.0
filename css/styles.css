@@ -10,8 +10,9 @@
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
   --sticker-diameter: 36px;
   --marquee-speed-factor: 0.6;
-  --marquee-start-offset: calc(100vw + 100%);
-  --marquee-end-offset: calc(-100vw - 100%);
+  --marquee-edge-cushion: clamp(1.5rem, 4vw, 3rem);
+  --marquee-start-offset: calc(100% + var(--marquee-edge-cushion));
+  --marquee-end-offset: calc(-100% - var(--marquee-edge-cushion));
   font-size: 16px;
 }
 
@@ -152,7 +153,7 @@ main::before {
   min-width: max-content;
   gap: 4rem;
   white-space: nowrap;
-  transform: translateX(var(--marquee-start-offset, calc(100vw + 100%)));
+  transform: translate3d(var(--marquee-start-offset, 100%), 0, 0);
   opacity: 0;
   will-change: transform, opacity;
   animation: none;
@@ -172,7 +173,7 @@ main::before {
 
 @keyframes marquee-slide {
   0% {
-    transform: translateX(var(--marquee-start-offset, calc(100vw + 100%)));
+    transform: translate3d(var(--marquee-start-offset, 100%), 0, 0);
     opacity: 0;
   }
   8% {
@@ -182,7 +183,7 @@ main::before {
     opacity: 1;
   }
   100% {
-    transform: translateX(var(--marquee-end-offset, calc(-100vw - 100%)));
+    transform: translate3d(var(--marquee-end-offset, -100%), 0, 0);
     opacity: 0;
   }
 }
@@ -320,6 +321,7 @@ main::before {
   aspect-ratio: 3500 / 1779.31;
   margin: 0 auto;
   overflow: visible;
+  isolation: isolate;
   z-index: 20;
 }
 
@@ -331,8 +333,8 @@ main::before {
   align-items: center;
   justify-content: center;
   touch-action: none;
-  will-change: transform;
   transform-origin: center;
+  will-change: transform;
 }
 
 #wallSvg {
@@ -340,7 +342,12 @@ main::before {
   height: auto;
   max-height: calc(100vh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem));
   display: block;
-  transition: width 240ms ease;
+  transition: none;
+  transform-origin: center;
+  will-change: transform;
+  shape-rendering: geometricPrecision;
+  text-rendering: optimizeLegibility;
+  image-rendering: optimizeQuality;
 }
 
 #ambientLayer {
@@ -533,13 +540,12 @@ main::before {
   transition: background 160ms ease, color 160ms ease, transform 160ms ease;
 }
 
-.zoom-reset:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.zoom-reset.is-inactive {
+  opacity: 0.48;
 }
 
-.zoom-reset:not(:disabled):hover,
-.zoom-reset:not(:disabled):focus-visible {
+.zoom-reset:hover,
+.zoom-reset:focus-visible {
   background: rgba(255, 255, 255, 0.2);
   color: #fffef6;
   transform: translateY(-1px);
@@ -975,11 +981,6 @@ main::before {
 
 .drag-ghost.invalid {
   filter: drop-shadow(0 0 18px rgba(255, 93, 93, 0.9));
-}
-
-body.placement-click #wallSvg,
-body.placement-drag #wallSvg {
-  filter: drop-shadow(0 0 24px rgba(244, 192, 96, 0.45));
 }
 
 body.placement-click #wallSvg {
