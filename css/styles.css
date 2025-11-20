@@ -34,6 +34,7 @@
 html,
 body {
   height: 100%;
+  overscroll-behavior: none;
 }
 
 html {
@@ -1146,28 +1147,30 @@ main::before {
 .drag-ghost {
   pointer-events: none;
   opacity: 0.7;
+  transition: filter 160ms ease, opacity 160ms ease;
 }
 
 .drag-ghost.valid {
   filter: drop-shadow(0 0 16px rgba(103, 245, 154, 0.9));
 }
 
-.drag-ghost.valid use {
-  stroke: rgba(103, 245, 154, 0.85);
-  stroke-width: 8;
-  stroke-linejoin: round;
-  paint-order: stroke fill;
-}
-
 .drag-ghost.invalid {
   filter: drop-shadow(0 0 18px rgba(255, 93, 93, 0.9));
 }
 
+.drag-ghost.valid use,
 .drag-ghost.invalid use {
-  stroke: rgba(255, 93, 93, 0.85);
+  /* Mobile Safari ignores drop-shadow on SVG, so fallback to stroke glow */
   stroke-width: 8;
-  stroke-linejoin: round;
   paint-order: stroke fill;
+}
+
+.drag-ghost.valid use {
+  stroke: rgba(103, 245, 154, 0.9);
+}
+
+.drag-ghost.invalid use {
+  stroke: rgba(255, 93, 93, 0.95);
 }
 
 body.placement-click #wallSvg {
