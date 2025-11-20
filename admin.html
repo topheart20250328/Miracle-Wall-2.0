@@ -37,6 +37,31 @@
           <button type="button" id="logoutBtn" class="ghost-btn">登出</button>
         </div>
       </header>
+      <section class="review-controls" id="reviewControls" hidden aria-live="polite">
+        <div class="review-card">
+          <div class="review-copy">
+            <p class="review-label" id="marqueeReviewLabel">審核跑馬燈</p>
+            <p class="review-description">開啟後，背景跑馬燈只會播放通過審核的文字。</p>
+            <span class="review-status" id="marqueeReviewStatus">需審核</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="marqueeApprovalToggle" role="switch" aria-labelledby="marqueeReviewLabel">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+        <div class="review-card nested" id="stickerReviewCard" hidden>
+          <div class="review-copy">
+            <p class="review-label" id="stickerReviewLabel">審核貼紙</p>
+            <p class="review-description">開啟後，牆面留言必須由管理員通過後才會公開。</p>
+            <span class="review-status" id="stickerReviewStatus">需審核</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="stickerApprovalToggle" role="switch" aria-labelledby="stickerReviewLabel">
+            <span class="switch-track"><span class="switch-thumb"></span></span>
+          </label>
+        </div>
+        <p class="review-hint" id="reviewHint">當關閉跑馬燈審核時，貼紙審核將自動關閉並隱藏。</p>
+      </section>
       <div id="loadingIndicator" class="loading-indicator" hidden>正在載入資料…</div>
       <div id="emptyState" class="empty-state" hidden>目前尚無留言。</div>
       <div class="table-wrapper" aria-live="polite">
@@ -46,7 +71,6 @@
               <th scope="col">編號</th>
               <th scope="col">資訊</th>
               <th scope="col">狀態</th>
-              <th scope="col">旋轉角度</th>
               <th scope="col">留言</th>
               <th scope="col">操作</th>
             </tr>
@@ -66,12 +90,10 @@
           <span class="created"></span>
           <span class="updated"></span>
         </div>
+        <div class="entry-coords" aria-label="座標"></div>
       </td>
       <td class="entry-status" data-label="狀態">
         <span class="status-badge" data-state="pending">審核中</span>
-      </td>
-      <td class="entry-rotation" data-label="旋轉角度">
-        <input type="number" class="rotation-input" min="0" max="359" step="1" inputmode="numeric" required>
       </td>
       <td class="entry-note" data-label="留言">
         <textarea class="note-input" rows="4" maxlength="800" required></textarea>

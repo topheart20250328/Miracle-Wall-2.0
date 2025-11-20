@@ -169,6 +169,112 @@ body {
   gap: 1rem;
 }
 
+.review-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 20px;
+  padding: 1rem 1.2rem;
+  background: rgba(12, 14, 18, 0.5);
+}
+
+.review-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  padding: 0.65rem 0.35rem;
+}
+
+.review-card.nested {
+  border-left: 2px dashed rgba(255, 255, 255, 0.12);
+  margin-left: 0.35rem;
+  padding-left: 1rem;
+}
+
+.review-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.review-label {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+}
+
+.review-description {
+  margin: 0.2rem 0 0.3rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.review-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+.review-status[data-state="off"] {
+  background: rgba(103, 245, 154, 0.16);
+  color: var(--success);
+}
+
+.review-hint {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch-track {
+  width: 3.4rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.2rem;
+  transition: background 160ms ease;
+}
+
+.switch-thumb {
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  background: #ffffff;
+  transform: translateX(0);
+  transition: transform 160ms ease;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+}
+
+.toggle-switch input:checked + .switch-track {
+  background: var(--accent);
+}
+
+.toggle-switch input:checked + .switch-track .switch-thumb {
+  transform: translateX(1.6rem);
+}
+
 .dashboard-title {
   margin: 0;
   font-size: clamp(1.4rem, 3vw, 1.8rem);
@@ -254,6 +360,13 @@ body {
   color: var(--text-muted);
 }
 
+.entry-coords {
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.7);
+}
+
 .entry-status {
   vertical-align: middle;
 }
@@ -279,16 +392,6 @@ body {
 .status-badge[data-state="approved"] {
   background: rgba(103, 245, 154, 0.18);
   color: var(--success);
-}
-
-.rotation-input {
-  width: 100%;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(0, 0, 0, 0.35);
-  color: #fff;
-  padding: 0.4rem 0.6rem;
-  letter-spacing: 0.04em;
 }
 
 .note-input {

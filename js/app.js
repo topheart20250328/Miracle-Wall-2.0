@@ -29,6 +29,7 @@ const MARQUEE_RESPAWN_JITTER_MS = 450;
 const MARQUEE_RECENT_COUNT = 5;
 const MARQUEE_RECENT_WEIGHT = 3;
 const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)";
+const MOBILE_VISIBLE_MARQUEE_INDICES = new Set([0, 1, 4, 5]);
 const MOBILE_SEED_BURST_COUNT = 2;
 const statusToast = document.getElementById("statusToast");
 const backgroundAudio = document.getElementById("backgroundAudio");
@@ -82,8 +83,10 @@ const viewBox = {
 const WALL_ASPECT_RATIO = viewBox.width && viewBox.height ? viewBox.width / viewBox.height : 1;
 const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
-const MIN_DISTANCE = STICKER_DIAMETER + 8;
+const MIN_DISTANCE = STICKER_DIAMETER;
 const DRAG_ACTIVATION_DISTANCE = 12;
+const DRAG_PREVIEW_OFFSET_PX = 64;
+const DRAG_PREVIEW_POINTER_TYPES = new Set(["touch", "pen"]);
 const POSITION_CONFLICT_CODE = "POSITION_CONFLICT";
 const PLACEMENT_MESSAGES = {
   idle: "點擊下方貼紙放置",
@@ -94,7 +97,7 @@ const SUBTITLE_TEXT = "（最多 800 字，留言於一日後鎖定）";
 const zoomState = {
   scale: 1,
   minScale: 1,
-  maxScale: 5,
+  maxScale: 10,
 };
 const viewportState = {
   offsetX: 0,
@@ -139,6 +142,12 @@ const state = {
   lastPendingToast: 0,
   deviceId: initialDeviceId ?? null,
 };
+const reviewSettings = {
+  requireMarqueeApproval: true,
+  requireStickerApproval: true,
+  ready: false,
+};
+let reviewSettingsChannel = null;
 const userAgent = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
 const isIOSDevice = /iPad|iPhone|iPod/i.test(userAgent);
 const isLineInApp = /Line\//i.test(userAgent);
@@ -172,6 +181,15 @@ init().catch((err) => console.error(err));
 setupBackgroundAudioAutoplay();
 initSettingsDialog();
 
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    if (reviewSettingsChannel && typeof supabase?.removeChannel === "function") {
+      supabase.removeChannel(reviewSettingsChannel);
+      reviewSettingsChannel = null;
+    }
+  });
+}
+
 function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
   wallSvg.addEventListener("click", handleEagleClick);
@@ -190,6 +208,12 @@ function init() {
   hideStatusMessage(true);
   updateDialogSubtitle(false);
   initAmbientGlow();
+  if (isSupabaseConfigured()) {
+    loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
+    subscribeToReviewSettings();
+  } else {
+    reviewSettings.ready = true;
+  }
   if (!isSupabaseConfigured()) {
     showToast("請先在 supabase-config.js 填入專案設定", "danger");
   }
@@ -203,7 +227,7 @@ async function loadExistingStickers() {
   const { data, error } = await supabase
     .from("wall_sticker_entries")
     .select(
-      "id, x_norm, y_norm, note, rotation_angle, created_at, updated_at, device_id, is_approved, can_view_note",
+      "id, x_norm, y_norm, note, created_at, updated_at, device_id, is_approved, can_view_note",
     )
     .order("created_at", { ascending: true });
   if (error) {
@@ -214,8 +238,7 @@ async function loadExistingStickers() {
   data.forEach((record) => {
     const x = record.x_norm * viewBox.width;
     const y = record.y_norm * viewBox.height;
-    const rotation = normalizeRotation(record.rotation_angle);
-    const node = createStickerNode(record.id, x, y, false, rotation);
+    const node = createStickerNode(record.id, x, y, false);
     stickersLayer.appendChild(node);
     state.stickers.set(record.id, {
       id: record.id,
@@ -224,7 +247,6 @@ async function loadExistingStickers() {
       xNorm: record.x_norm,
       yNorm: record.y_norm,
       note: record.note ?? "",
-      rotation,
       node,
       created_at: record.created_at,
       updated_at: record.updated_at,
@@ -425,6 +447,74 @@ function persistAudioPreference(value) {
   }
 }
 
+async function loadReviewSettings() {
+  if (!isSupabaseConfigured()) {
+    reviewSettings.ready = true;
+    return;
+  }
+  try {
+    const { data, error } = await supabase
+      .from("wall_review_settings")
+      .select("require_marquee_approval, require_sticker_approval")
+      .limit(1)
+      .maybeSingle();
+    if (error && error.code !== "PGRST116") {
+      throw error;
+    }
+    if (data) {
+      applyReviewSettings(data);
+    }
+  } catch (error) {
+    console.warn("讀取審核設定失敗", error);
+  } finally {
+    reviewSettings.ready = true;
+    applyReviewSettingsToUi();
+  }
+}
+
+function applyReviewSettings(data) {
+  if (!data) {
+    return;
+  }
+  reviewSettings.requireMarqueeApproval = Boolean(data.require_marquee_approval);
+  reviewSettings.requireStickerApproval = reviewSettings.requireMarqueeApproval && Boolean(data.require_sticker_approval);
+  applyReviewSettingsToUi();
+}
+
+function applyReviewSettingsToUi() {
+  refreshStickerReviewIndicators();
+  updateMarqueePool();
+}
+
+function refreshStickerReviewIndicators() {
+  state.stickers.forEach((record) => {
+    updateStickerReviewState(record);
+  });
+}
+
+function subscribeToReviewSettings() {
+  if (!isSupabaseConfigured() || typeof supabase.channel !== "function") {
+    return;
+  }
+  if (reviewSettingsChannel) {
+    return;
+  }
+  reviewSettingsChannel = supabase
+    .channel("public:wall_review_settings")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "wall_review_settings" },
+      (payload) => {
+        if (payload?.new) {
+          applyReviewSettings(payload.new);
+        } else {
+          void loadReviewSettings();
+        }
+      },
+    )
+    .subscribe();
+}
+
 function handleEagleClick(event) {
   if (event.target.closest(".sticker-node") || state.pending) {
     return;
@@ -437,7 +527,8 @@ function handleEagleClick(event) {
     }
     return;
   }
-  const svgPoint = clientToSvg(event.clientX, event.clientY);
+  const clientPoint = getAdjustedClientPoint(event);
+  const svgPoint = clientToSvg(clientPoint.clientX, clientPoint.clientY);
   const candidate = findAvailableSpot(svgPoint ?? undefined);
   if (!candidate) {
     showToast("暫時找不到可用位置，試試拖曳方式", "danger");
@@ -463,6 +554,7 @@ function handlePalettePointerDown(event) {
     pointerId: event.pointerId,
     startClientX: event.clientX,
     startClientY: event.clientY,
+    pointerType: event.pointerType || "mouse",
     node: null,
     layer: null,
     x: 0,
@@ -537,7 +629,8 @@ function activatePaletteDrag(event) {
   if (!drag) {
     return false;
   }
-  const svgPoint = clientToSvg(event.clientX, event.clientY);
+  const clientPoint = getAdjustedClientPoint(event);
+  const svgPoint = clientToSvg(clientPoint.clientX, clientPoint.clientY);
   if (!svgPoint) {
     return false;
   }
@@ -895,7 +988,7 @@ function syncZoomSlider() {
   if (!zoomSlider) {
     return;
   }
-  const percent = clampNumber(Math.round(zoomState.scale * 100), Number(zoomSlider.min) || 100, Number(zoomSlider.max) || 500);
+  const percent = clampNumber(Math.round(zoomState.scale * 100), Number(zoomSlider.min) || 100, Number(zoomSlider.max) || 1000);
   if (Number(zoomSlider.value) !== percent) {
     zoomSlider.value = String(percent);
   }
@@ -920,10 +1013,17 @@ function updateMarqueePool() {
   if (!marqueeLines.length) {
     return;
   }
-  const approvedRecords = Array.from(state.stickers.values()).filter((record) => record.isApproved && (record.note ?? "").trim().length);
-  const baseNotes = approvedRecords.map((record) => record.note.trim());
+  const requireApproval = reviewSettings.requireMarqueeApproval;
+  const eligibleRecords = Array.from(state.stickers.values()).filter((record) => {
+    const note = (record.note ?? "").trim();
+    if (!note) {
+      return false;
+    }
+    return requireApproval ? Boolean(record.isApproved) : true;
+  });
+  const baseNotes = eligibleRecords.map((record) => record.note.trim());
   if (baseNotes.length && MARQUEE_RECENT_WEIGHT > 1) {
-    const recentRecords = approvedRecords.slice(-MARQUEE_RECENT_COUNT);
+    const recentRecords = eligibleRecords.slice(-MARQUEE_RECENT_COUNT);
     recentRecords.forEach((record) => {
       const note = record.note.trim();
       for (let i = 1; i < MARQUEE_RECENT_WEIGHT; i += 1) {
@@ -985,6 +1085,16 @@ function setupMarqueeLineListeners() {
   });
 }
 
+function getResponsiveMarqueeLines() {
+  if (!marqueeLines.length) {
+    return [];
+  }
+  if (marqueeState.mobileViewport?.matches) {
+    return marqueeLines.filter((_, index) => MOBILE_VISIBLE_MARQUEE_INDICES.has(index));
+  }
+  return marqueeLines;
+}
+
 function refreshMarqueeFlow(seed = false, immediate = false) {
   if (!marqueeLines.length) {
     return;
@@ -995,12 +1105,20 @@ function refreshMarqueeFlow(seed = false, immediate = false) {
 }
 
 function updateMarqueeActiveLimit() {
-  if (!marqueeLines.length) {
+  const responsiveLines = getResponsiveMarqueeLines();
+  if (!responsiveLines.length) {
     marqueeState.activeLimit = 0;
+    marqueeState.activeLines.forEach((line) => deactivateMarqueeLine(line));
     return;
   }
-  const desiredMax = Math.min(MAX_ACTIVE_MARQUEE_LINES, marqueeLines.length);
-  const desired = Math.max(MIN_ACTIVE_MARQUEE_LINES, desiredMax);
+  const allowedSet = new Set(responsiveLines);
+  marqueeState.activeLines.forEach((line) => {
+    if (!allowedSet.has(line)) {
+      deactivateMarqueeLine(line);
+    }
+  });
+  const cappedMax = Math.min(MAX_ACTIVE_MARQUEE_LINES, responsiveLines.length);
+  const desired = Math.min(responsiveLines.length, Math.max(MIN_ACTIVE_MARQUEE_LINES, cappedMax));
   if (marqueeState.activeLimit === desired) {
     return;
   }
@@ -1069,10 +1187,11 @@ function restartMarqueeAnimation(line) {
 }
 
 function findNextIdleMarqueeLine() {
-  if (!marqueeLines.length) {
+  const responsiveLines = getResponsiveMarqueeLines();
+  if (!responsiveLines.length) {
     return null;
   }
-  const idleLines = marqueeLines.filter((line) => !marqueeState.activeLines.has(line));
+  const idleLines = responsiveLines.filter((line) => !marqueeState.activeLines.has(line));
   if (!idleLines.length) {
     return null;
   }
@@ -1203,8 +1322,7 @@ function ensureDeviceId() {
 function beginPlacement(x, y) {
   setPlacementMode("idle");
   const tempId = `temp-${createUuid()}`;
-  const rotation = randomRotationAngle();
-  const node = createStickerNode(tempId, x, y, true, rotation);
+  const node = createStickerNode(tempId, x, y, true);
   stickersLayer.appendChild(node);
   playPlacementPreviewEffect(x, y);
   if (!state.deviceId) {
@@ -1216,7 +1334,6 @@ function beginPlacement(x, y) {
     y,
     node,
     isNew: true,
-    rotation,
     locked: false,
     lockReason: null,
     deviceId: state.deviceId ?? null,
@@ -1447,12 +1564,10 @@ async function closeDialogWithResult(result) {
 
 async function saveNewSticker(pending, message) {
   pending.node.classList.add("pending");
-  const rotation = normalizeRotation(pending.rotation);
   const payload = {
     p_x_norm: pending.x / viewBox.width,
     p_y_norm: pending.y / viewBox.height,
     p_note: message,
-    p_rotation_angle: rotation,
     p_device_id: state.deviceId ?? null,
   };
   const { data, error } = await supabase.rpc("create_wall_sticker", payload);
@@ -1476,8 +1591,7 @@ async function saveNewSticker(pending, message) {
   pending.node.dataset.id = newId;
   pending.id = newId;
   pending.isNew = false;
-  pending.rotation = rotation;
-  pending.deviceId = payload.device_id ?? null;
+  pending.deviceId = payload.p_device_id ?? null;
   pending.lockReason = null;
   const newRecord = {
     id: newId,
@@ -1486,7 +1600,6 @@ async function saveNewSticker(pending, message) {
     xNorm: inserted.x_norm ?? payload.p_x_norm,
     yNorm: inserted.y_norm ?? payload.p_y_norm,
     note: message,
-    rotation,
     node: pending.node,
     created_at: inserted.created_at,
     updated_at: inserted.updated_at,
@@ -1495,7 +1608,6 @@ async function saveNewSticker(pending, message) {
     canViewNote: true,
   };
   state.stickers.set(newId, newRecord);
-  setStickerRotation(pending.node, rotation);
   updateStickerReviewState(newRecord);
   runPopAnimation(pending.node);
   await closeDialogWithResult("saved");
@@ -1540,7 +1652,7 @@ async function updateStickerMessage(pending, message) {
   showToast("留言已更新", "success");
 }
 
-function createStickerNode(id, x, y, isPending = false, rotation = 0) {
+function createStickerNode(id, x, y, isPending = false) {
   const group = document.createElementNS(svgNS, "g");
   group.classList.add("sticker-node");
   if (isPending) {
@@ -1553,7 +1665,6 @@ function createStickerNode(id, x, y, isPending = false, rotation = 0) {
   use.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#heartSticker");
   group.appendChild(use);
   positionStickerNode(group, x, y);
-  setStickerRotation(group, rotation);
   group.addEventListener("click", (event) => {
     event.stopPropagation();
     const stickerId = group.dataset.id;
@@ -1615,7 +1726,6 @@ function positionStickerNode(node, x, y) {
   useEl.setAttribute("height", STICKER_DIAMETER);
   node.dataset.cx = x.toFixed(2);
   node.dataset.cy = y.toFixed(2);
-  applyStickerTransform(node);
 }
 
 function updateStickerReviewState(record) {
@@ -1623,13 +1733,11 @@ function updateStickerReviewState(record) {
     return;
   }
   const node = record.node;
+  const requireApproval = reviewSettings.requireStickerApproval;
   const approved = Boolean(record.isApproved);
-  node.classList.toggle("review-pending", !approved);
-  if (!approved) {
-    node.setAttribute("aria-label", "審核中留言");
-  } else {
-    node.setAttribute("aria-label", "留言");
-  }
+  const visibleAsApproved = approved || !requireApproval;
+  node.classList.toggle("review-pending", requireApproval && !approved);
+  node.setAttribute("aria-label", visibleAsApproved ? "留言" : "審核中留言");
   node.dataset.approved = approved ? "true" : "false";
 }
 
@@ -1644,7 +1752,6 @@ function openStickerModal(id) {
     y: record.y,
     node: record.node,
     isNew: false,
-    rotation: record.rotation ?? 0,
     deviceId: record.deviceId ?? null,
     lockReason: null,
     isApproved: Boolean(record.isApproved),
@@ -1703,6 +1810,15 @@ function createDomPoint(x, y) {
   svgPoint.x = x;
   svgPoint.y = y;
   return svgPoint;
+}
+
+function getAdjustedClientPoint(event) {
+  if (!state.drag || !DRAG_PREVIEW_POINTER_TYPES.has(state.drag.pointerType)) {
+    return { clientX: event.clientX, clientY: event.clientY };
+  }
+  const offset = Math.max(DRAG_PREVIEW_OFFSET_PX, STICKER_DIAMETER);
+  const adjustedY = Math.max(event.clientY - offset, 0);
+  return { clientX: event.clientX, clientY: adjustedY };
 }
 
 function isOverlapping(x, y) {
@@ -2308,17 +2424,17 @@ function runPopAnimation(node) {
   if (!window.anime || !node) {
     return;
   }
-  const rotation = Number(node?.dataset?.rotation ?? 0);
-  const normalizedRotation = Number.isFinite(rotation) ? rotation : 0;
-  applyStickerTransform(node);
   node.style.transformOrigin = "50% 50%";
   window.anime({
     targets: node,
     scale: [0.35, 1],
-    rotate: [normalizedRotation, normalizedRotation],
     easing: "easeOutBack",
     duration: 520,
-    complete: () => applyStickerTransform(node),
+    complete: () => {
+      if (node?.style) {
+        node.style.removeProperty("transform");
+      }
+    },
   });
 }
 
@@ -2326,17 +2442,17 @@ function runPulseAnimation(node) {
   if (!window.anime || !node) {
     return;
   }
-  const rotation = Number(node?.dataset?.rotation ?? 0);
-  const normalizedRotation = Number.isFinite(rotation) ? rotation : 0;
-  applyStickerTransform(node);
   node.style.transformOrigin = "50% 50%";
   window.anime({
     targets: node,
     scale: [1, 1.15, 1],
-    rotate: [normalizedRotation, normalizedRotation],
     duration: 620,
     easing: "easeInOutSine",
-    complete: () => applyStickerTransform(node),
+    complete: () => {
+      if (node?.style) {
+        node.style.removeProperty("transform");
+      }
+    },
   });
 }
 
@@ -2842,47 +2958,6 @@ function setStickerInFlight(node, inFlight) {
     return;
   }
   node.classList.toggle("in-flight", Boolean(inFlight));
-}
-
-function setStickerRotation(node, rotation) {
-  if (!node) {
-    return;
-  }
-  const normalized = normalizeRotation(rotation);
-  node.dataset.rotation = String(normalized);
-  applyStickerTransform(node);
-}
-
-function applyStickerTransform(node) {
-  if (!node) {
-    return;
-  }
-  const rotation = Number(node.dataset.rotation ?? 0);
-  const cx = Number(node.dataset.cx);
-  const cy = Number(node.dataset.cy);
-  if (Number.isFinite(rotation) && Number.isFinite(cx) && Number.isFinite(cy)) {
-    node.setAttribute(
-      "transform",
-      `rotate(${Math.round(rotation)} ${cx.toFixed(2)} ${cy.toFixed(2)})`
-    );
-  } else {
-    node.removeAttribute("transform");
-  }
-}
-
-function normalizeRotation(value) {
-  if (!Number.isFinite(Number(value))) {
-    return 0;
-  }
-  let result = Math.round(Number(value)) % 360;
-  if (result < 0) {
-    result += 360;
-  }
-  return Number.isFinite(result) ? result : 0;
-}
-
-function randomRotationAngle() {
-  return Math.floor(Math.random() * 360);
 }
 
 function isStickerLocked(record) {

@@ -3,6 +3,8 @@ import { isSupabaseConfigured, createSupabaseClient } from "./supabase-config.js
 // Replace this hash with the SHA-256 digest of your desired admin password.
 const ADMIN_PASSWORD_HASH = "edd807dfa6482153fdf7d0cc18d84cf6a4b0cdc667b972951c3a55cee7afe92f";
 const ADMIN_SECRET_HEADER = "admin-super-secret";
+const WALL_WIDTH = 3500;
+const WALL_HEIGHT = 1779.31;
 
 const loginPanel = document.getElementById("loginPanel");
 const dashboard = document.getElementById("dashboard");
@@ -19,6 +21,12 @@ const rowTemplate = document.getElementById("entryRowTemplate");
 const toastNode = document.getElementById("adminToast");
 const exportBtn = document.getElementById("exportBtn");
 const totalCountNode = document.getElementById("totalCount");
+const reviewControls = document.getElementById("reviewControls");
+const marqueeToggle = document.getElementById("marqueeApprovalToggle");
+const stickerToggle = document.getElementById("stickerApprovalToggle");
+const stickerReviewCard = document.getElementById("stickerReviewCard");
+const marqueeReviewStatus = document.getElementById("marqueeReviewStatus");
+const stickerReviewStatus = document.getElementById("stickerReviewStatus");
 
 if (exportBtn) {
   exportBtn.disabled = true;
@@ -36,6 +44,14 @@ const state = {
   entries: [],
   loading: false,
   toastTimer: null,
+};
+
+const reviewSettingsState = {
+  id: null,
+  requireMarqueeApproval: true,
+  requireStickerApproval: true,
+  loading: false,
+  ready: false,
 };
 
 let supabaseClient = null;
@@ -76,6 +92,8 @@ logoutBtn?.addEventListener("click", handleLogout);
 entriesBody?.addEventListener("input", handleRowInput);
 entriesBody?.addEventListener("click", handleTableClick);
 exportBtn?.addEventListener("click", handleExportEntries);
+marqueeToggle?.addEventListener("change", handleMarqueeToggleChange);
+stickerToggle?.addEventListener("change", handleStickerToggleChange);
 
 document.addEventListener("DOMContentLoaded", () => {
   passwordInput?.focus();
@@ -113,6 +131,7 @@ async function handleLogin(event) {
     exportBtn.disabled = false;
   }
   supabaseClient = createSupabaseClient({ headers: { "x-admin-secret": ADMIN_SECRET_HEADER } });
+  void initializeReviewSettings();
   void loadStickers();
 }
 
@@ -126,6 +145,7 @@ function handleLogout() {
   if (exportBtn) {
     exportBtn.disabled = true;
   }
+  resetReviewControls();
   if (loginError) {
     loginError.textContent = "";
   }
@@ -159,7 +179,7 @@ async function loadStickers(showToastOnError = false) {
   try {
     const { data, error } = await supabaseClient
       .from("wall_sticker_entries")
-      .select("id, note, rotation_angle, created_at, updated_at, is_approved")
+      .select("id, note, x_norm, y_norm, created_at, updated_at, is_approved")
       .order("created_at", { ascending: false });
     if (error) {
       throw error;
@@ -167,7 +187,8 @@ async function loadStickers(showToastOnError = false) {
     state.entries = Array.isArray(data)
       ? data.map((entry) => ({
           ...entry,
-          rotation_angle: normalizeRotation(entry.rotation_angle),
+          x_norm: typeof entry.x_norm === "number" ? entry.x_norm : null,
+          y_norm: typeof entry.y_norm === "number" ? entry.y_norm : null,
           is_approved: Boolean(entry.is_approved),
         }))
       : [];
@@ -206,7 +227,7 @@ function renderEntries() {
     const idCell = clone.querySelector(".entry-id");
     const createdCell = clone.querySelector(".created");
     const updatedCell = clone.querySelector(".updated");
-    const rotationInput = clone.querySelector(".rotation-input");
+    const coordsNode = clone.querySelector(".entry-coords");
     const noteInputNode = clone.querySelector(".note-input");
     const statusBadge = clone.querySelector(".status-badge");
     const approveButton = clone.querySelector('button[data-action="approve"]');
@@ -226,16 +247,12 @@ function renderEntries() {
         ? `更新：${formatDate(entry.updated_at)}`
         : "更新：—";
     }
+    if (coordsNode) {
+      coordsNode.textContent = formatCoordinateLabel(entry);
+    }
     if (statusBadge) {
       statusBadge.textContent = approved ? "已通過" : "審核中";
       statusBadge.dataset.state = approved ? "approved" : "pending";
-    }
-    if (rotationInput) {
-      const rotationValue = normalizeRotation(entry.rotation_angle);
-      const rotationText = rotationValue.toString();
-      rotationInput.value = rotationText;
-      rotationInput.dataset.originalValue = rotationText;
-      rotationInput.setAttribute("aria-label", `留言 #${displayNumber} 的旋轉角度`);
     }
     if (noteInputNode) {
       noteInputNode.value = entry.note ?? "";
@@ -267,11 +284,9 @@ function handleRowInput(event) {
   if (!row) {
     return;
   }
-  const rotationInput = row.querySelector(".rotation-input");
   const noteInputNode = row.querySelector(".note-input");
-  const rotationChanged = Boolean(rotationInput && rotationInput.value !== rotationInput.dataset.originalValue);
   const noteChanged = Boolean(noteInputNode && noteInputNode.value !== noteInputNode.dataset.originalValue);
-  row.classList.toggle("dirty", rotationChanged || noteChanged);
+  row.classList.toggle("dirty", noteChanged);
 }
 
 function handleTableClick(event) {
@@ -307,9 +322,8 @@ async function saveEntry(row, button) {
     showToast("尚未建立管理連線，請重新登入。", "danger");
     return;
   }
-  const rotationInput = row.querySelector(".rotation-input");
   const noteInputNode = row.querySelector(".note-input");
-  if (!rotationInput || !noteInputNode) {
+  if (!noteInputNode) {
     showToast("欄位填寫不完整。", "danger");
     return;
   }
@@ -322,13 +336,6 @@ async function saveEntry(row, button) {
     showToast("留言內容需在 800 字以內。", "danger");
     return;
   }
-  let rotation = Number(rotationInput.value);
-  if (!Number.isFinite(rotation)) {
-    showToast("請輸入正確的旋轉角度。", "danger");
-    return;
-  }
-  rotation = normalizeRotation(rotation);
-
   const saveLabel = button.textContent;
   button.disabled = true;
   button.textContent = "儲存中…";
@@ -337,7 +344,6 @@ async function saveEntry(row, button) {
       .from("wall_stickers")
       .update({
         note,
-        rotation_angle: rotation,
       })
       .eq("id", id)
       .select()
@@ -347,16 +353,12 @@ async function saveEntry(row, button) {
     }
     const patch = {
       note,
-      rotation_angle: rotation,
       updated_at: data?.updated_at ?? null,
     };
     if (typeof data?.is_approved !== "undefined") {
       patch.is_approved = data.is_approved;
     }
     updateLocalEntry(id, patch);
-    const rotationText = rotation.toString();
-    rotationInput.value = rotationText;
-    rotationInput.dataset.originalValue = rotationText;
     noteInputNode.value = note;
     noteInputNode.dataset.originalValue = note;
     row.classList.remove("dirty");
@@ -462,9 +464,6 @@ function updateLocalEntry(id, changes = {}) {
   if (Object.prototype.hasOwnProperty.call(changes, "note")) {
     target.note = changes.note;
   }
-  if (Object.prototype.hasOwnProperty.call(changes, "rotation_angle")) {
-    target.rotation_angle = normalizeRotation(changes.rotation_angle);
-  }
   if (Object.prototype.hasOwnProperty.call(changes, "is_approved")) {
     target.is_approved = Boolean(changes.is_approved);
   }
@@ -484,6 +483,186 @@ function updateTotalCount() {
     : total.toString();
 }
 
+function handleMarqueeToggleChange(event) {
+  if (!state.authorized || reviewSettingsState.loading) {
+    event.preventDefault();
+    syncReviewControls();
+    return;
+  }
+  const enabled = Boolean(event.target.checked);
+  const nextSticker = enabled ? reviewSettingsState.requireStickerApproval : false;
+  void persistReviewSettings({
+    require_marquee_approval: enabled,
+    require_sticker_approval: nextSticker,
+  });
+}
+
+function handleStickerToggleChange(event) {
+  if (!state.authorized || reviewSettingsState.loading || !reviewSettingsState.requireMarqueeApproval) {
+    event.preventDefault();
+    syncReviewControls();
+    return;
+  }
+  const enabled = Boolean(event.target.checked);
+  void persistReviewSettings({
+    require_marquee_approval: true,
+    require_sticker_approval: enabled,
+  });
+}
+
+async function initializeReviewSettings() {
+  if (!state.authorized || !supabaseClient || !reviewControls) {
+    return;
+  }
+  reviewControls.hidden = false;
+  reviewSettingsState.loading = true;
+  syncReviewControls();
+  try {
+    const data = await fetchOrCreateReviewSettings();
+    applyReviewSettingsState(data);
+    reviewSettingsState.ready = true;
+  } catch (error) {
+    console.error("Failed to load review settings", error);
+    showToast("讀取審核設定失敗，請稍後再試。", "danger");
+    reviewControls.hidden = true;
+  } finally {
+    reviewSettingsState.loading = false;
+    syncReviewControls();
+  }
+}
+
+function resetReviewControls() {
+  reviewSettingsState.id = null;
+  reviewSettingsState.requireMarqueeApproval = true;
+  reviewSettingsState.requireStickerApproval = true;
+  reviewSettingsState.loading = false;
+  reviewSettingsState.ready = false;
+  if (reviewControls) {
+    reviewControls.hidden = true;
+  }
+  if (marqueeToggle) {
+    marqueeToggle.checked = true;
+    marqueeToggle.disabled = true;
+  }
+  if (stickerToggle) {
+    stickerToggle.checked = true;
+    stickerToggle.disabled = true;
+  }
+  syncReviewControls();
+}
+
+async function fetchOrCreateReviewSettings() {
+  if (!supabaseClient) {
+    throw new Error("Missing Supabase client");
+  }
+  const baseQuery = supabaseClient
+    .from("wall_review_settings")
+    .select("id, require_marquee_approval, require_sticker_approval")
+    .limit(1)
+    .maybeSingle();
+  const { data, error } = await baseQuery;
+  if (error && error.code !== "PGRST116") {
+    throw error;
+  }
+  if (data) {
+    return data;
+  }
+  const { data: inserted, error: insertError } = await supabaseClient
+    .from("wall_review_settings")
+    .insert({ require_marquee_approval: true, require_sticker_approval: true })
+    .select()
+    .single();
+  if (insertError) {
+    throw insertError;
+  }
+  return inserted;
+}
+
+function applyReviewSettingsState(payload = {}) {
+  if (!payload) {
+    return;
+  }
+  reviewSettingsState.id = payload.id ?? reviewSettingsState.id;
+  const marqueeRequired = Boolean(payload.require_marquee_approval);
+  reviewSettingsState.requireMarqueeApproval = marqueeRequired;
+  reviewSettingsState.requireStickerApproval = marqueeRequired && Boolean(payload.require_sticker_approval);
+  syncReviewControls();
+}
+
+function syncReviewControls() {
+  if (!reviewControls) {
+    return;
+  }
+  if (!state.authorized || !reviewSettingsState.ready) {
+    reviewControls.hidden = true;
+  } else {
+    reviewControls.hidden = false;
+  }
+  if (!state.authorized) {
+    return;
+  }
+  const marqueeEnabled = Boolean(reviewSettingsState.requireMarqueeApproval);
+  if (marqueeToggle) {
+    marqueeToggle.checked = marqueeEnabled;
+    marqueeToggle.disabled = reviewSettingsState.loading;
+  }
+  if (marqueeReviewStatus) {
+    marqueeReviewStatus.textContent = marqueeEnabled ? "需審核" : "免審";
+    marqueeReviewStatus.dataset.state = marqueeEnabled ? "on" : "off";
+  }
+  if (stickerReviewCard) {
+    stickerReviewCard.hidden = !marqueeEnabled;
+  }
+  const stickerEnabled = marqueeEnabled && Boolean(reviewSettingsState.requireStickerApproval);
+  if (stickerToggle) {
+    stickerToggle.checked = stickerEnabled;
+    stickerToggle.disabled = reviewSettingsState.loading || !marqueeEnabled;
+  }
+  if (stickerReviewStatus) {
+    stickerReviewStatus.textContent = stickerEnabled ? "需審核" : "免審";
+    stickerReviewStatus.dataset.state = stickerEnabled ? "on" : "off";
+  }
+}
+
+async function persistReviewSettings(values) {
+  if (!state.authorized) {
+    showToast("請先登入管理後再調整審核設定。", "danger");
+    syncReviewControls();
+    return;
+  }
+  if (!supabaseClient) {
+    showToast("尚未建立管理連線，請重新登入。", "danger");
+    syncReviewControls();
+    return;
+  }
+  const payload = {
+    require_marquee_approval: Boolean(values.require_marquee_approval),
+    require_sticker_approval: Boolean(values.require_marquee_approval) && Boolean(values.require_sticker_approval),
+  };
+  reviewSettingsState.loading = true;
+  syncReviewControls();
+  try {
+    let query = supabaseClient.from("wall_review_settings");
+    if (reviewSettingsState.id) {
+      query = query.update(payload).eq("id", reviewSettingsState.id);
+    } else {
+      query = query.insert(payload);
+    }
+    const { data, error } = await query.select().single();
+    if (error) {
+      throw error;
+    }
+    applyReviewSettingsState(data);
+    showToast("已更新審核設定。", "success");
+  } catch (error) {
+    console.error("Failed to update review settings", error);
+    showToast("更新審核設定失敗，請稍後再試。", "danger");
+  } finally {
+    reviewSettingsState.loading = false;
+    syncReviewControls();
+  }
+}
+
 function handleExportEntries() {
   if (!state.authorized) {
     showToast("請先登入管理後再匯出。", "danger");
@@ -495,7 +674,8 @@ function handleExportEntries() {
   }
   const lines = state.entries.map((entry, index) => {
     const note = (entry.note ?? "").replace(/\r?\n/g, "\n");
-    return `#${index + 1}\n留言：${note}`;
+    const coordsText = formatCoordinateLine(entry);
+    return `#${index + 1}\nID：${entry.id}\n${coordsText}\n留言：${note}`;
   });
   const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -523,15 +703,28 @@ async function verifyPassword(password) {
   return hash === ADMIN_PASSWORD_HASH;
 }
 
-function normalizeRotation(value) {
-  if (!Number.isFinite(Number(value))) {
-    return 0;
+function hasNumericCoordinate(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatCoordinateLabel(entry) {
+  if (!hasNumericCoordinate(entry?.x_norm) || !hasNumericCoordinate(entry?.y_norm)) {
+    return "座標：—";
   }
-  let result = Math.round(Number(value)) % 360;
-  if (result < 0) {
-    result += 360;
+  const { x_norm: xNorm, y_norm: yNorm } = entry;
+  const pxX = Math.round(xNorm * WALL_WIDTH);
+  const pxY = Math.round(yNorm * WALL_HEIGHT);
+  return `座標：X ${xNorm.toFixed(4)}（${pxX}px） · Y ${yNorm.toFixed(4)}（${pxY}px）`;
+}
+
+function formatCoordinateLine(entry) {
+  if (!hasNumericCoordinate(entry?.x_norm) || !hasNumericCoordinate(entry?.y_norm)) {
+    return "座標：無可用資料";
   }
-  return Number.isFinite(result) ? result : 0;
+  const { x_norm: xNorm, y_norm: yNorm } = entry;
+  const pxX = Math.round(xNorm * WALL_WIDTH);
+  const pxY = Math.round(yNorm * WALL_HEIGHT);
+  return `座標：X=${xNorm.toFixed(5)}（${pxX}px） Y=${yNorm.toFixed(5)}（${pxY}px）`;
 }
 
 function formatDate(value) {
