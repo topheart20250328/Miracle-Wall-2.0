@@ -333,7 +333,6 @@ main::before {
   justify-content: center;
   touch-action: none;
   transform-origin: center;
-  will-change: transform;
 }
 
 #wallSvg {
@@ -343,7 +342,6 @@ main::before {
   display: block;
   transition: none;
   transform-origin: center;
-  will-change: transform;
   shape-rendering: geometricPrecision;
   text-rendering: optimizeLegibility;
   image-rendering: optimizeQuality;
@@ -371,6 +369,11 @@ main::before {
   transition: filter 180ms ease, opacity 180ms ease;
   transform-box: fill-box;
   transform-origin: center;
+}
+
+.sticker-node use {
+  shape-rendering: geometricPrecision;
+  image-rendering: optimizeQuality;
 }
 
 .sticker-node.drag-ghost {

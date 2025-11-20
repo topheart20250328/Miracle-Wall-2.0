@@ -85,8 +85,6 @@ const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 const MIN_DISTANCE = STICKER_DIAMETER;
 const DRAG_ACTIVATION_DISTANCE = 12;
-const DRAG_PREVIEW_OFFSET_PX = 64;
-const DRAG_PREVIEW_POINTER_TYPES = new Set(["touch", "pen"]);
 const POSITION_CONFLICT_CODE = "POSITION_CONFLICT";
 const PLACEMENT_MESSAGES = {
   idle: "點擊下方貼紙放置",
@@ -527,8 +525,7 @@ function handleEagleClick(event) {
     }
     return;
   }
-  const clientPoint = getAdjustedClientPoint(event);
-  const svgPoint = clientToSvg(clientPoint.clientX, clientPoint.clientY);
+  const svgPoint = clientToSvg(event.clientX, event.clientY);
   const candidate = findAvailableSpot(svgPoint ?? undefined);
   if (!candidate) {
     showToast("暫時找不到可用位置，試試拖曳方式", "danger");
@@ -554,7 +551,6 @@ function handlePalettePointerDown(event) {
     pointerId: event.pointerId,
     startClientX: event.clientX,
     startClientY: event.clientY,
-    pointerType: event.pointerType || "mouse",
     node: null,
     layer: null,
     x: 0,
@@ -629,8 +625,7 @@ function activatePaletteDrag(event) {
   if (!drag) {
     return false;
   }
-  const clientPoint = getAdjustedClientPoint(event);
-  const svgPoint = clientToSvg(clientPoint.clientX, clientPoint.clientY);
+  const svgPoint = clientToSvg(event.clientX, event.clientY);
   if (!svgPoint) {
     return false;
   }
@@ -1810,15 +1805,6 @@ function createDomPoint(x, y) {
   svgPoint.x = x;
   svgPoint.y = y;
   return svgPoint;
-}
-
-function getAdjustedClientPoint(event) {
-  if (!state.drag || !DRAG_PREVIEW_POINTER_TYPES.has(state.drag.pointerType)) {
-    return { clientX: event.clientX, clientY: event.clientY };
-  }
-  const offset = Math.max(DRAG_PREVIEW_OFFSET_PX, STICKER_DIAMETER);
-  const adjustedY = Math.max(event.clientY - offset, 0);
-  return { clientX: event.clientX, clientY: adjustedY };
 }
 
 function isOverlapping(x, y) {
