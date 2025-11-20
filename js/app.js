@@ -95,7 +95,7 @@ const SUBTITLE_TEXT = "（最多 800 字，留言於一日後鎖定）";
 const zoomState = {
   scale: 1,
   minScale: 1,
-  maxScale: 10,
+  maxScale: 5,
 };
 const viewportState = {
   offsetX: 0,
@@ -983,7 +983,7 @@ function syncZoomSlider() {
   if (!zoomSlider) {
     return;
   }
-  const percent = clampNumber(Math.round(zoomState.scale * 100), Number(zoomSlider.min) || 100, Number(zoomSlider.max) || 1000);
+  const percent = clampNumber(Math.round(zoomState.scale * 100), Number(zoomSlider.min) || 100, Number(zoomSlider.max) || 500);
   if (Number(zoomSlider.value) !== percent) {
     zoomSlider.value = String(percent);
   }
