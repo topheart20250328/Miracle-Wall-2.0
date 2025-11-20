@@ -1152,8 +1152,22 @@ main::before {
   filter: drop-shadow(0 0 16px rgba(103, 245, 154, 0.9));
 }
 
+.drag-ghost.valid use {
+  stroke: rgba(103, 245, 154, 0.85);
+  stroke-width: 8;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+}
+
 .drag-ghost.invalid {
   filter: drop-shadow(0 0 18px rgba(255, 93, 93, 0.9));
+}
+
+.drag-ghost.invalid use {
+  stroke: rgba(255, 93, 93, 0.85);
+  stroke-width: 8;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
 }
 
 body.placement-click #wallSvg {

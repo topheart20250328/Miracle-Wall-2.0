@@ -1371,7 +1371,7 @@ function beginPlacement(x, y) {
   setTimestampDisplay(null);
   setNoteLocked(false);
   updateDeleteButton();
-  focusDialog(node, { usePaletteSource: true });
+  focusDialog(node);
 }
 
 function focusDialog(originNode, options = {}) {
