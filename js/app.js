@@ -85,6 +85,7 @@ const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 const MIN_DISTANCE = STICKER_DIAMETER;
 const DRAG_ACTIVATION_DISTANCE = 12;
+const TOUCH_DRAG_VERTICAL_OFFSET_PX = 56;
 const POSITION_CONFLICT_CODE = "POSITION_CONFLICT";
 const PLACEMENT_MESSAGES = {
   idle: "點擊下方貼紙放置",
@@ -557,6 +558,7 @@ function handlePalettePointerDown(event) {
     y: 0,
     valid: false,
     active: false,
+    visualOffset: null,
   };
   paletteSticker.setPointerCapture(event.pointerId);
   paletteSticker.addEventListener("pointermove", handlePalettePointerMove);
@@ -625,7 +627,9 @@ function activatePaletteDrag(event) {
   if (!drag) {
     return false;
   }
-  const svgPoint = clientToSvg(event.clientX, event.clientY);
+  const visualOffset = getPointerVisualOffset(event);
+  drag.visualOffset = visualOffset;
+  const svgPoint = clientToSvg(event.clientX, event.clientY, visualOffset);
   if (!svgPoint) {
     return false;
   }
@@ -650,7 +654,7 @@ function updateDragPosition(event) {
   if (!drag?.active || !drag.node) {
     return;
   }
-  const svgPoint = clientToSvg(event.clientX, event.clientY);
+  const svgPoint = clientToSvg(event.clientX, event.clientY, drag.visualOffset);
   if (!svgPoint) {
     return;
   }
@@ -661,6 +665,16 @@ function updateDragPosition(event) {
   drag.x = svgPoint.x;
   drag.y = svgPoint.y;
   drag.valid = valid;
+}
+
+function getPointerVisualOffset(event) {
+  if (!event) {
+    return null;
+  }
+  if (event.pointerType === "touch") {
+    return { x: 0, y: -TOUCH_DRAG_VERTICAL_OFFSET_PX };
+  }
+  return null;
 }
 
 function toggleClickPlacement() {
@@ -1883,7 +1897,7 @@ function resetNoteInputScrollPosition() {
   });
 }
 
-function clientToSvg(clientX, clientY) {
+function clientToSvg(clientX, clientY, offsetPx = null) {
   if (!wallSvg) {
     return null;
   }
@@ -1891,10 +1905,14 @@ function clientToSvg(clientX, clientY) {
   if (!rect.width || !rect.height) {
     return null;
   }
-  const normalizedX = (clientX - rect.left) / rect.width;
-  const normalizedY = (clientY - rect.top) / rect.height;
-  const svgX = viewBox.x + normalizedX * viewBox.width;
-  const svgY = viewBox.y + normalizedY * viewBox.height;
+  const offsetX = offsetPx?.x ?? 0;
+  const offsetY = offsetPx?.y ?? 0;
+  const normalizedX = (clientX + offsetX - rect.left) / rect.width;
+  const normalizedY = (clientY + offsetY - rect.top) / rect.height;
+  const clampedX = clampNumber(normalizedX, 0, 1);
+  const clampedY = clampNumber(normalizedY, 0, 1);
+  const svgX = viewBox.x + clampedX * viewBox.width;
+  const svgY = viewBox.y + clampedY * viewBox.height;
   return { x: svgX, y: svgY };
 }
 
