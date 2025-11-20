@@ -633,6 +633,7 @@ function activatePaletteDrag(event) {
   }
   const ghost = createStickerNode("drag-ghost", svgPoint.x, svgPoint.y, true);
   ghost.classList.add("drag-ghost");
+  attachDragHighlight(ghost);
   const hostLayer = dragOverlay ?? stickersLayer;
   hostLayer.appendChild(ghost);
   drag.node = ghost;
@@ -1743,13 +1744,33 @@ function triggerPendingReviewFeedback(record) {
 function positionStickerNode(node, x, y) {
   const centerX = x - STICKER_RADIUS;
   const centerY = y - STICKER_RADIUS;
-  const useEl = node.firstElementChild;
-  useEl.setAttribute("x", centerX.toFixed(2));
-  useEl.setAttribute("y", centerY.toFixed(2));
-  useEl.setAttribute("width", STICKER_DIAMETER);
-  useEl.setAttribute("height", STICKER_DIAMETER);
+  const useEl = node.querySelector("use") ?? node.firstElementChild;
+  if (useEl) {
+    useEl.setAttribute("x", centerX.toFixed(2));
+    useEl.setAttribute("y", centerY.toFixed(2));
+    useEl.setAttribute("width", STICKER_DIAMETER);
+    useEl.setAttribute("height", STICKER_DIAMETER);
+  }
   node.dataset.cx = x.toFixed(2);
   node.dataset.cy = y.toFixed(2);
+  const highlight = node.querySelector(".drag-ghost-highlight");
+  if (highlight) {
+    highlight.setAttribute("cx", x.toFixed(2));
+    highlight.setAttribute("cy", y.toFixed(2));
+    highlight.setAttribute("r", (STICKER_RADIUS + 8).toFixed(2));
+  }
+}
+
+function attachDragHighlight(node) {
+  if (!node || node.querySelector(".drag-ghost-highlight")) {
+    return;
+  }
+  const halo = document.createElementNS(svgNS, "circle");
+  halo.classList.add("drag-ghost-highlight");
+  halo.setAttribute("cx", "0");
+  halo.setAttribute("cy", "0");
+  halo.setAttribute("r", String(STICKER_RADIUS + 8));
+  node.insertBefore(halo, node.firstChild ?? null);
 }
 
 function updateStickerReviewState(record) {
