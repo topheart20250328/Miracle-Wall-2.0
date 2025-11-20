@@ -85,7 +85,8 @@ const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 const MIN_DISTANCE = STICKER_DIAMETER;
 const DRAG_ACTIVATION_DISTANCE = 12;
-const TOUCH_DRAG_VERTICAL_OFFSET_PX = 56;
+const TOUCH_DRAG_OFFSET_X = 0;
+const TOUCH_DRAG_OFFSET_Y = STICKER_DIAMETER * 2;
 const POSITION_CONFLICT_CODE = "POSITION_CONFLICT";
 const PLACEMENT_MESSAGES = {
   idle: "點擊下方貼紙放置",
@@ -558,7 +559,6 @@ function handlePalettePointerDown(event) {
     y: 0,
     valid: false,
     active: false,
-    visualOffset: null,
   };
   paletteSticker.setPointerCapture(event.pointerId);
   paletteSticker.addEventListener("pointermove", handlePalettePointerMove);
@@ -627,9 +627,7 @@ function activatePaletteDrag(event) {
   if (!drag) {
     return false;
   }
-  const visualOffset = getPointerVisualOffset(event);
-  drag.visualOffset = visualOffset;
-  const svgPoint = clientToSvg(event.clientX, event.clientY, visualOffset);
+  const svgPoint = resolveDragSvgPoint(event);
   if (!svgPoint) {
     return false;
   }
@@ -654,7 +652,7 @@ function updateDragPosition(event) {
   if (!drag?.active || !drag.node) {
     return;
   }
-  const svgPoint = clientToSvg(event.clientX, event.clientY, drag.visualOffset);
+  const svgPoint = resolveDragSvgPoint(event);
   if (!svgPoint) {
     return;
   }
@@ -667,14 +665,31 @@ function updateDragPosition(event) {
   drag.valid = valid;
 }
 
-function getPointerVisualOffset(event) {
-  if (!event) {
+function resolveDragSvgPoint(event) {
+  const basePoint = clientToSvg(event.clientX, event.clientY);
+  if (!basePoint) {
     return null;
   }
-  if (event.pointerType === "touch") {
-    return { x: 0, y: -TOUCH_DRAG_VERTICAL_OFFSET_PX };
+  if (event.pointerType !== "touch") {
+    return basePoint;
   }
-  return null;
+  return offsetTouchDragPoint(basePoint);
+}
+
+function offsetTouchDragPoint(point) {
+  // Keep the dragged sticker above the user's finger on touch devices.
+  if (!wallSvg) {
+    return point;
+  }
+  const rect = wallSvg.getBoundingClientRect();
+  if (!rect.width || !rect.height) {
+    return point;
+  }
+  const offsetSvgX = (TOUCH_DRAG_OFFSET_X / rect.width) * viewBox.width;
+  const offsetSvgY = (TOUCH_DRAG_OFFSET_Y / rect.height) * viewBox.height;
+  const adjustedX = clampToViewBox(point.x + offsetSvgX);
+  const adjustedY = clampToViewBox(point.y - offsetSvgY, true);
+  return { x: adjustedX, y: adjustedY };
 }
 
 function toggleClickPlacement() {
@@ -1897,7 +1912,7 @@ function resetNoteInputScrollPosition() {
   });
 }
 
-function clientToSvg(clientX, clientY, offsetPx = null) {
+function clientToSvg(clientX, clientY) {
   if (!wallSvg) {
     return null;
   }
@@ -1905,14 +1920,10 @@ function clientToSvg(clientX, clientY, offsetPx = null) {
   if (!rect.width || !rect.height) {
     return null;
   }
-  const offsetX = offsetPx?.x ?? 0;
-  const offsetY = offsetPx?.y ?? 0;
-  const normalizedX = (clientX + offsetX - rect.left) / rect.width;
-  const normalizedY = (clientY + offsetY - rect.top) / rect.height;
-  const clampedX = clampNumber(normalizedX, 0, 1);
-  const clampedY = clampNumber(normalizedY, 0, 1);
-  const svgX = viewBox.x + clampedX * viewBox.width;
-  const svgY = viewBox.y + clampedY * viewBox.height;
+  const normalizedX = (clientX - rect.left) / rect.width;
+  const normalizedY = (clientY - rect.top) / rect.height;
+  const svgX = viewBox.x + normalizedX * viewBox.width;
+  const svgY = viewBox.y + normalizedY * viewBox.height;
   return { x: svgX, y: svgY };
 }
 
