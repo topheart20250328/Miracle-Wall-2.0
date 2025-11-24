@@ -28,6 +28,9 @@ const MARQUEE_SEED_JITTER_MS = 900;
 const MARQUEE_RESPAWN_JITTER_MS = 450;
 const MARQUEE_RECENT_COUNT = 5;
 const MARQUEE_RECENT_WEIGHT = 3;
+const MARQUEE_SPEED_PX_PER_SEC = 70;
+const MARQUEE_MIN_DURATION_MS = 20000;
+const MARQUEE_MAX_DURATION_MS = 60000;
 const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)";
 const MOBILE_VISIBLE_MARQUEE_INDICES = new Set([0, 1, 4, 5]);
 const MOBILE_SEED_BURST_COUNT = 2;
@@ -319,7 +322,7 @@ function setupBackgroundAudioAutoplay() {
     if (document.visibilityState === "hidden") {
       if (!backgroundAudio.paused && backgroundAudioState.enabled) {
         backgroundAudioState.resumeOnVisible = true;
-        backgroundAudio.pause().catch((error) => console.warn("背景音樂暫停失敗", error));
+        pauseBackgroundAudioSafely("背景音樂暫停失敗");
       } else {
         backgroundAudioState.resumeOnVisible = false;
       }
@@ -339,7 +342,7 @@ function setupBackgroundAudioAutoplay() {
     tryUnlock("auto");
   } else {
     backgroundAudio.muted = true;
-    backgroundAudio.pause().catch((error) => console.warn("背景音樂靜音失敗", error));
+    pauseBackgroundAudioSafely("背景音樂靜音失敗");
   }
   updateAudioToggleUI();
 }
@@ -397,6 +400,20 @@ function setAudioPreference(enabled) {
   applyAudioPreference();
 }
 
+function pauseBackgroundAudioSafely(logLabel) {
+  if (!backgroundAudio) {
+    return;
+  }
+  try {
+    const result = backgroundAudio.pause();
+    if (result && typeof result.catch === "function") {
+      result.catch((error) => console.warn(logLabel, error));
+    }
+  } catch (error) {
+    console.warn(logLabel, error);
+  }
+}
+
 function applyAudioPreference() {
   if (!backgroundAudio) {
     return;
@@ -404,7 +421,7 @@ function applyAudioPreference() {
   if (!backgroundAudioState.enabled) {
     backgroundAudio.muted = true;
     backgroundAudioState.resumeOnVisible = false;
-    backgroundAudio.pause().catch((error) => console.warn("背景音樂靜音失敗", error));
+    pauseBackgroundAudioSafely("背景音樂靜音失敗");
     return;
   }
   backgroundAudio.muted = false;
@@ -1282,6 +1299,7 @@ function applyMarqueeText(line, text) {
     if (span) {
       span.textContent = displayText;
     }
+    updateMarqueeDuration(line, track);
   }
   line.dataset.message = normalized;
   return normalized;
@@ -1289,6 +1307,34 @@ function applyMarqueeText(line, text) {
 
 function normalizeMarqueeText(text) {
   return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+function updateMarqueeDuration(line, track) {
+  if (!track) {
+    return;
+  }
+  const durationSeconds = computeMarqueeDurationSeconds(line, track);
+  if (durationSeconds) {
+    track.style.setProperty("--marquee-duration", `${durationSeconds.toFixed(2)}s`);
+  } else {
+    track.style.removeProperty("--marquee-duration");
+  }
+}
+
+function computeMarqueeDurationSeconds(line, track) {
+  if (!line || !track || !MARQUEE_SPEED_PX_PER_SEC) {
+    return null;
+  }
+  const viewportWidth = line.clientWidth || marqueeLayer?.clientWidth || window.innerWidth || 0;
+  const trackWidth = track.scrollWidth || track.offsetWidth || viewportWidth;
+  const travelDistance = viewportWidth + trackWidth;
+  if (!Number.isFinite(travelDistance) || travelDistance <= 0) {
+    return null;
+  }
+  const minSeconds = MARQUEE_MIN_DURATION_MS / 1000;
+  const maxSeconds = MARQUEE_MAX_DURATION_MS / 1000;
+  const rawSeconds = travelDistance / MARQUEE_SPEED_PX_PER_SEC;
+  return clampNumber(rawSeconds, minSeconds, maxSeconds);
 }
 
 function getPointerDistance() {
@@ -1949,6 +1995,7 @@ function clientToSvg(clientX, clientY) {
 }
 
 const STATUS_TOAST_TIMEOUT = 2600;
+const STATUS_PLACEMENT_TIMEOUT = 4200;
 
 function showToast(message, tone = "info") {
   setStatusMessage(message, tone, { context: "toast" });
@@ -1958,7 +2005,7 @@ function setStatusMessage(message, tone = "info", options = {}) {
   if (!statusToast) {
     return;
   }
-  const { persist = false, context = null } = options;
+  const { persist = false, context = null, durationMs = STATUS_TOAST_TIMEOUT } = options;
   if (state.toastTimer) {
     clearTimeout(state.toastTimer);
     state.toastTimer = null;
@@ -1971,11 +2018,12 @@ function setStatusMessage(message, tone = "info", options = {}) {
   state.toastPersistent = Boolean(persist);
   state.toastContext = context ?? null;
   if (!persist) {
+    const timeoutDuration = Number.isFinite(durationMs) ? Math.max(0, durationMs) : STATUS_TOAST_TIMEOUT;
     state.toastTimer = setTimeout(() => {
       state.toastTimer = null;
       hideStatusMessage(true);
       updatePlacementHint();
-    }, STATUS_TOAST_TIMEOUT);
+    }, timeoutDuration);
   }
 }
 
@@ -2010,9 +2058,9 @@ function updatePlacementHint(force = false) {
     return;
   }
   if (mode === "click") {
-    setStatusMessage(PLACEMENT_MESSAGES.click, "info", { persist: true, context: "placement" });
+    setStatusMessage(PLACEMENT_MESSAGES.click, "info", { context: "placement", durationMs: STATUS_PLACEMENT_TIMEOUT });
   } else if (mode === "drag") {
-    setStatusMessage(PLACEMENT_MESSAGES.drag, "info", { persist: true, context: "placement" });
+    setStatusMessage(PLACEMENT_MESSAGES.drag, "info", { context: "placement", durationMs: STATUS_PLACEMENT_TIMEOUT });
   } else if (state.toastContext === "placement") {
     hideStatusMessage(true);
   }

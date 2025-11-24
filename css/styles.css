@@ -9,7 +9,8 @@
   --shadow-xl: 0 25px 60px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 12px 28px rgba(0, 0, 0, 0.35);
   --sticker-diameter: 36px;
-  --marquee-speed-factor: 0.6;
+  --marquee-base-duration: 40s;
+  --marquee-speed-factor: 1;
   --marquee-start-offset: calc(100vw + 100%);
   --marquee-end-offset: calc(-100vw - 100%);
   font-size: 16px;
@@ -136,6 +137,7 @@ main::before {
 }
 
 .marquee-line {
+  --marquee-duration: var(--marquee-base-duration, 34s);
   overflow: hidden;
   font-size: clamp(1.75rem, 3vw, 2.35rem);
   letter-spacing: 0.15em;
@@ -159,7 +161,7 @@ main::before {
   opacity: 0;
   will-change: transform, opacity;
   animation: none;
-  animation-duration: calc(var(--marquee-duration, 30s) / var(--marquee-speed-factor, 0.3));
+  animation-duration: calc(var(--marquee-duration, var(--marquee-base-duration, 34s)) * var(--marquee-speed-factor, 1));
   animation-timing-function: linear;
   animation-iteration-count: 1;
   animation-fill-mode: forwards;
@@ -192,7 +194,7 @@ main::before {
 
 @media (max-width: 640px) {
   :root {
-    --marquee-speed-factor: 0.75;
+    --marquee-speed-factor: 0.92;
   }
 }
 
