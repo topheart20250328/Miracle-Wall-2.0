@@ -196,6 +196,7 @@ if (typeof window !== "undefined") {
 function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
   wallSvg.addEventListener("click", handleEagleClick);
+  wallSvg.addEventListener("keydown", handleWallKeydown);
   paletteSticker?.addEventListener("pointerdown", handlePalettePointerDown);
   paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
   noteForm.addEventListener("submit", handleFormSubmit);
@@ -533,7 +534,15 @@ function subscribeToReviewSettings() {
 }
 
 function handleEagleClick(event) {
-  if (event.target.closest(".sticker-node") || state.pending) {
+  const stickerNode = event.target.closest(".sticker-node");
+  if (stickerNode) {
+    const stickerId = stickerNode.dataset.id;
+    if (!state.pending && stickerId) {
+      handleStickerActivation(stickerId);
+    }
+    return;
+  }
+  if (state.pending) {
     return;
   }
   if (state.placementMode !== "click") {
@@ -749,6 +758,20 @@ function handleGlobalKeyDown(event) {
   }
   if (handled) {
     event.preventDefault();
+  }
+}
+
+function handleWallKeydown(event) {
+  const stickerNode = event.target.closest(".sticker-node");
+  if (!stickerNode) {
+    return;
+  }
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    const stickerId = stickerNode.dataset.id;
+    if (!state.pending && stickerId) {
+      handleStickerActivation(stickerId);
+    }
   }
 }
 
@@ -969,30 +992,21 @@ function invalidateStickerRendering() {
   if (!stickersLayer || typeof window === "undefined") {
     return;
   }
-  if (requiresStickerForceRedraw) {
-    const parent = stickersLayer.parentNode;
-    if (!parent) {
-      return;
-    }
-    const nextSibling = stickersLayer.nextSibling;
-    parent.removeChild(stickersLayer);
-    window.requestAnimationFrame(() => {
-      if (nextSibling && nextSibling.parentNode === parent) {
-        parent.insertBefore(stickersLayer, nextSibling);
-      } else {
-        parent.appendChild(stickersLayer);
-      }
-    });
+  if (!requiresStickerForceRedraw) {
     return;
   }
-  const originals = Array.from(stickersLayer.children);
-  if (!originals.length) {
+  const parent = stickersLayer.parentNode;
+  if (!parent) {
     return;
   }
-  const fragment = document.createDocumentFragment();
-  originals.forEach((node) => fragment.appendChild(node));
+  const nextSibling = stickersLayer.nextSibling;
+  parent.removeChild(stickersLayer);
   window.requestAnimationFrame(() => {
-    stickersLayer.appendChild(fragment);
+    if (nextSibling && nextSibling.parentNode === parent) {
+      parent.insertBefore(stickersLayer, nextSibling);
+    } else {
+      parent.appendChild(stickersLayer);
+    }
   });
 }
 
@@ -1736,22 +1750,6 @@ function createStickerNode(id, x, y, isPending = false) {
   use.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#heartSticker");
   group.appendChild(use);
   positionStickerNode(group, x, y);
-  group.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const stickerId = group.dataset.id;
-    if (!state.pending && stickerId) {
-      handleStickerActivation(stickerId);
-    }
-  });
-  group.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      const stickerId = group.dataset.id;
-      if (!state.pending && stickerId) {
-        handleStickerActivation(stickerId);
-      }
-    }
-  });
   return group;
 }
 
@@ -2151,7 +2149,7 @@ function playPlacementImpactEffect(node) {
   glow.classList.add("impact-glow");
   glow.setAttribute("cx", cx.toFixed(2));
   glow.setAttribute("cy", cy.toFixed(2));
-  glow.setAttribute("r", "0");
+   glow.setAttribute("r", "0");
   glow.setAttribute("opacity", "0.75");
 
   const halo = document.createElementNS(svgNS, "circle");
