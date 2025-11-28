@@ -499,6 +499,12 @@ body {
   .table-wrapper {
     max-height: none;
   }
+
+  .batch-actions {
+    margin-right: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 640px) {
@@ -595,4 +601,30 @@ body {
     letter-spacing: 0.06em;
     white-space: nowrap;
   }
+}
+
+.batch-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-right: auto;
+}
+
+.primary-btn.small,
+.danger-btn.small {
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+}
+
+.col-check,
+.entry-check {
+  width: 40px;
+  text-align: center;
+}
+
+.row-checkbox,
+#selectAllCheckbox {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent);
 }

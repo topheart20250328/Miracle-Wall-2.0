@@ -32,6 +32,10 @@
           <p class="dashboard-count">目前貼紙：<span id="totalCount">0</span> 張</p>
         </div>
         <div class="header-actions">
+          <div class="batch-actions" id="batchActions" hidden>
+            <button type="button" id="batchApproveBtn" class="primary-btn small">批次通過</button>
+            <button type="button" id="batchDeleteBtn" class="danger-btn small">批次刪除</button>
+          </div>
           <button type="button" id="refreshBtn" class="ghost-btn">重新整理</button>
           <button type="button" id="exportBtn" class="ghost-btn" disabled>匯出 TXT</button>
           <button type="button" id="logoutBtn" class="ghost-btn">登出</button>
@@ -68,6 +72,9 @@
         <table class="entries-table">
           <thead>
             <tr>
+              <th scope="col" class="col-check">
+                <input type="checkbox" id="selectAllCheckbox" aria-label="全選">
+              </th>
               <th scope="col">編號</th>
               <th scope="col">資訊</th>
               <th scope="col">狀態</th>
@@ -83,6 +90,9 @@
 
   <template id="entryRowTemplate">
     <tr class="entry-row" data-id="">
+      <td class="entry-check">
+        <input type="checkbox" class="row-checkbox" aria-label="選取此列">
+      </td>
       <td class="entry-number" data-label="編號"></td>
       <td class="entry-meta" data-label="資訊">
         <div class="entry-id" title="資料庫 ID"></div>

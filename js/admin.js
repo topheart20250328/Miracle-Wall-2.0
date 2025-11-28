@@ -27,6 +27,10 @@ const stickerToggle = document.getElementById("stickerApprovalToggle");
 const stickerReviewCard = document.getElementById("stickerReviewCard");
 const marqueeReviewStatus = document.getElementById("marqueeReviewStatus");
 const stickerReviewStatus = document.getElementById("stickerReviewStatus");
+const selectAllCheckbox = document.getElementById("selectAllCheckbox");
+const batchActions = document.getElementById("batchActions");
+const batchApproveBtn = document.getElementById("batchApproveBtn");
+const batchDeleteBtn = document.getElementById("batchDeleteBtn");
 
 if (exportBtn) {
   exportBtn.disabled = true;
@@ -44,6 +48,7 @@ const state = {
   entries: [],
   loading: false,
   toastTimer: null,
+  selectedIds: new Set(),
 };
 
 const reviewSettingsState = {
@@ -91,9 +96,13 @@ refreshBtn?.addEventListener("click", () => {
 logoutBtn?.addEventListener("click", handleLogout);
 entriesBody?.addEventListener("input", handleRowInput);
 entriesBody?.addEventListener("click", handleTableClick);
+entriesBody?.addEventListener("change", handleTableChange);
 exportBtn?.addEventListener("click", handleExportEntries);
 marqueeToggle?.addEventListener("change", handleMarqueeToggleChange);
 stickerToggle?.addEventListener("change", handleStickerToggleChange);
+selectAllCheckbox?.addEventListener("change", handleSelectAllChange);
+batchApproveBtn?.addEventListener("click", handleBatchApprove);
+batchDeleteBtn?.addEventListener("click", handleBatchDelete);
 
 document.addEventListener("DOMContentLoaded", () => {
   passwordInput?.focus();
@@ -138,6 +147,7 @@ async function handleLogin(event) {
 function handleLogout() {
   state.authorized = false;
   state.entries = [];
+  state.selectedIds.clear();
   renderEntries();
   emptyState.hidden = true;
   syncPanelVisibility();
@@ -146,6 +156,7 @@ function handleLogout() {
     exportBtn.disabled = true;
   }
   resetReviewControls();
+  updateBatchActionsState();
   if (loginError) {
     loginError.textContent = "";
   }
@@ -192,10 +203,12 @@ async function loadStickers(showToastOnError = false) {
           is_approved: Boolean(entry.is_approved),
         }))
       : [];
+    state.selectedIds.clear();
     renderEntries();
     if (!state.entries.length) {
       emptyState.hidden = false;
     }
+    updateBatchActionsState();
   } catch (error) {
     console.error("Failed to load stickers", error);
     showToast("讀取留言失敗，請稍後再試。", "danger");
@@ -223,6 +236,13 @@ function renderEntries() {
     clone.dataset.id = entry.id;
     const approved = Boolean(entry.is_approved);
     clone.classList.toggle("pending-review", !approved);
+    
+    const checkbox = clone.querySelector(".row-checkbox");
+    if (checkbox) {
+      checkbox.checked = state.selectedIds.has(entry.id);
+      checkbox.value = entry.id;
+    }
+
     const numberCell = clone.querySelector(".entry-number");
     const idCell = clone.querySelector(".entry-id");
     const createdCell = clone.querySelector(".created");
@@ -764,4 +784,136 @@ function showToast(message, tone = "info") {
   state.toastTimer = setTimeout(() => {
     toastNode.classList.remove("visible");
   }, 2600);
+}
+
+function handleTableChange(event) {
+  const target = event.target;
+  if (target.classList.contains("row-checkbox")) {
+    const id = target.value;
+    if (target.checked) {
+      state.selectedIds.add(id);
+    } else {
+      state.selectedIds.delete(id);
+    }
+    updateBatchActionsState();
+  }
+}
+
+function handleSelectAllChange(event) {
+  const checked = event.target.checked;
+  
+  if (checked) {
+    state.entries.forEach((entry) => state.selectedIds.add(entry.id));
+  } else {
+    state.selectedIds.clear();
+  }
+  
+  const checkboxes = entriesBody.querySelectorAll(".row-checkbox");
+  checkboxes.forEach((checkbox) => {
+    checkbox.checked = checked;
+  });
+  
+  updateBatchActionsState();
+}
+
+function updateBatchActionsState() {
+  const count = state.selectedIds.size;
+  const allSelected = state.entries.length > 0 && count === state.entries.length;
+  
+  if (selectAllCheckbox) {
+    selectAllCheckbox.checked = allSelected;
+    selectAllCheckbox.indeterminate = count > 0 && count < state.entries.length;
+  }
+  
+  if (batchActions) {
+    batchActions.hidden = count === 0;
+  }
+  
+  if (batchApproveBtn) {
+    batchApproveBtn.textContent = `批次通過 (${count})`;
+  }
+  
+  if (batchDeleteBtn) {
+    batchDeleteBtn.textContent = `批次刪除 (${count})`;
+  }
+}
+
+async function handleBatchApprove() {
+  const ids = Array.from(state.selectedIds);
+  if (!ids.length) return;
+  
+  if (!supabaseClient) {
+    showToast("尚未建立管理連線，請重新登入。", "danger");
+    return;
+  }
+  
+  batchApproveBtn.disabled = true;
+  const originalText = batchApproveBtn.textContent;
+  batchApproveBtn.textContent = "處理中...";
+  
+  try {
+    const { error } = await supabaseClient
+      .from("wall_stickers")
+      .update({ is_approved: true })
+      .in("id", ids);
+      
+    if (error) throw error;
+    
+    ids.forEach(id => {
+      updateLocalEntry(id, { is_approved: true });
+    });
+    
+    state.selectedIds.clear();
+    renderEntries();
+    updateBatchActionsState();
+    showToast(`已通過 ${ids.length} 則留言。`, "success");
+  } catch (error) {
+    console.error("Batch approve failed", error);
+    showToast("批次審核失敗，請稍後再試。", "danger");
+  } finally {
+    batchApproveBtn.disabled = false;
+    batchApproveBtn.textContent = originalText;
+  }
+}
+
+async function handleBatchDelete() {
+  const ids = Array.from(state.selectedIds);
+  if (!ids.length) return;
+  
+  if (!confirm(`確定要刪除選取的 ${ids.length} 則留言嗎？此動作無法復原。`)) {
+    return;
+  }
+  
+  if (!supabaseClient) {
+    showToast("尚未建立管理連線，請重新登入。", "danger");
+    return;
+  }
+  
+  batchDeleteBtn.disabled = true;
+  const originalText = batchDeleteBtn.textContent;
+  batchDeleteBtn.textContent = "處理中...";
+  
+  try {
+    const { error } = await supabaseClient
+      .from("wall_stickers")
+      .delete()
+      .in("id", ids);
+      
+    if (error) throw error;
+    
+    state.entries = state.entries.filter(entry => !ids.includes(entry.id));
+    state.selectedIds.clear();
+    renderEntries();
+    if (!state.entries.length) {
+      emptyState.hidden = false;
+    }
+    updateBatchActionsState();
+    showToast(`已刪除 ${ids.length} 則留言。`, "success");
+  } catch (error) {
+    console.error("Batch delete failed", error);
+    showToast("批次刪除失敗，請稍後再試。", "danger");
+  } finally {
+    batchDeleteBtn.disabled = false;
+    batchDeleteBtn.textContent = originalText;
+  }
 }

@@ -35,6 +35,7 @@ const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)";
 const MOBILE_VISIBLE_MARQUEE_INDICES = new Set([0, 1, 4, 5]);
 const MOBILE_SEED_BURST_COUNT = 2;
 const statusToast = document.getElementById("statusToast");
+const loadingSpinner = document.getElementById("loadingSpinner");
 const backgroundAudio = document.getElementById("backgroundAudio");
 const noteDialog = document.getElementById("noteDialog");
 const noteForm = document.getElementById("noteForm");
@@ -49,7 +50,6 @@ const flipFront = document.getElementById("flipFront");
 const flipBack = document.getElementById("flipBack");
 const saveButton = noteForm.querySelector('button[type="submit"]');
 const deleteStickerBtn = document.getElementById("deleteStickerBtn");
-const loadingState = document.getElementById("loadingState");
 const mediaPrefersReducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : null;
@@ -184,7 +184,6 @@ if (mediaPrefersReducedMotion) {
 init().catch((err) => console.error(err));
 setupBackgroundAudioAutoplay();
 initSettingsDialog();
-initButtonAnimations();
 
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
@@ -214,11 +213,9 @@ function init() {
   hideStatusMessage(true);
   updateDialogSubtitle(false);
   initAmbientGlow();
-  initButtonAnimations();
   if (isSupabaseConfigured()) {
     loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
     subscribeToReviewSettings();
-    subscribeToStickerUpdates();
   } else {
     reviewSettings.ready = true;
   }
@@ -230,10 +227,10 @@ function init() {
 
 async function loadExistingStickers() {
   if (!isSupabaseConfigured()) {
-    if (loadingState) {
-      loadingState.classList.add("hidden");
-    }
     return;
+  }
+  if (loadingSpinner) {
+    loadingSpinner.classList.add("visible");
   }
   const { data, error } = await supabase
     .from("wall_sticker_entries")
@@ -241,12 +238,14 @@ async function loadExistingStickers() {
       "id, x_norm, y_norm, note, created_at, updated_at, device_id, is_approved, can_view_note",
     )
     .order("created_at", { ascending: true });
+  
+  if (loadingSpinner) {
+    loadingSpinner.classList.remove("visible");
+  }
+
   if (error) {
     showToast("讀取貼紙失敗，請稍後再試", "danger");
     console.error(error);
-    if (loadingState) {
-      loadingState.classList.add("hidden");
-    }
     return;
   }
   data.forEach((record) => {
@@ -273,9 +272,6 @@ async function loadExistingStickers() {
   });
   updateMarqueePool();
   initMarqueeTicker();
-  if (loadingState) {
-    loadingState.classList.add("hidden");
-  }
 }
 
 function setupBackgroundAudioAutoplay() {
@@ -370,16 +366,16 @@ function initSettingsDialog() {
     if (typeof settingsDialog.showModal === "function") {
       if (!settingsDialog.open) {
         settingsDialog.showModal();
-        // Anime.js entrance
         if (window.anime) {
-          window.anime.remove(settingsDialog);
+          settingsDialog.style.opacity = "0";
+          settingsDialog.style.transform = "scale(0.92) translateY(10px)";
           window.anime({
             targets: settingsDialog,
             opacity: [0, 1],
-            scale: [0.9, 1],
-            translateY: ["20px", "0px"],
-            duration: 500,
-            easing: "easeOutElastic(1, .8)"
+            scale: [0.92, 1],
+            translateY: [10, 0],
+            easing: "easeOutExpo",
+            duration: 400,
           });
         }
       }
@@ -388,7 +384,7 @@ function initSettingsDialog() {
     }
   };
   const closeDialog = () => {
-    const performClose = () => {
+    const doClose = () => {
       if (typeof settingsDialog.close === "function" && settingsDialog.open) {
         settingsDialog.close();
       } else {
@@ -397,25 +393,22 @@ function initSettingsDialog() {
       settingsBtn?.focus();
     };
 
-    // Anime.js exit
     if (window.anime && settingsDialog.open) {
-      window.anime.remove(settingsDialog);
       window.anime({
         targets: settingsDialog,
         opacity: 0,
-        scale: 0.9,
-        translateY: "20px",
-        duration: 300,
-        easing: "easeInCubic",
+        scale: 0.96,
+        translateY: 10,
+        easing: "easeOutQuad",
+        duration: 200,
         complete: () => {
-          performClose();
-          // Reset styles for next open
-          settingsDialog.style.opacity = "";
-          settingsDialog.style.transform = "";
-        }
+          doClose();
+          settingsDialog.style.removeProperty("opacity");
+          settingsDialog.style.removeProperty("transform");
+        },
       });
     } else {
-      performClose();
+      doClose();
     }
   };
   settingsBtn.addEventListener("click", openDialog);
@@ -579,91 +572,6 @@ function subscribeToReviewSettings() {
       },
     )
     .subscribe();
-}
-
-function subscribeToStickerUpdates() {
-  if (!isSupabaseConfigured() || typeof supabase.channel !== "function") {
-    return;
-  }
-  supabase
-    .channel("public:wall_stickers")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "wall_stickers" },
-      (payload) => {
-        if (payload.eventType === "DELETE") {
-          handleStickerDelete(payload.old.id);
-        } else if (payload.new && payload.new.id) {
-          void handleStickerUpsert(payload.new.id);
-        }
-      },
-    )
-    .subscribe();
-}
-
-async function handleStickerUpsert(id) {
-  const { data, error } = await supabase
-    .from("wall_sticker_entries")
-    .select("id, x_norm, y_norm, note, created_at, updated_at, device_id, is_approved, can_view_note")
-    .eq("id", id)
-    .maybeSingle();
-
-  if (error || !data) {
-    return;
-  }
-
-  const record = data;
-  const existing = state.stickers.get(record.id);
-  const x = record.x_norm * viewBox.width;
-  const y = record.y_norm * viewBox.height;
-
-  if (existing) {
-    existing.x = x;
-    existing.y = y;
-    existing.xNorm = record.x_norm;
-    existing.yNorm = record.y_norm;
-    existing.note = record.note ?? "";
-    existing.isApproved = Boolean(record.is_approved);
-    existing.canViewNote = Boolean(record.can_view_note);
-    existing.updated_at = record.updated_at;
-    
-    if (existing.node) {
-      positionStickerNode(existing.node, x, y);
-    }
-    updateStickerReviewState(existing);
-  } else {
-    const node = createStickerNode(record.id, x, y, false);
-    stickersLayer.appendChild(node);
-    const newRecord = {
-      id: record.id,
-      x,
-      y,
-      xNorm: record.x_norm,
-      yNorm: record.y_norm,
-      note: record.note ?? "",
-      node,
-      created_at: record.created_at,
-      updated_at: record.updated_at,
-      deviceId: record.device_id ?? null,
-      isApproved: Boolean(record.is_approved),
-      canViewNote: Boolean(record.can_view_note),
-    };
-    state.stickers.set(record.id, newRecord);
-    runPopAnimation(node);
-    updateStickerReviewState(newRecord);
-  }
-  updateMarqueePool();
-}
-
-function handleStickerDelete(id) {
-  const existing = state.stickers.get(id);
-  if (existing) {
-    if (existing.node) {
-      existing.node.remove();
-    }
-    state.stickers.delete(id);
-    updateMarqueePool();
-  }
 }
 
 function handleEagleClick(event) {
@@ -1883,76 +1791,33 @@ function createStickerNode(id, x, y, isPending = false) {
   use.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#heartSticker");
   group.appendChild(use);
   positionStickerNode(group, x, y);
-  
-  // Hover effects
+
   group.addEventListener("mouseenter", () => {
-    if (state.placementMode !== "idle" || state.pending) return;
-    if (window.anime) {
+    if (window.anime && !state.pending && !state.drag && !group.classList.contains("pending")) {
       window.anime.remove(group);
       window.anime({
         targets: group,
         scale: 1.15,
+        rotate: window.anime.random(-8, 8),
         duration: 400,
-        easing: "easeOutElastic(1, .6)"
+        easing: "easeOutElastic(1, .6)",
       });
     }
   });
-
   group.addEventListener("mouseleave", () => {
-    if (state.placementMode !== "idle" || state.pending) return;
-    if (window.anime) {
+    if (window.anime && !state.pending && !state.drag && !group.classList.contains("pending")) {
       window.anime.remove(group);
       window.anime({
         targets: group,
         scale: 1,
+        rotate: 0,
         duration: 300,
-        easing: "easeOutQuad"
+        easing: "easeOutQuad",
       });
     }
   });
 
   return group;
-}
-
-function initButtonAnimations() {
-  if (!window.anime) return;
-
-  const buttons = [
-    settingsBtn,
-    zoomResetBtn,
-    paletteSticker,
-    cancelModalBtn,
-    saveButton,
-    deleteStickerBtn,
-    settingsCloseBtn
-  ].filter(Boolean);
-
-  buttons.forEach((btn) => {
-    // Skip if button already has specific animation logic or if it's the palette sticker which might need special handling
-    // But for now, a simple scale effect is safe for most
-    
-    btn.addEventListener("mouseenter", () => {
-      window.anime.remove(btn);
-      window.anime({
-        targets: btn,
-        scale: 1.1,
-        translateY: -2,
-        duration: 400,
-        easing: "easeOutElastic(1, .6)"
-      });
-    });
-
-    btn.addEventListener("mouseleave", () => {
-      window.anime.remove(btn);
-      window.anime({
-        targets: btn,
-        scale: 1.0,
-        translateY: 0,
-        duration: 300,
-        easing: "easeOutQuad"
-      });
-    });
-  });
 }
 
 function handleStickerActivation(stickerId) {
@@ -2213,23 +2078,8 @@ function setStatusMessage(message, tone = "info", options = {}) {
   statusToast.textContent = message;
   statusToast.dataset.tone = tone;
   statusToast.dataset.context = context ?? "";
+  statusToast.classList.add("visible");
   statusToast.removeAttribute("aria-hidden");
-  
-  // Use anime.js for entrance
-  if (window.anime) {
-    window.anime.remove(statusToast);
-    window.anime({
-      targets: statusToast,
-      translateY: ["-140%", "0%"],
-      translateX: "-50%", // Keep centered
-      opacity: [0, 1],
-      duration: 600,
-      easing: "easeOutElastic(1, .8)"
-    });
-  } else {
-    statusToast.classList.add("visible");
-  }
-
   state.toastPersistent = Boolean(persist);
   state.toastContext = context ?? null;
   if (!persist) {
@@ -2253,32 +2103,11 @@ function hideStatusMessage(force = false) {
     clearTimeout(state.toastTimer);
     state.toastTimer = null;
   }
-  
-  // Use anime.js for exit
-  if (window.anime) {
-    window.anime.remove(statusToast);
-    window.anime({
-      targets: statusToast,
-      translateY: "-140%",
-      translateX: "-50%",
-      opacity: 0,
-      duration: 300,
-      easing: "easeInCubic",
-      complete: () => {
-        statusToast.setAttribute("aria-hidden", "true");
-        statusToast.textContent = "";
-        statusToast.dataset.tone = "";
-        statusToast.dataset.context = "";
-      }
-    });
-  } else {
-    statusToast.classList.remove("visible");
-    statusToast.setAttribute("aria-hidden", "true");
-    statusToast.textContent = "";
-    statusToast.dataset.tone = "";
-    statusToast.dataset.context = "";
-  }
-
+  statusToast.classList.remove("visible");
+  statusToast.setAttribute("aria-hidden", "true");
+  statusToast.textContent = "";
+  statusToast.dataset.tone = "";
+  statusToast.dataset.context = "";
   state.toastPersistent = false;
   state.toastContext = null;
 }
@@ -2320,8 +2149,6 @@ function playPlacementPreviewEffect(x, y) {
   glow.setAttribute("cy", cy.toFixed(2));
   glow.setAttribute("r", "0");
   glow.setAttribute("opacity", "0.6");
-
- 
 
   const ring = document.createElementNS(svgNS, "circle");
   ring.classList.add("effect-preview-ring");
@@ -2674,17 +2501,19 @@ function initAmbientGlow() {
       targets: ambientState.nodes,
       r: (el) => Number(el.dataset.maxRadius ?? 24),
       opacity: (el) => Number(el.dataset.maxOpacity ?? 0.7),
-      duration: 1600,
-      easing: "easeOutCubic",
-      delay: window.anime.stagger(180, { start: startDelay }),
+      translateY: -40,
+      duration: 2200,
+      easing: "easeOutSine",
+      delay: window.anime.stagger(220, { start: startDelay }),
     })
     .add({
       targets: ambientState.nodes,
       r: 0,
       opacity: 0,
-      duration: 1700,
-      easing: "easeInQuad",
-      delay: window.anime.stagger(210, { direction: "reverse" }),
+      translateY: -80,
+      duration: 2200,
+      easing: "easeInSine",
+      delay: window.anime.stagger(220, { direction: "reverse" }),
     });
 
   ambientState.animation = timeline;
@@ -2749,12 +2578,16 @@ function runPopAnimation(node) {
   node.style.transformOrigin = "50% 50%";
   window.anime({
     targets: node,
-    scale: [0.35, 1],
-    easing: "easeOutBack",
-    duration: 520,
+    scale: [0, 1],
+    opacity: [0, 1],
+    translateY: [20, 0],
+    easing: "easeOutElastic(1, .5)",
+    duration: 1000,
+    delay: window.anime.random(0, 150),
     complete: () => {
       if (node?.style) {
         node.style.removeProperty("transform");
+        node.style.removeProperty("opacity");
       }
     },
   });
@@ -2767,8 +2600,10 @@ function runPulseAnimation(node) {
   node.style.transformOrigin = "50% 50%";
   window.anime({
     targets: node,
-    scale: [1, 1.15, 1],
-    duration: 620,
+    scale: [1, 1.15],
+    direction: "alternate",
+    loop: 2,
+    duration: 400,
     easing: "easeInOutSine",
     complete: () => {
       if (node?.style) {
