@@ -20,6 +20,8 @@ const entriesBody = document.getElementById("entriesBody");
 const rowTemplate = document.getElementById("entryRowTemplate");
 const toastNode = document.getElementById("adminToast");
 const exportBtn = document.getElementById("exportBtn");
+const exportCsvBtn = document.getElementById("exportCsvBtn");
+const searchInput = document.getElementById("searchInput");
 const totalCountNode = document.getElementById("totalCount");
 const reviewControls = document.getElementById("reviewControls");
 const marqueeToggle = document.getElementById("marqueeApprovalToggle");
@@ -35,6 +37,9 @@ const batchDeleteBtn = document.getElementById("batchDeleteBtn");
 if (exportBtn) {
   exportBtn.disabled = true;
 }
+if (exportCsvBtn) {
+  exportCsvBtn.disabled = true;
+}
 if (totalCountNode) {
   totalCountNode.textContent = "0";
 }
@@ -46,9 +51,11 @@ if (configNotice) {
 const state = {
   authorized: false,
   entries: [],
+  filteredEntries: [],
   loading: false,
   toastTimer: null,
   selectedIds: new Set(),
+  searchTerm: "",
 };
 
 const reviewSettingsState = {
@@ -98,6 +105,8 @@ entriesBody?.addEventListener("input", handleRowInput);
 entriesBody?.addEventListener("click", handleTableClick);
 entriesBody?.addEventListener("change", handleTableChange);
 exportBtn?.addEventListener("click", handleExportEntries);
+exportCsvBtn?.addEventListener("click", handleExportCsv);
+searchInput?.addEventListener("input", handleSearchInput);
 marqueeToggle?.addEventListener("change", handleMarqueeToggleChange);
 stickerToggle?.addEventListener("change", handleStickerToggleChange);
 selectAllCheckbox?.addEventListener("change", handleSelectAllChange);
@@ -139,6 +148,9 @@ async function handleLogin(event) {
   if (exportBtn) {
     exportBtn.disabled = false;
   }
+  if (exportCsvBtn) {
+    exportCsvBtn.disabled = false;
+  }
   supabaseClient = createSupabaseClient({ headers: { "x-admin-secret": ADMIN_SECRET_HEADER } });
   void initializeReviewSettings();
   void loadStickers();
@@ -154,6 +166,9 @@ function handleLogout() {
   supabaseClient = null;
   if (exportBtn) {
     exportBtn.disabled = true;
+  }
+  if (exportCsvBtn) {
+    exportCsvBtn.disabled = true;
   }
   resetReviewControls();
   updateBatchActionsState();
@@ -203,7 +218,12 @@ async function loadStickers(showToastOnError = false) {
           is_approved: Boolean(entry.is_approved),
         }))
       : [];
+    state.filteredEntries = [...state.entries];
     state.selectedIds.clear();
+    if (searchInput) {
+      searchInput.value = "";
+      state.searchTerm = "";
+    }
     renderEntries();
     if (!state.entries.length) {
       emptyState.hidden = false;
@@ -225,13 +245,26 @@ function renderEntries() {
     return;
   }
   entriesBody.innerHTML = "";
-  if (!Array.isArray(state.entries) || !state.entries.length) {
+  const displayEntries = state.searchTerm ? state.filteredEntries : state.entries;
+  
+  if (!Array.isArray(displayEntries) || !displayEntries.length) {
     updateTotalCount();
+    if (state.searchTerm) {
+      // Show no search results state if needed, or just empty
+    }
     return;
   }
   const fragment = document.createDocumentFragment();
-  const total = state.entries.length;
-  state.entries.forEach((entry, index) => {
+  const total = state.entries.length; // Use total count for numbering to keep it consistent? Or relative?
+  // Let's use the index in the full list for numbering if possible, or just display index.
+  // Actually, if filtered, the numbering might be confusing if we use index.
+  // Let's use the original index from the full list.
+  
+  displayEntries.forEach((entry) => {
+    // Find original index for display number
+    const originalIndex = state.entries.findIndex(e => e.id === entry.id);
+    const index = originalIndex !== -1 ? originalIndex : 0;
+    
     const clone = rowTemplate.content.firstElementChild.cloneNode(true);
     clone.dataset.id = entry.id;
     const approved = Boolean(entry.is_approved);
@@ -708,6 +741,71 @@ function handleExportEntries() {
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
   showToast("已匯出留言。", "success");
+}
+
+function handleSearchInput(event) {
+  const term = event.target.value.trim().toLowerCase();
+  state.searchTerm = term;
+  
+  if (!term) {
+    state.filteredEntries = [...state.entries];
+  } else {
+    state.filteredEntries = state.entries.filter(entry => {
+      const note = (entry.note || "").toLowerCase();
+      const id = (entry.id || "").toLowerCase();
+      const date = formatDate(entry.created_at).toLowerCase();
+      return note.includes(term) || id.includes(term) || date.includes(term);
+    });
+  }
+  
+  renderEntries();
+  updateBatchActionsState();
+}
+
+function handleExportCsv() {
+  if (!state.authorized) {
+    showToast("請先登入管理後再匯出。", "danger");
+    return;
+  }
+  if (!state.entries.length) {
+    showToast("目前沒有留言可匯出。", "info");
+    return;
+  }
+  
+  // BOM for Excel to recognize UTF-8
+  const BOM = "\uFEFF";
+  const headers = ["編號", "ID", "留言內容", "X座標", "Y座標", "建立時間", "更新時間", "審核狀態"];
+  
+  const rows = state.entries.map((entry, index) => {
+    const note = (entry.note ?? "").replace(/"/g, '""'); // Escape quotes
+    const status = entry.is_approved ? "已通過" : "審核中";
+    const created = formatDate(entry.created_at);
+    const updated = entry.updated_at ? formatDate(entry.updated_at) : "";
+    
+    return [
+      state.entries.length - index,
+      entry.id,
+      `"${note}"`,
+      entry.x_norm,
+      entry.y_norm,
+      created,
+      updated,
+      status
+    ].join(",");
+  });
+  
+  const csvContent = BOM + headers.join(",") + "\n" + rows.join("\n");
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `miracle-wall-export-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
+  showToast("已匯出 CSV。", "success");
 }
 
 async function verifyPassword(password) {

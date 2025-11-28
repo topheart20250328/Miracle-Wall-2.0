@@ -213,6 +213,7 @@ function init() {
   hideStatusMessage(true);
   updateDialogSubtitle(false);
   initAmbientGlow();
+  initShimmerSystem();
   if (isSupabaseConfigured()) {
     loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
     subscribeToReviewSettings();
@@ -1702,14 +1703,16 @@ async function saveNewSticker(pending, message) {
     if (isPositionConflictError(error)) {
       handlePlacementConflict(pending);
     } else {
-      formError.textContent = "儲存失敗，請稍後再試";
-      console.error(error);
+      const msg = error.message || error.code || "未知錯誤";
+      formError.textContent = `儲存失敗: ${msg}`;
+      console.error("Save failed:", error);
+      showToast(`儲存失敗: ${msg}`, "danger");
     }
     return;
   }
   const inserted = Array.isArray(data) ? data[0] : data;
   if (!inserted?.id) {
-    formError.textContent = "儲存失敗，請稍後再試";
+    formError.textContent = "儲存失敗: 伺服器未回傳 ID";
     console.error("Unexpected insert payload", data);
     return;
   }
@@ -1735,7 +1738,7 @@ async function saveNewSticker(pending, message) {
   };
   state.stickers.set(newId, newRecord);
   updateStickerReviewState(newRecord);
-  runPopAnimation(pending.node);
+  // runPopAnimation(pending.node);
   await closeDialogWithResult("saved");
   showToast("留言已保存", "success");
 }
@@ -1756,7 +1759,8 @@ async function updateStickerMessage(pending, message) {
   }
   const { error, data } = await updateQuery.select().single();
   if (error) {
-    formError.textContent = "更新失敗，請稍後再試";
+    const msg = error.message || error.code || "未知錯誤";
+    formError.textContent = `更新失敗: ${msg}`;
     console.error(error);
     return;
   }
@@ -3219,4 +3223,41 @@ function createUuid() {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function initShimmerSystem() {
+  const runLoop = () => {
+    const stickers = Array.from(state.stickers.values());
+    if (stickers.length > 0) {
+      // Max 3 concurrent shimmers
+      const currentShimmers = document.querySelectorAll('.sticker-node.shimmering').length;
+      
+      if (currentShimmers < 3) {
+        const randomRecord = stickers[Math.floor(Math.random() * stickers.length)];
+        
+        if (randomRecord && randomRecord.node && 
+            state.pending?.id !== randomRecord.id &&
+            state.drag?.node !== randomRecord.node &&
+            !randomRecord.node.classList.contains("pending") &&
+            !randomRecord.node.classList.contains("shimmering")) {
+          triggerShimmer(randomRecord.node);
+        }
+      }
+    }
+    // Schedule next run between 1s and 5s
+    setTimeout(runLoop, 1000 + Math.random() * 4000);
+  };
+  runLoop();
+}
+
+function triggerShimmer(node) {
+  if (!node) return;
+  node.classList.add("shimmering");
+  
+  const cleanup = () => {
+    node.classList.remove("shimmering");
+    node.removeEventListener("animationend", cleanup);
+  };
+  
+  node.addEventListener("animationend", cleanup);
 }

@@ -32,12 +32,18 @@
           <p class="dashboard-count">目前貼紙：<span id="totalCount">0</span> 張</p>
         </div>
         <div class="header-actions">
+          <div class="search-box">
+            <input type="text" id="searchInput" class="search-input" placeholder="搜尋留言、ID..." aria-label="搜尋留言">
+          </div>
           <div class="batch-actions" id="batchActions" hidden>
             <button type="button" id="batchApproveBtn" class="primary-btn small">批次通過</button>
             <button type="button" id="batchDeleteBtn" class="danger-btn small">批次刪除</button>
           </div>
           <button type="button" id="refreshBtn" class="ghost-btn">重新整理</button>
-          <button type="button" id="exportBtn" class="ghost-btn" disabled>匯出 TXT</button>
+          <div class="export-group">
+            <button type="button" id="exportBtn" class="ghost-btn" disabled>匯出 TXT</button>
+            <button type="button" id="exportCsvBtn" class="ghost-btn" disabled>匯出 CSV</button>
+          </div>
           <button type="button" id="logoutBtn" class="ghost-btn">登出</button>
         </div>
       </header>

@@ -1332,3 +1332,204 @@ body.placement-active #paletteSticker svg {
   to { transform: rotate(360deg); }
 }
 
+
+/* Sticker Color Themes */
+:root {
+  --sticker-default: #ffffff;
+  --sticker-rose: #ffcdd2;
+  --sticker-sky: #b3e5fc;
+  --sticker-mint: #b9f6ca;
+  --sticker-lavender: #e1bee7;
+  --sticker-gold: #fff9c4;
+}
+
+.sticker-node[data-color='default'] use { fill: var(--sticker-default); }
+.sticker-node[data-color='rose'] use { fill: var(--sticker-rose); }
+.sticker-node[data-color='sky'] use { fill: var(--sticker-sky); }
+.sticker-node[data-color='mint'] use { fill: var(--sticker-mint); }
+.sticker-node[data-color='lavender'] use { fill: var(--sticker-lavender); }
+.sticker-node[data-color='gold'] use { fill: var(--sticker-gold); }
+
+/* Palette Navigation */
+.palette-nav {
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: 50%;
+  width: 2.4rem;
+  height: 2.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+  z-index: 1401;
+  padding: 0;
+}
+
+.palette-nav:hover {
+  background: rgba(0, 0, 0, 0.8);
+  transform: scale(1.1);
+}
+
+.palette-nav:active {
+  transform: scale(0.95);
+}
+
+.drag-palette {
+  gap: 1rem; /* Space between arrows and sticker */
+}
+
+/* Share Button */
+.share-btn {
+  border-color: rgba(179, 229, 252, 0.6);
+  background: rgba(179, 229, 252, 0.15);
+  color: #e1f5fe;
+}
+
+.share-btn:hover {
+  background: rgba(179, 229, 252, 0.25);
+}
+
+
+/* Sticker Theming System */
+:root {
+ --sticker-bg: #ffffff;
+ --sticker-fg: #333232;
+}
+
+.sticker-bg {
+ fill: var(--sticker-bg);
+ transition: fill 0.3s ease;
+}
+
+.sticker-fg {
+ fill: var(--sticker-fg);
+ transition: fill 0.3s ease;
+}
+
+/* Theme Presets */
+.theme-default { --sticker-bg: #ffffff; --sticker-fg: #333232; }
+.theme-rose { --sticker-bg: #ffebee; --sticker-fg: #b71c1c; }
+.theme-blue { --sticker-bg: #e3f2fd; --sticker-fg: #0d47a1; }
+.theme-green { --sticker-bg: #e8f5e9; --sticker-fg: #1b5e20; }
+.theme-gold { --sticker-bg: #fffde7; --sticker-fg: #f57f17; }
+.theme-dark { --sticker-bg: #263238; --sticker-fg: #eceff1; }
+.theme-purple { --sticker-bg: #f3e5f5; --sticker-fg: #4a148c; }
+.theme-teal { --sticker-bg: #e0f2f1; --sticker-fg: #004d40; }
+
+/* Apply theme variables to the palette sticker preview as well */
+#paletteSticker {
+ /* This will inherit the theme class applied to its parent or itself */
+}
+
+/* Ensure the palette navigation arrows are positioned correctly */
+.drag-palette {
+ gap: 1.5rem;
+}
+
+.palette-nav {
+ background: rgba(20, 20, 25, 0.6);
+ backdrop-filter: blur(4px);
+ border: 1px solid rgba(255, 255, 255, 0.15);
+ color: rgba(255, 255, 255, 0.9);
+ width: 2.8rem;
+ height: 2.8rem;
+ border-radius: 50%;
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ cursor: pointer;
+ transition: all 0.2s ease;
+ box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.palette-nav:hover {
+ background: rgba(255, 255, 255, 0.15);
+ transform: scale(1.1);
+ color: #fff;
+}
+
+.palette-nav:active {
+ transform: scale(0.95);
+}
+
+.palette-nav svg {
+ width: 1.4rem;
+ height: 1.4rem;
+ fill: currentColor;
+}
+
+
+/* Rare Shimmer Effect */
+@keyframes rare-shimmer {
+ 0% {
+ filter: brightness(1) drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+ transform: scale(1);
+ }
+ 50% {
+ filter: brightness(1.5) drop-shadow(0 0 15px rgba(255, 255, 255, 0.8));
+ transform: scale(1.05);
+ }
+ 100% {
+ filter: brightness(1) drop-shadow(0 0 0 rgba(255, 255, 255, 0));
+ transform: scale(1);
+ }
+}
+
+.sticker-node.shimmering {
+ animation: rare-shimmer 2.4s ease-in-out;
+ z-index: 10; /* Bring to front during shimmer */
+}
+
+
+/* Settings Select */
+.select-wrapper {
+ position: relative;
+ display: inline-block;
+}
+
+.settings-select {
+ appearance: none;
+ -webkit-appearance: none;
+ background: rgba(255, 255, 255, 0.12);
+ border: 1px solid rgba(255, 255, 255, 0.2);
+ color: #ffffff;
+ font-size: 0.95rem;
+ padding: 0.4rem 2rem 0.4rem 1rem;
+ border-radius: 8px;
+ cursor: pointer;
+ font-family: inherit;
+ transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.settings-select:hover,
+.settings-select:focus {
+ background: rgba(255, 255, 255, 0.18);
+ border-color: rgba(255, 255, 255, 0.35);
+ outline: none;
+}
+
+.select-wrapper::after {
+ content: ';
+ position: absolute;
+ right: 0.8rem;
+ top: 50%;
+ transform: translateY(-50%);
+ width: 0;
+ height: 0;
+ border-left: 5px solid transparent;
+ border-right: 5px solid transparent;
+ border-top: 5px solid rgba(255, 255, 255, 0.7);
+ pointer-events: none;
+}
+
+/* Particle Effects */
+.particle {
+ position: absolute;
+ pointer-events: none;
+ border-radius: 50%;
+ mix-blend-mode: screen;
+ will-change: transform, opacity;
+}
+
