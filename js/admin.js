@@ -284,6 +284,7 @@ function renderEntries() {
     const noteInputNode = clone.querySelector(".note-input");
     const statusBadge = clone.querySelector(".status-badge");
     const approveButton = clone.querySelector('button[data-action="approve"]');
+    const revokeButton = clone.querySelector('button[data-action="revoke"]');
 
     const displayNumber = total - index;
     if (numberCell) {
@@ -319,6 +320,15 @@ function renderEntries() {
         approveButton.setAttribute("aria-hidden", "true");
       } else {
         approveButton.removeAttribute("aria-hidden");
+      }
+    }
+    if (revokeButton) {
+      revokeButton.hidden = !approved;
+      revokeButton.disabled = !approved;
+      if (!approved) {
+        revokeButton.setAttribute("aria-hidden", "true");
+      } else {
+        revokeButton.removeAttribute("aria-hidden");
       }
     }
 
@@ -362,6 +372,8 @@ function handleTableClick(event) {
     void deleteEntry(row, button);
   } else if (action === "approve") {
     void approveEntry(row, button);
+  } else if (action === "revoke") {
+    void revokeEntry(row, button);
   }
 }
 
@@ -466,6 +478,49 @@ async function approveEntry(row, button) {
   } finally {
     button.disabled = false;
     button.textContent = originalLabel ?? "通過";
+  }
+}
+
+async function revokeEntry(row, button) {
+  const id = row.dataset.id;
+  if (!id) {
+    showToast("找不到這筆留言的 ID。", "danger");
+    return;
+  }
+  if (!supabaseClient) {
+    showToast("尚未建立管理連線，請重新登入。", "danger");
+    return;
+  }
+  const existing = state.entries.find((entry) => entry.id === id);
+  if (!existing?.is_approved) {
+    showToast("此留言尚未通過審核。", "info");
+    return;
+  }
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = "取消中…";
+  try {
+    const { data, error } = await supabaseClient
+      .from("wall_stickers")
+      .update({ is_approved: false })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) {
+      throw error;
+    }
+    updateLocalEntry(id, {
+      is_approved: false,
+      updated_at: data?.updated_at ?? new Date().toISOString(),
+    });
+    showToast("已取消通過這則留言。", "success");
+    renderEntries();
+  } catch (error) {
+    console.error("Failed to revoke entry", error);
+    showToast("取消失敗，請稍後再試。", "danger");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel ?? "取消通過";
   }
 }
 

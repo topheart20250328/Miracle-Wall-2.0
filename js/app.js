@@ -28,9 +28,9 @@ const MARQUEE_SEED_JITTER_MS = 900;
 const MARQUEE_RESPAWN_JITTER_MS = 450;
 const MARQUEE_RECENT_COUNT = 5;
 const MARQUEE_RECENT_WEIGHT = 3;
-const MARQUEE_SPEED_PX_PER_SEC = 70;
+const MARQUEE_SPEED_PX_PER_SEC = 60;
 const MARQUEE_MIN_DURATION_MS = 20000;
-const MARQUEE_MAX_DURATION_MS = 60000;
+const MARQUEE_MAX_DURATION_MS = 180000;
 const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)";
 const MOBILE_VISIBLE_MARQUEE_INDICES = new Set([0, 1, 4, 5]);
 const MOBILE_SEED_BURST_COUNT = 2;
@@ -58,6 +58,12 @@ const ambientState = {
   animation: null,
   currentCount: 0,
   resizeTimer: null,
+};
+const fireState = {
+  nodes: [],
+  animation: null,
+  intensity: 0, // 0 to 1
+  active: false,
 };
 const DEVICE_STORAGE_KEY = "wallDeviceId";
 const AUDIO_PREF_KEY = "wallAudioPreference";
@@ -213,6 +219,7 @@ function init() {
   hideStatusMessage(true);
   updateDialogSubtitle(false);
   initAmbientGlow();
+  initFireEffect();
   initShimmerSystem();
   if (isSupabaseConfigured()) {
     loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
@@ -271,6 +278,7 @@ async function loadExistingStickers() {
     runPopAnimation(node);
     updateStickerReviewState(state.stickers.get(record.id));
   });
+  updateFireIntensity();
   updateMarqueePool();
   initMarqueeTicker();
 }
@@ -1609,6 +1617,7 @@ async function handleDeleteSticker() {
     state.stickers.delete(pending.id);
     pending.deleted = true;
     pending.node = null;
+    updateFireIntensity();
     await closeDialogWithResult("deleted");
     showToast("貼紙已刪除", "success");
   } catch (error) {
@@ -1738,6 +1747,7 @@ async function saveNewSticker(pending, message) {
   };
   state.stickers.set(newId, newRecord);
   updateStickerReviewState(newRecord);
+  updateFireIntensity();
   // runPopAnimation(pending.node);
   await closeDialogWithResult("saved");
   showToast("留言已保存", "success");
@@ -3252,12 +3262,203 @@ function initShimmerSystem() {
 
 function triggerShimmer(node) {
   if (!node) return;
+  
+  // 1. Animate the sticker itself (brightness/scale)
   node.classList.add("shimmering");
+
+  // 2. Create the cross shine in the effects layer (to avoid clipping by eagle edge)
+  const cx = parseFloat(node.dataset.cx);
+  const cy = parseFloat(node.dataset.cy);
+
+  if (Number.isFinite(cx) && Number.isFinite(cy) && effectsLayer) {
+    const group = document.createElementNS(svgNS, "g");
+    group.setAttribute("transform", `translate(${cx}, ${cy})`);
+    group.style.pointerEvents = "none";
+
+    const sparkle = document.createElementNS(svgNS, "path");
+    sparkle.classList.add("shimmer-sparkle");
+    // Long, thin cross shape (Radius 85px, very thin center)
+    // This ensures the center doesn't obscure the sticker too much, while spikes are long
+    sparkle.setAttribute("d", "M0,-85 C1,-15 15,-1 85,0 C15,1 1,15 0,85 C-1,15 -15,1 -85,0 C-15,-1 -1,-15 0,-85");
+    
+    group.appendChild(sparkle);
+    effectsLayer.appendChild(group);
+
+    // Cleanup function
+    const cleanup = () => {
+      node.classList.remove("shimmering");
+      if (group.isConnected) group.remove();
+      node.removeEventListener("animationend", cleanup);
+    };
+
+    // Listen to the sticker's animation end
+    node.addEventListener("animationend", cleanup);
+  } else {
+    // Fallback if coordinates missing
+    const cleanup = () => {
+      node.classList.remove("shimmering");
+      node.removeEventListener("animationend", cleanup);
+    };
+    node.addEventListener("animationend", cleanup);
+  }
+}
+
+function initFireEffect() {
+  if (!ambientLayer) return;
+  if (mediaPrefersReducedMotion?.matches) return;
+  if (!window.anime || typeof window.anime.timeline !== "function") return;
+
+  // Reuse eagle paths for fire emission
+  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
+  const pathEntries = pathNodes
+    .map((path) => {
+      try {
+        const length = path.getTotalLength();
+        if (!Number.isFinite(length) || length <= 0) return null;
+        return { path, length };
+      } catch (error) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  if (!pathEntries.length) return;
+
+  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
   
-  const cleanup = () => {
-    node.classList.remove("shimmering");
-    node.removeEventListener("animationend", cleanup);
+  // Create a dedicated group for fire if not exists
+  let fireGroup = document.getElementById("fireGroup");
+  if (!fireGroup) {
+    fireGroup = document.createElementNS(svgNS, "g");
+    fireGroup.id = "fireGroup";
+    // Insert before stickersLayer to be behind stickers
+    if (stickersLayer && stickersLayer.parentNode) {
+      stickersLayer.parentNode.insertBefore(fireGroup, stickersLayer);
+    } else {
+      ambientLayer.appendChild(fireGroup);
+    }
+  }
+
+  fireState.active = true;
+  
+  // Check for mobile device to optimize performance
+  const isMobile = window.innerWidth < 768;
+
+  // Start the fire loop
+  const spawnFireParticle = () => {
+    if (!fireState.active) return;
+    
+    // Calculate spawn rate based on intensity
+    const intensity = fireState.intensity;
+    
+    // Performance throttling for mobile:
+    // Reduce frequency (higher delay), but we will increase particle size to compensate
+    let delayBase = isMobile ? 180 : 120;
+    let delayMin = isMobile ? 60 : 30;
+    
+    // Spawn delay: decreases as intensity increases
+    const delay = delayBase - (intensity * (delayBase - delayMin));
+    
+    // Batch size: fewer particles on mobile
+    let maxBatch = isMobile ? 2 : 5;
+    const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
+
+    for (let i = 0; i < batchSize; i++) {
+      createFireParticle(pathEntries, combinedLength, fireGroup, intensity, isMobile);
+    }
+
+    setTimeout(spawnFireParticle, delay);
   };
+
+  spawnFireParticle();
+}
+
+function createFireParticle(pathEntries, combinedLength, container, intensity, isMobile) {
+  // Pick a random point on the eagle
+  const offset = Math.random() * combinedLength;
+  let remaining = offset;
+  let targetEntry = pathEntries[0];
+  for (const entry of pathEntries) {
+    if (remaining <= entry.length) {
+      targetEntry = entry;
+      break;
+    }
+    remaining -= entry.length;
+  }
+
+  let point;
+  try {
+    point = targetEntry.path.getPointAtLength(remaining);
+  } catch (e) { return; }
+
+  if (!point) return;
+
+  const particle = document.createElementNS(svgNS, "circle");
+  particle.classList.add("fire-particle");
   
-  node.addEventListener("animationend", cleanup);
+  // Randomize position slightly
+  const jitter = 15 + (intensity * 25);
+  const startX = point.x + (Math.random() - 0.5) * jitter;
+  const startY = point.y + (Math.random() - 0.5) * jitter;
+
+  particle.setAttribute("cx", startX.toFixed(2));
+  particle.setAttribute("cy", startY.toFixed(2));
+  
+  // Visual Refinement:
+  // 1. Size: Further reduced as requested (2px - 6px range)
+  // Mobile still gets a slight boost to compensate for lower particle count
+  const mobileScale = isMobile ? 1.5 : 1;
+  const baseSize = (2 + (intensity * 4)) * mobileScale; // 2px to 6px base
+  const size = baseSize * (0.8 + Math.random() * 0.4); 
+  particle.setAttribute("r", size.toFixed(2));
+
+  // 2. Color: Hotter, more vibrant colors
+  // Mix of Yellow/White (hot core) and Orange/Red (flames)
+  // Higher intensity = more chance of hot core particles
+  const isCore = Math.random() < (0.2 + intensity * 0.3); 
+  const hue = isCore ? 40 + Math.random() * 15 : 0 + Math.random() * 35; // 40-55 (Yellow) or 0-35 (Red-Orange)
+  const lightness = isCore ? 70 + Math.random() * 20 : 50 + Math.random() * 15;
+  
+  particle.style.fill = `hsl(${hue}, 100%, ${lightness}%)`;
+  // Start invisible, fade in handled by anime.js
+  particle.style.opacity = 0;
+
+  container.appendChild(particle);
+
+  // 3. Motion: "Raging" = Faster, higher, more turbulent
+  const duration = 600 + Math.random() * 800; // Faster life (0.6s - 1.4s)
+  const travelY = -80 - (intensity * 180) - (Math.random() * 60); // Higher reach
+  const travelX = (Math.random() - 0.5) * (50 + intensity * 50); // Wider spread
+
+  // 4. Animation: "Puff" effect (Grow then Shrink)
+  window.anime({
+    targets: particle,
+    opacity: [
+      { value: 0, duration: 0 },
+      { value: 0.9, duration: duration * 0.15 }, // Fade in fast
+      { value: 0, duration: duration * 0.85, easing: 'easeInQuad' } // Fade out
+    ],
+    translateY: travelY,
+    translateX: travelX,
+    scale: [
+      { value: 0.3, duration: 0 },
+      { value: 1.4, duration: duration * 0.4, easing: 'easeOutQuad' }, // Puff up
+      { value: 0, duration: duration * 0.6, easing: 'easeInQuad' } // Shrink away
+    ],
+    easing: 'easeOutQuad',
+    duration: duration,
+    complete: () => {
+      if (particle.isConnected) particle.remove();
+    }
+  });
+}
+
+function updateFireIntensity() {
+  const count = state.stickers.size;
+  // 0 to 520 stickers maps to 0.2 to 1 intensity
+  const maxStickers = 520;
+  const minIntensity = 0.2;
+  const progress = Math.min(count / maxStickers, 1);
+  
+  fireState.intensity = minIntensity + (progress * (1 - minIntensity));
 }
