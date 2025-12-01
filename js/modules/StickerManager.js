@@ -672,6 +672,11 @@ function applyReviewSettingsToUi() {
 
 export function refreshAllStickerReviewStates() {
   globalState.stickers.forEach((record) => {
+    // Recalculate permissions based on new settings
+    const isOwner = !record.deviceId || !globalState.deviceId || record.deviceId === globalState.deviceId;
+    const requireApproval = globalReviewSettings.requireStickerApproval;
+    record.canViewNote = !requireApproval || record.isApproved || isOwner;
+
     updateStickerReviewState(record);
   });
 }

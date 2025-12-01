@@ -72,6 +72,9 @@
           </div>
         </div>
       </div>
+      <div id="playbackOverlay" class="playback-overlay" aria-hidden="true">
+        <div id="playbackFlash" class="playback-flash"></div>
+      </div>
       <div class="wall-stage" id="wallStage">
         <div class="wall-wrapper" id="wallWrapper">
           <svg id="wallSvg" viewBox="0 0 3500 1779.31" role="img" aria-labelledby="wallTitle" preserveAspectRatio="xMidYMid meet">
@@ -132,23 +135,29 @@
           <g id="dragOverlay" aria-hidden="true"></g>
           </svg>
         </div>
-        <div class="zoom-controls" role="group" aria-label="縮放控制">
-          <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
-          <label for="zoomSlider" class="sr-only">縮放百分比</label>
-          <input
-            type="range"
-            id="zoomSlider"
-            class="zoom-slider"
-            min="100"
-            max="1000"
-            step="5"
-            value="100"
-            aria-label="縮放百分比"
-          >
-          <span id="zoomIndicator" class="zoom-indicator" aria-live="polite">100%</span>
-          <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
-          <button type="button" id="jumpToRecentBtn" class="zoom-recent" aria-label="查看最新留言">★</button>
-        </div>
+      </div>
+      <div class="zoom-controls" role="group" aria-label="縮放控制">
+        <button type="button" id="playbackBtn" class="zoom-playback" aria-label="播放回顧">▶</button>
+        <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
+        <label for="zoomSlider" class="sr-only">縮放百分比</label>
+        <input
+          type="range"
+          id="zoomSlider"
+          class="zoom-slider"
+          min="100"
+          max="1000"
+          step="5"
+          value="100"
+          aria-label="縮放百分比"
+        >
+        <span id="zoomIndicator" class="zoom-indicator" aria-live="polite">100%</span>
+        <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
+        <button type="button" id="jumpToRecentBtn" class="zoom-recent" aria-label="查看最新留言">★</button>
+      </div>
+      <div id="playbackDateContainer" class="playback-date-container" aria-hidden="true">
+        <span id="playbackYearDisplay" class="playback-year"></span>
+        <span id="playbackDateDisplay" class="playback-date"></span>
+        <span id="playbackCounterDisplay" class="playback-counter"></span>
       </div>
       <div class="drag-palette" aria-label="貼紙工具">
         <div id="paletteSticker" class="palette-sticker" draggable="false" role="button" aria-pressed="false" tabindex="0" aria-label="貼紙樣本，點擊啟用或拖曳貼上">
@@ -213,6 +222,24 @@
               <span class="switch-thumb"></span>
             </span>
           </label>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3 class="settings-subtitle">功能說明</h3>
+        <div class="settings-row info-row">
+          <div class="settings-icon">▶</div>
+          <div>
+            <p class="settings-label">回顧動畫</p>
+            <p class="settings-description">播放神蹟牆的建立過程與感動時刻。</p>
+          </div>
+        </div>
+        <div class="settings-row info-row">
+          <div class="settings-icon">★</div>
+          <div>
+            <p class="settings-label">最新留言</p>
+            <p class="settings-description">快速跳轉至最新新增的神蹟留言。</p>
+          </div>
         </div>
       </section>
       <footer class="settings-footer">

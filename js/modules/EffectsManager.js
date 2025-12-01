@@ -326,6 +326,43 @@ export function playPlacementImpactEffect(node) {
   }
 }
 
+export function playSimpleImpact(x, y) {
+  if (!elements.effectsLayer) return;
+  
+  // Performance check: limit concurrent simple impacts
+  // If too many nodes in effects layer, skip to save FPS
+  if (elements.effectsLayer.childElementCount > 40) return;
+
+  const circle = document.createElementNS(svgNS, "circle");
+  circle.setAttribute("cx", x.toFixed(2));
+  circle.setAttribute("cy", y.toFixed(2));
+  circle.setAttribute("r", "0");
+  circle.setAttribute("fill", "none");
+  circle.setAttribute("stroke", "rgba(255, 255, 255, 0.8)");
+  circle.setAttribute("stroke-width", "6");
+  circle.style.pointerEvents = "none";
+  circle.style.mixBlendMode = "screen";
+
+  elements.effectsLayer.appendChild(circle);
+
+  if (window.anime) {
+    window.anime({
+      targets: circle,
+      r: [0, STICKER_DIAMETER * 1.5],
+      opacity: [0.8, 0],
+      strokeWidth: [6, 0],
+      easing: "easeOutExpo",
+      duration: 500,
+      complete: () => {
+        if (circle.isConnected) circle.remove();
+      }
+    });
+  } else {
+    // Fallback if anime not available
+    setTimeout(() => { if (circle.isConnected) circle.remove(); }, 500);
+  }
+}
+
 export function initAmbientGlow() {
   if (!elements.ambientLayer) {
     return;
@@ -498,8 +535,21 @@ export function scheduleAmbientGlowRefresh() {
   }, 260);
 }
 
+const shimmerState = {
+  paused: false
+};
+
+export function setShimmerPaused(paused) {
+  shimmerState.paused = paused;
+}
+
 export function initShimmerSystem(stickersMap, state) {
   const runLoop = () => {
+    if (shimmerState.paused) {
+      setTimeout(runLoop, 1000);
+      return;
+    }
+
     const stickers = Array.from(stickersMap.values());
     if (stickers.length > 0) {
       // Max 3 concurrent shimmers
@@ -732,13 +782,16 @@ function createFireParticle(pathEntries, combinedLength, container, intensity, i
 
 export function updateFireIntensity(stickersMap) {
   const count = stickersMap.size;
+  setFireIntensity(count);
+}
+
+export function setFireIntensity(count) {
   // 0 to 520 stickers maps to 0.2 to 1 intensity
   const maxStickers = 520;
   const minIntensity = 0.2;
   const progress = Math.min(count / maxStickers, 1);
   
   fireState.intensity = minIntensity + (progress * (1 - minIntensity));
-  // fireState.intensity = 1.0; // 強制最大火力展示 (模擬 520 留言)
   bottomFireState.intensity = fireState.intensity;
 }
 
@@ -804,7 +857,7 @@ function initBottomFire() {
     width: "100%",
     height: "40vh", // Increased height for smoother fade
     pointerEvents: "none",
-    zIndex: "1",
+    zIndex: "0",
     opacity: "0.5", // Reduced opacity for better blending
     mixBlendMode: "screen",
     filter: "blur(12px)", // Increased blur
@@ -812,9 +865,13 @@ function initBottomFire() {
     webkitMaskImage: "linear-gradient(to top, rgba(0,0,0,1) 20%, rgba(0,0,0,0.8) 60%, rgba(0,0,0,0) 100%)"
   });
 
-  // Append to wallWrapper if possible, else body
-  const wrapper = document.getElementById("wallWrapper") || document.body;
-  wrapper.appendChild(canvas);
+  // Append to main to layer correctly between background and content
+  const main = document.querySelector("main");
+  if (main) {
+    main.appendChild(canvas);
+  } else {
+    document.body.appendChild(canvas);
+  }
   
   bottomFireState.canvas = canvas;
   bottomFireState.ctx = canvas.getContext("2d");

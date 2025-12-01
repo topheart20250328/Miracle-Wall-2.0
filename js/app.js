@@ -5,6 +5,7 @@ import * as MarqueeController from "./modules/MarqueeController.js";
 import * as ZoomController from "./modules/ZoomController.js";
 import * as EffectsManager from "./modules/EffectsManager.js";
 import * as StickerManager from "./modules/StickerManager.js";
+import * as PlaybackController from "./modules/PlaybackController.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
 const wallStage = document.getElementById("wallStage");
@@ -19,6 +20,11 @@ const paletteSticker = document.getElementById("paletteSticker");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomResetBtn = document.getElementById("zoomResetBtn");
 const jumpToRecentBtn = document.getElementById("jumpToRecentBtn");
+const playbackBtn = document.getElementById("playbackBtn");
+const playbackDateContainer = document.getElementById("playbackDateContainer");
+const playbackYearDisplay = document.getElementById("playbackYearDisplay");
+const playbackDateDisplay = document.getElementById("playbackDateDisplay");
+const playbackCounterDisplay = document.getElementById("playbackCounterDisplay");
 const zoomIndicator = document.getElementById("zoomIndicator");
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsDialog = document.getElementById("settingsDialog");
@@ -160,6 +166,25 @@ function init() {
   MarqueeController.initMarqueeController(marqueeLayer, marqueeLines, (stickerId) => {
     if (stickerId) {
       StickerManager.handleStickerActivation(stickerId);
+    }
+  });
+  PlaybackController.initPlaybackController({
+    playButton: playbackBtn,
+    dateContainer: playbackDateContainer,
+    yearDisplay: playbackYearDisplay,
+    dateDisplay: playbackDateDisplay,
+    counterDisplay: playbackCounterDisplay,
+    wallSvg: wallSvg
+  }, {
+    getStickers: () => state.stickers,
+    onUpdateIntensity: (count) => EffectsManager.setFireIntensity(count),
+    onPlaybackStateChange: (isPlaying) => {
+      EffectsManager.setShimmerPaused(isPlaying);
+    },
+    onStickerReveal: (sticker) => {
+      if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+        EffectsManager.playSimpleImpact(sticker.x, sticker.y);
+      }
     }
   });
   StickerManager.initStickerManager({

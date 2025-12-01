@@ -32,6 +32,7 @@ let elements = {
   zoomIndicator: null,
 };
 let requiresStickerForceRedraw = false;
+let resetAnimation = null;
 
 export function initZoomController(domElements, forceRedraw) {
   elements = { ...elements, ...domElements };
@@ -84,6 +85,10 @@ function handleStageWheel(event) {
   if (!elements.wallStage) {
     return;
   }
+  if (resetAnimation) {
+    resetAnimation.pause();
+    resetAnimation = null;
+  }
   const wantsZoom = event.ctrlKey || event.metaKey;
   if (!wantsZoom) {
     return;
@@ -97,6 +102,10 @@ function handleStageWheel(event) {
 function handleStagePointerDown(event) {
   if (!isZoomTarget(event)) {
     return;
+  }
+  if (resetAnimation) {
+    resetAnimation.pause();
+    resetAnimation = null;
   }
   if (event.pointerType === "touch") {
     panState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
@@ -192,11 +201,46 @@ function resetZoomView() {
   panState.moved = false;
   panState.pointers.clear();
   panState.pinchStartDistance = 0;
-  zoomState.scale = 1;
-  viewportState.offsetX = 0;
-  viewportState.offsetY = 0;
-  applyZoomTransform();
-  updateZoomIndicator();
+
+  if (window.anime) {
+    if (resetAnimation) resetAnimation.pause();
+    
+    const targets = { 
+      scale: zoomState.scale, 
+      offsetX: viewportState.offsetX, 
+      offsetY: viewportState.offsetY 
+    };
+
+    resetAnimation = window.anime({
+      targets: targets,
+      scale: 1,
+      offsetX: 0,
+      offsetY: 0,
+      duration: 800,
+      easing: 'easeOutExpo',
+      update: () => {
+        zoomState.scale = targets.scale;
+        viewportState.offsetX = targets.offsetX;
+        viewportState.offsetY = targets.offsetY;
+        applyZoomTransform(true);
+        updateZoomIndicator();
+      },
+      complete: () => {
+        resetAnimation = null;
+        zoomState.scale = 1;
+        viewportState.offsetX = 0;
+        viewportState.offsetY = 0;
+        applyZoomTransform(false);
+        updateZoomIndicator();
+      }
+    });
+  } else {
+    zoomState.scale = 1;
+    viewportState.offsetX = 0;
+    viewportState.offsetY = 0;
+    applyZoomTransform();
+    updateZoomIndicator();
+  }
 }
 
 function setZoomScale(nextScale, anchorEvent) {
@@ -227,13 +271,15 @@ function setZoomScale(nextScale, anchorEvent) {
   updateZoomIndicator();
 }
 
-function applyZoomTransform() {
+function applyZoomTransform(skipInvalidation = false) {
   if (!elements.wallSvg) {
     return;
   }
   elements.wallSvg.style.transformOrigin = "center";
   elements.wallSvg.style.transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
-  invalidateStickerRendering();
+  if (!skipInvalidation) {
+    invalidateStickerRendering();
+  }
 }
 
 function applyPanDelta(deltaX, deltaY) {
@@ -274,6 +320,10 @@ function updateZoomIndicator() {
 }
 
 function handleZoomSliderInput(event) {
+  if (resetAnimation) {
+    resetAnimation.pause();
+    resetAnimation = null;
+  }
   const value = Number(event.target.value);
   if (Number.isNaN(value)) {
     return;
