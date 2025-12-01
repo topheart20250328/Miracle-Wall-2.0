@@ -482,6 +482,30 @@ body {
   background: rgba(255, 93, 93, 0.85);
 }
 
+.pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+  margin-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.pagination-info {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.pagination-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ghost-btn.small {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
 @media (max-width: 900px) {
   .admin-shell {
     gap: 1.2rem;

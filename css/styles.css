@@ -173,6 +173,12 @@ main::before {
 
 .marquee-text {
   white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.marquee-text:hover {
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
 }
 
 @keyframes marquee-slide {
@@ -277,6 +283,8 @@ main::before {
 
 .wall .eagle-shape {
   transform-origin: center;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 
@@ -331,6 +339,7 @@ main::before {
   overflow: visible;
   isolation: isolate;
   z-index: 20;
+  pointer-events: none;
 }
 
 .wall-wrapper {
@@ -342,6 +351,7 @@ main::before {
   justify-content: center;
   touch-action: none;
   transform-origin: center;
+  pointer-events: none;
 }
 
 #wallSvg {
@@ -354,6 +364,7 @@ main::before {
   shape-rendering: geometricPrecision;
   text-rendering: optimizeLegibility;
   image-rendering: optimizeQuality;
+  pointer-events: none;
 }
 
 #ambientLayer {
@@ -500,6 +511,7 @@ main::before {
   min-width: 240px;
   max-width: 420px;
   flex-wrap: nowrap;
+  pointer-events: auto;
 }
 
 .zoom-controls > * {
@@ -550,7 +562,8 @@ main::before {
 }
 
 .zoom-settings,
-.zoom-reset {
+.zoom-reset,
+.zoom-recent {
   border: 1px solid rgba(255, 255, 255, 0.45);
   background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
@@ -563,17 +576,25 @@ main::before {
 }
 
 .zoom-settings.is-inactive,
-.zoom-reset.is-inactive {
+.zoom-reset.is-inactive,
+.zoom-recent.is-inactive {
   opacity: 0.48;
 }
 
 .zoom-settings:hover,
 .zoom-settings:focus-visible,
 .zoom-reset:hover,
-.zoom-reset:focus-visible {
+.zoom-reset:focus-visible,
+.zoom-recent:hover,
+.zoom-recent:focus-visible {
   background: rgba(255, 255, 255, 0.2);
   color: #fffef6;
   transform: translateY(-1px);
+}
+
+.zoom-recent {
+  color: #ffd700; /* Gold color for the star */
+  border-color: rgba(255, 215, 0, 0.5);
 }
 
 .zoom-indicator {

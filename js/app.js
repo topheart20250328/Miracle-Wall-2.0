@@ -1,4 +1,10 @@
 import { supabase, isSupabaseConfigured, deviceId as initialDeviceId } from "./supabase-config.js";
+import * as Utils from "./modules/Utils.js";
+import * as AudioManager from "./modules/AudioManager.js";
+import * as MarqueeController from "./modules/MarqueeController.js";
+import * as ZoomController from "./modules/ZoomController.js";
+import * as EffectsManager from "./modules/EffectsManager.js";
+import * as StickerManager from "./modules/StickerManager.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
 const wallStage = document.getElementById("wallStage");
@@ -12,6 +18,7 @@ const eaglePaths = Array.from(document.querySelectorAll(".eagle-shape"));
 const paletteSticker = document.getElementById("paletteSticker");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomResetBtn = document.getElementById("zoomResetBtn");
+const jumpToRecentBtn = document.getElementById("jumpToRecentBtn");
 const zoomIndicator = document.getElementById("zoomIndicator");
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsDialog = document.getElementById("settingsDialog");
@@ -53,22 +60,7 @@ const deleteStickerBtn = document.getElementById("deleteStickerBtn");
 const mediaPrefersReducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : null;
-const ambientState = {
-  nodes: [],
-  animation: null,
-  currentCount: 0,
-  resizeTimer: null,
-};
-const fireState = {
-  nodes: [],
-  animation: null,
-  intensity: 0, // 0 to 1
-  active: false,
-};
 const DEVICE_STORAGE_KEY = "wallDeviceId";
-const AUDIO_PREF_KEY = "wallAudioPreference";
-const AUDIO_PREF_ON = "on";
-const AUDIO_PREF_OFF = "off";
 let timestampFormatter = null;
 try {
   timestampFormatter = new Intl.DateTimeFormat("zh-TW", {
@@ -104,36 +96,6 @@ const PLACEMENT_MESSAGES = {
   drag: "拖曳到老鷹上方並鬆開以貼上",
 };
 const SUBTITLE_TEXT = "（最多 800 字，留言於一日後鎖定）";
-const zoomState = {
-  scale: 1,
-  minScale: 1,
-  maxScale: 10,
-};
-const viewportState = {
-  offsetX: 0,
-  offsetY: 0,
-};
-const panState = {
-  pointerId: null,
-  startX: 0,
-  startY: 0,
-  startOffsetX: 0,
-  startOffsetY: 0,
-  moved: false,
-  pointers: new Map(),
-  pinchStartDistance: 0,
-  pinchStartScale: 1,
-};
-const marqueeState = {
-  pool: [],
-  activeLines: new Set(),
-  activeMessages: new Set(),
-  pendingTimeouts: new Set(),
-  lineCursor: 0,
-  activeLimit: 0,
-  initialized: false,
-  mobileViewport: null,
-};
 
 const state = {
   stickers: new Map(),
@@ -151,52 +113,25 @@ const state = {
   lastClickWarning: 0,
   lastPendingToast: 0,
   deviceId: initialDeviceId ?? null,
+  isSubmitting: false,
+  recentIndex: 0,
 };
 const reviewSettings = {
   requireMarqueeApproval: true,
   requireStickerApproval: true,
   ready: false,
 };
-let reviewSettingsChannel = null;
 const userAgent = typeof navigator !== "undefined" ? navigator.userAgent ?? "" : "";
 const isIOSDevice = /iPad|iPhone|iPod/i.test(userAgent);
 const isLineInApp = /Line\//i.test(userAgent);
 const requiresStickerForceRedraw = isIOSDevice || isLineInApp;
-const backgroundAudioState = {
-  unlocked: !backgroundAudio,
-  attempting: false,
-  listenersBound: false,
-  lastError: null,
-  enabled: loadAudioPreference() !== AUDIO_PREF_OFF,
-  resumeOnVisible: false,
-  tryUnlock: null,
-};
-
-if (mediaPrefersReducedMotion) {
-  const handleMotionPreferenceChange = (event) => {
-    if (event.matches) {
-      destroyAmbientGlow();
-    } else {
-      refreshAmbientGlow(true);
-    }
-  };
-  if (typeof mediaPrefersReducedMotion.addEventListener === "function") {
-    mediaPrefersReducedMotion.addEventListener("change", handleMotionPreferenceChange);
-  } else if (typeof mediaPrefersReducedMotion.addListener === "function") {
-    mediaPrefersReducedMotion.addListener(handleMotionPreferenceChange);
-  }
-}
 
 init().catch((err) => console.error(err));
-setupBackgroundAudioAutoplay();
 initSettingsDialog();
 
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
-    if (reviewSettingsChannel && typeof supabase?.removeChannel === "function") {
-      supabase.removeChannel(reviewSettingsChannel);
-      reviewSettingsChannel = null;
-    }
+    StickerManager.cleanupReviewSettingsSubscription();
   });
 }
 
@@ -211,167 +146,65 @@ function init() {
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
+  jumpToRecentBtn?.addEventListener("click", handleJumpToRecent);
   document.addEventListener("keydown", handleGlobalKeyDown);
   window.addEventListener("resize", handleViewportChange);
-  initZoomControls();
+
+  AudioManager.initAudioManager(backgroundAudio, audioToggle);
+  ZoomController.initZoomController({
+    wallStage, wallWrapper, wallSvg, stickersLayer, zoomSlider, zoomResetBtn, zoomIndicator
+  }, requiresStickerForceRedraw);
+  EffectsManager.initEffectsManager({
+    effectsLayer, ambientLayer, stickersLayer
+  }, mediaPrefersReducedMotion);
+  MarqueeController.initMarqueeController(marqueeLayer, marqueeLines, (stickerId) => {
+    if (stickerId) {
+      StickerManager.handleStickerActivation(stickerId);
+    }
+  });
+  StickerManager.initStickerManager({
+    stickersLayer, loadingSpinner, paletteSticker
+  }, state, viewBox, reviewSettings, {
+    showToast,
+    updateFireIntensity: (map) => EffectsManager.updateFireIntensity(map),
+    updateMarqueePool: (map, settings) => MarqueeController.updateMarqueePool(map, settings),
+    runPopAnimation: EffectsManager.runPopAnimation,
+    triggerPendingReviewFeedback,
+    openStickerModal,
+    playPlacementImpactEffect: EffectsManager.playPlacementImpactEffect
+  });
+
   setPlacementMode("idle", { force: true });
   updatePlacementHint();
   hideStatusMessage(true);
   updateDialogSubtitle(false);
-  initAmbientGlow();
-  initFireEffect();
-  initShimmerSystem();
+  
+  EffectsManager.initShimmerSystem(state.stickers, state);
+
   if (isSupabaseConfigured()) {
-    loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
-    subscribeToReviewSettings();
+    StickerManager.loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
+    StickerManager.subscribeToReviewSettings();
   } else {
     reviewSettings.ready = true;
   }
   if (!isSupabaseConfigured()) {
     showToast("請先在 supabase-config.js 填入專案設定", "danger");
   }
-  return loadExistingStickers();
-}
-
-async function loadExistingStickers() {
-  if (!isSupabaseConfigured()) {
-    return;
-  }
-  if (loadingSpinner) {
-    loadingSpinner.classList.add("visible");
-  }
-  const { data, error } = await supabase
-    .from("wall_sticker_entries")
-    .select(
-      "id, x_norm, y_norm, note, created_at, updated_at, device_id, is_approved, can_view_note",
-    )
-    .order("created_at", { ascending: true });
-  
-  if (loadingSpinner) {
-    loadingSpinner.classList.remove("visible");
-  }
-
-  if (error) {
-    showToast("讀取貼紙失敗，請稍後再試", "danger");
-    console.error(error);
-    return;
-  }
-  data.forEach((record) => {
-    const x = record.x_norm * viewBox.width;
-    const y = record.y_norm * viewBox.height;
-    const node = createStickerNode(record.id, x, y, false);
-    stickersLayer.appendChild(node);
-    state.stickers.set(record.id, {
-      id: record.id,
-      x,
-      y,
-      xNorm: record.x_norm,
-      yNorm: record.y_norm,
-      note: record.note ?? "",
-      node,
-      created_at: record.created_at,
-      updated_at: record.updated_at,
-      deviceId: record.device_id ?? null,
-      isApproved: Boolean(record.is_approved),
-      canViewNote: Boolean(record.can_view_note),
-    });
-    runPopAnimation(node);
-    updateStickerReviewState(state.stickers.get(record.id));
+  return StickerManager.loadExistingStickers().then(() => {
+    MarqueeController.initMarqueeTicker();
   });
-  updateFireIntensity();
-  updateMarqueePool();
-  initMarqueeTicker();
 }
 
-function setupBackgroundAudioAutoplay() {
-  if (!backgroundAudio) {
-    return;
-  }
-  const interactionEvents = ["pointerdown", "touchstart", "keydown"];
 
-  const tryUnlock = (reason = "auto") => {
-    if (!backgroundAudioState.enabled || backgroundAudioState.unlocked || backgroundAudioState.attempting) {
-      return;
-    }
-    backgroundAudioState.attempting = true;
-    const attempt = backgroundAudio.play();
-    if (!attempt || typeof attempt.then !== "function") {
-      backgroundAudioState.unlocked = true;
-      backgroundAudioState.attempting = false;
-      detachInteractionListeners();
-      return;
-    }
-    attempt
-      .then(() => {
-        backgroundAudioState.unlocked = true;
-        backgroundAudioState.attempting = false;
-        detachInteractionListeners();
-      })
-      .catch((error) => {
-        backgroundAudioState.attempting = false;
-        backgroundAudioState.lastError = error;
-        console.warn("背景音樂播放遭到阻擋 (" + reason + ")", error);
-      });
-  };
 
-  backgroundAudioState.tryUnlock = tryUnlock;
 
-  const handleInteraction = (event) => {
-    if (!backgroundAudioState.enabled) {
-      return;
-    }
-    tryUnlock(event.type);
-  };
-
-  const detachInteractionListeners = () => {
-    if (!backgroundAudioState.listenersBound) {
-      return;
-    }
-    interactionEvents.forEach((eventName) => document.removeEventListener(eventName, handleInteraction));
-    backgroundAudioState.listenersBound = false;
-  };
-
-  interactionEvents.forEach((eventName) => document.addEventListener(eventName, handleInteraction, { passive: true }));
-  backgroundAudioState.listenersBound = true;
-
-  const handleVisibilityChange = () => {
-    if (!backgroundAudio) {
-      return;
-    }
-    if (document.visibilityState === "hidden") {
-      if (!backgroundAudio.paused && backgroundAudioState.enabled) {
-        backgroundAudioState.resumeOnVisible = true;
-        pauseBackgroundAudioSafely("背景音樂暫停失敗");
-      } else {
-        backgroundAudioState.resumeOnVisible = false;
-      }
-      return;
-    }
-    if (document.visibilityState === "visible") {
-      if (backgroundAudioState.resumeOnVisible && backgroundAudioState.enabled) {
-        tryUnlock("visibility");
-      }
-      backgroundAudioState.resumeOnVisible = false;
-    }
-  };
-
-  document.addEventListener("visibilitychange", handleVisibilityChange);
-
-  if (backgroundAudioState.enabled) {
-    tryUnlock("auto");
-  } else {
-    backgroundAudio.muted = true;
-    pauseBackgroundAudioSafely("背景音樂靜音失敗");
-  }
-  updateAudioToggleUI();
-}
 
 function initSettingsDialog() {
   if (!settingsBtn || !settingsDialog) {
     return;
   }
   const openDialog = () => {
-    updateAudioToggleUI();
+    AudioManager.updateAudioToggleUI();
     if (typeof settingsDialog.showModal === "function") {
       if (!settingsDialog.open) {
         settingsDialog.showModal();
@@ -432,155 +265,48 @@ function initSettingsDialog() {
     closeDialog();
   });
   settingsDialog.addEventListener("close", () => {
-    updateAudioToggleUI();
+    AudioManager.updateAudioToggleUI();
   });
   settingsForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     closeDialog();
   });
   audioToggle?.addEventListener("change", (event) => {
-    setAudioPreference(Boolean(event.target.checked));
+    AudioManager.setAudioPreference(Boolean(event.target.checked));
   });
-  updateAudioToggleUI();
+  AudioManager.updateAudioToggleUI();
 }
 
-function setAudioPreference(enabled) {
-  backgroundAudioState.enabled = Boolean(enabled);
-  persistAudioPreference(enabled ? AUDIO_PREF_ON : AUDIO_PREF_OFF);
-  updateAudioToggleUI();
-  applyAudioPreference();
-}
 
-function pauseBackgroundAudioSafely(logLabel) {
-  if (!backgroundAudio) {
+
+function handleJumpToRecent() {
+  const stickers = Array.from(state.stickers.values());
+  if (!stickers.length) {
+    showToast("目前沒有留言", "info");
     return;
   }
-  try {
-    const result = backgroundAudio.pause();
-    if (result && typeof result.catch === "function") {
-      result.catch((error) => console.warn(logLabel, error));
-    }
-  } catch (error) {
-    console.warn(logLabel, error);
-  }
-}
 
-function applyAudioPreference() {
-  if (!backgroundAudio) {
-    return;
-  }
-  if (!backgroundAudioState.enabled) {
-    backgroundAudio.muted = true;
-    backgroundAudioState.resumeOnVisible = false;
-    pauseBackgroundAudioSafely("背景音樂靜音失敗");
-    return;
-  }
-  backgroundAudio.muted = false;
-  if (backgroundAudioState.unlocked) {
-    if (backgroundAudio.paused) {
-      backgroundAudio.play().catch((error) => console.warn("背景音樂播放失敗", error));
-    }
-    return;
-  }
-  backgroundAudioState.tryUnlock?.("preference");
-}
-
-function updateAudioToggleUI() {
-  if (!audioToggle) {
-    return;
-  }
-  audioToggle.checked = Boolean(backgroundAudioState.enabled);
-}
-
-function loadAudioPreference() {
-  if (typeof window === "undefined" || !window.localStorage) {
-    return AUDIO_PREF_ON;
-  }
-  try {
-    return window.localStorage.getItem(AUDIO_PREF_KEY) ?? AUDIO_PREF_ON;
-  } catch (error) {
-    console.warn("讀取音訊偏好失敗", error);
-    return AUDIO_PREF_ON;
-  }
-}
-
-function persistAudioPreference(value) {
-  if (typeof window === "undefined" || !window.localStorage) {
-    return;
-  }
-  try {
-    window.localStorage.setItem(AUDIO_PREF_KEY, value);
-  } catch (error) {
-    console.warn("寫入音訊偏好失敗", error);
-  }
-}
-
-async function loadReviewSettings() {
-  if (!isSupabaseConfigured()) {
-    reviewSettings.ready = true;
-    return;
-  }
-  try {
-    const { data, error } = await supabase
-      .from("wall_review_settings")
-      .select("require_marquee_approval, require_sticker_approval")
-      .limit(1)
-      .maybeSingle();
-    if (error && error.code !== "PGRST116") {
-      throw error;
-    }
-    if (data) {
-      applyReviewSettings(data);
-    }
-  } catch (error) {
-    console.warn("讀取審核設定失敗", error);
-  } finally {
-    reviewSettings.ready = true;
-    applyReviewSettingsToUi();
-  }
-}
-
-function applyReviewSettings(data) {
-  if (!data) {
-    return;
-  }
-  reviewSettings.requireMarqueeApproval = Boolean(data.require_marquee_approval);
-  reviewSettings.requireStickerApproval = reviewSettings.requireMarqueeApproval && Boolean(data.require_sticker_approval);
-  applyReviewSettingsToUi();
-}
-
-function applyReviewSettingsToUi() {
-  refreshStickerReviewIndicators();
-  updateMarqueePool();
-}
-
-function refreshStickerReviewIndicators() {
-  state.stickers.forEach((record) => {
-    updateStickerReviewState(record);
+  // Sort by created_at descending (newest first)
+  const sortedStickers = stickers.sort((a, b) => {
+    const timeA = new Date(a.created_at).getTime();
+    const timeB = new Date(b.created_at).getTime();
+    return timeB - timeA;
   });
-}
 
-function subscribeToReviewSettings() {
-  if (!isSupabaseConfigured() || typeof supabase.channel !== "function") {
-    return;
+  // Get the next sticker in the sequence
+  const targetSticker = sortedStickers[state.recentIndex % sortedStickers.length];
+  
+  if (targetSticker) {
+    StickerManager.handleStickerActivation(targetSticker.id);
+    
+    // Increment index for next click
+    state.recentIndex = (state.recentIndex + 1) % sortedStickers.length;
+    
+    // Reset index if we've cycled through top 20 to keep it fresh
+    if (state.recentIndex >= 20) {
+      state.recentIndex = 0;
+    }
   }
-  if (reviewSettingsChannel) {
-    return;
-  }
-  reviewSettingsChannel = supabase
-    .channel("public:wall_review_settings")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "wall_review_settings" },
-      (payload) => {
-        if (payload?.new) {
-          applyReviewSettings(payload.new);
-        } else {
-          void loadReviewSettings();
-        }
-      },
-    )
-    .subscribe();
 }
 
 function handleEagleClick(event) {
@@ -588,7 +314,8 @@ function handleEagleClick(event) {
   if (stickerNode) {
     const stickerId = stickerNode.dataset.id;
     if (!state.pending && stickerId) {
-      handleStickerActivation(stickerId);
+      setPlacementMode("idle");
+      StickerManager.handleStickerActivation(stickerId);
     }
     return;
   }
@@ -707,9 +434,9 @@ function activatePaletteDrag(event) {
   if (!svgPoint) {
     return false;
   }
-  const ghost = createStickerNode("drag-ghost", svgPoint.x, svgPoint.y, true);
+  const ghost = StickerManager.createStickerNode("drag-ghost", svgPoint.x, svgPoint.y, true);
   ghost.classList.add("drag-ghost");
-  attachDragHighlight(ghost);
+  StickerManager.attachDragHighlight(ghost);
   const hostLayer = dragOverlay ?? stickersLayer;
   hostLayer.appendChild(ghost);
   drag.node = ghost;
@@ -733,7 +460,7 @@ function updateDragPosition(event) {
   if (!svgPoint) {
     return;
   }
-  positionStickerNode(drag.node, svgPoint.x, svgPoint.y);
+  StickerManager.positionStickerNode(drag.node, svgPoint.x, svgPoint.y);
   const valid = isValidSpot(svgPoint.x, svgPoint.y);
   drag.node.classList.toggle("valid", valid);
   drag.node.classList.toggle("invalid", !valid);
@@ -820,7 +547,8 @@ function handleWallKeydown(event) {
     event.preventDefault();
     const stickerId = stickerNode.dataset.id;
     if (!state.pending && stickerId) {
-      handleStickerActivation(stickerId);
+      setPlacementMode("idle");
+      StickerManager.handleStickerActivation(stickerId);
     }
   }
 }
@@ -843,589 +571,14 @@ function setPlacementMode(mode, options = {}) {
 }
 
 function handleViewportChange() {
-  scheduleAmbientGlowRefresh();
-  updateZoomStageMetrics();
-}
-
-function initZoomControls() {
-  if (!wallStage || !wallWrapper) {
-    return;
-  }
-  applyZoomTransform();
-  updateZoomIndicator();
-  wallStage.addEventListener("wheel", handleStageWheel, { passive: false });
-  wallStage.addEventListener("pointerdown", handleStagePointerDown);
-  wallStage.addEventListener("pointermove", handleStagePointerMove);
-  wallStage.addEventListener("pointerup", handleStagePointerUp);
-  wallStage.addEventListener("pointercancel", handleStagePointerUp);
-  if (zoomSlider) {
-    const sliderMin = zoomState.minScale * 100;
-    const sliderMax = zoomState.maxScale * 100;
-    zoomSlider.min = String(sliderMin);
-    zoomSlider.max = String(sliderMax);
-    zoomSlider.value = String(zoomState.scale * 100);
-    zoomSlider.step = "5";
-    zoomSlider.addEventListener("input", handleZoomSliderInput);
-  }
-  zoomResetBtn?.addEventListener("click", resetZoomView);
-  updateZoomStageMetrics();
-}
-
-function updateZoomStageMetrics() {
-  applyZoomTransform();
-  updateZoomIndicator();
-}
-
-function handleStageWheel(event) {
-  if (!wallStage) {
-    return;
-  }
-  const wantsZoom = event.ctrlKey || event.metaKey;
-  if (!wantsZoom) {
-    return;
-  }
-  event.preventDefault();
-  const delta = -event.deltaY / 600;
-  const nextScale = zoomState.scale * (1 + delta);
-  setZoomScale(nextScale, event);
-}
-
-function handleStagePointerDown(event) {
-  if (!isZoomTarget(event)) {
-    return;
-  }
-  if (event.pointerType === "touch") {
-    panState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (panState.pointers.size === 2) {
-      panState.pinchStartDistance = getPointerDistance();
-      panState.pinchStartScale = zoomState.scale;
-      panState.pointerId = null;
-      panState.moved = false;
-      return;
-    }
-  }
-  if (event.pointerType === "mouse" && event.button !== 0) {
-    return;
-  }
-  panState.pointerId = event.pointerId;
-  panState.startX = event.clientX;
-  panState.startY = event.clientY;
-  panState.startOffsetX = viewportState.offsetX;
-  panState.startOffsetY = viewportState.offsetY;
-  panState.moved = false;
-}
-
-function handleStagePointerMove(event) {
-  if (panState.pointers.has(event.pointerId)) {
-    panState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (panState.pointers.size === 2) {
-      const distance = getPointerDistance();
-      if (distance && panState.pinchStartDistance) {
-        const scaleFactor = distance / panState.pinchStartDistance;
-        const midpoint = getPointerMidpoint();
-        if (midpoint) {
-          setZoomScale(panState.pinchStartScale * scaleFactor, midpoint);
-          event.preventDefault();
-        }
-      }
-      return;
-    }
-  }
-  if (panState.pointerId !== event.pointerId) {
-    return;
-  }
-  const dx = event.clientX - panState.startX;
-  const dy = event.clientY - panState.startY;
-  if (!panState.moved) {
-    panState.moved = Math.hypot(dx, dy) > 8;
-    if (panState.moved && typeof wallStage?.setPointerCapture === "function") {
-      try {
-        wallStage.setPointerCapture(event.pointerId);
-      } catch (error) {
-        console.warn("Pointer capture failed", error);
-      }
-    }
-  }
-  if (!panState.moved && event.pointerType !== "touch") {
-    return;
-  }
-  applyPanDelta(dx, dy);
-  if (event.pointerType === "touch") {
-    event.preventDefault();
-  }
-}
-
-function handleStagePointerUp(event) {
-  if (panState.pointerId === event.pointerId) {
-    releasePointer(event.pointerId);
-    panState.pointerId = null;
-    panState.moved = false;
-  }
-  if (panState.pointers.has(event.pointerId)) {
-    panState.pointers.delete(event.pointerId);
-    if (panState.pointers.size < 2) {
-      panState.pinchStartDistance = 0;
-      if (panState.pointers.size === 1) {
-        panState.pointerId = null;
-        panState.moved = false;
-      }
-    }
-  }
-}
-
-function releasePointer(pointerId) {
-  if (typeof wallStage?.releasePointerCapture === "function") {
-    try {
-      wallStage.releasePointerCapture(pointerId);
-    } catch {
-      // ignore
-    }
-  }
-}
-
-function resetZoomView() {
-  panState.pointerId = null;
-  panState.moved = false;
-  panState.pointers.clear();
-  panState.pinchStartDistance = 0;
-  zoomState.scale = 1;
-  viewportState.offsetX = 0;
-  viewportState.offsetY = 0;
-  applyZoomTransform();
-  updateZoomIndicator();
-}
-
-function setZoomScale(nextScale, anchorEvent) {
-  const clamped = clampNumber(nextScale, zoomState.minScale, zoomState.maxScale);
-  if (clamped === zoomState.scale || !wallStage) {
-    updateZoomIndicator();
-    return;
-  }
-  const anchorPoint = anchorEvent ?? getStageCenterPoint();
-  let offsetX = viewportState.offsetX;
-  let offsetY = viewportState.offsetY;
-  if (anchorPoint) {
-    const stageRect = wallStage.getBoundingClientRect();
-    if (stageRect.width && stageRect.height) {
-      const centerX = stageRect.left + stageRect.width / 2;
-      const centerY = stageRect.top + stageRect.height / 2;
-      const relativeX = anchorPoint.clientX - centerX;
-      const relativeY = anchorPoint.clientY - centerY;
-      const scaleDelta = clamped / zoomState.scale;
-      offsetX = relativeX - scaleDelta * (relativeX - viewportState.offsetX);
-      offsetY = relativeY - scaleDelta * (relativeY - viewportState.offsetY);
-    }
-  }
-  zoomState.scale = clamped;
-  viewportState.offsetX = offsetX;
-  viewportState.offsetY = offsetY;
-  applyZoomTransform();
-  updateZoomIndicator();
-}
-
-function applyZoomTransform() {
-  if (!wallSvg) {
-    return;
-  }
-  wallSvg.style.transformOrigin = "center";
-  wallSvg.style.transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
-  invalidateStickerRendering();
-}
-
-function applyPanDelta(deltaX, deltaY) {
-  viewportState.offsetX = panState.startOffsetX + deltaX;
-  viewportState.offsetY = panState.startOffsetY + deltaY;
-  applyZoomTransform();
-}
-
-function invalidateStickerRendering() {
-  if (!stickersLayer || typeof window === "undefined") {
-    return;
-  }
-  if (!requiresStickerForceRedraw) {
-    return;
-  }
-  const parent = stickersLayer.parentNode;
-  if (!parent) {
-    return;
-  }
-  const nextSibling = stickersLayer.nextSibling;
-  parent.removeChild(stickersLayer);
-  window.requestAnimationFrame(() => {
-    if (nextSibling && nextSibling.parentNode === parent) {
-      parent.insertBefore(stickersLayer, nextSibling);
-    } else {
-      parent.appendChild(stickersLayer);
-    }
-  });
-}
-
-function updateZoomIndicator() {
-  if (zoomIndicator) {
-    const percentage = Math.round(zoomState.scale * 100);
-    zoomIndicator.textContent = `${percentage}%`;
-  }
-  syncZoomSlider();
-  updateZoomResetState();
-}
-
-function handleZoomSliderInput(event) {
-  const value = Number(event.target.value);
-  if (Number.isNaN(value)) {
-    return;
-  }
-  const sliderScale = value / 100;
-  const centerEvent = getStageCenterPoint();
-  setZoomScale(sliderScale, centerEvent);
-}
-
-function getStageCenterPoint() {
-  if (!wallStage) {
-    return null;
-  }
-  const rect = wallStage.getBoundingClientRect();
-  return {
-    clientX: rect.left + rect.width / 2,
-    clientY: rect.top + rect.height / 2,
-  };
-}
-
-function syncZoomSlider() {
-  if (!zoomSlider) {
-    return;
-  }
-  const percent = clampNumber(Math.round(zoomState.scale * 100), Number(zoomSlider.min) || 100, Number(zoomSlider.max) || 1000);
-  if (Number(zoomSlider.value) !== percent) {
-    zoomSlider.value = String(percent);
-  }
-  zoomSlider.setAttribute("aria-valuetext", `${percent}%`);
-}
-
-function updateZoomResetState() {
-  if (!zoomResetBtn) {
-    return;
-  }
-  const nearScale = Math.abs(zoomState.scale - 1) < 0.01;
-  const nearOffsetX = Math.abs(viewportState.offsetX) < 1;
-  const nearOffsetY = Math.abs(viewportState.offsetY) < 1;
-  const atDefault = nearScale && nearOffsetX && nearOffsetY;
-  zoomResetBtn.disabled = false;
-  zoomResetBtn.setAttribute("aria-disabled", "false");
-  zoomResetBtn.classList.toggle("is-inactive", atDefault);
+  EffectsManager.scheduleAmbientGlowRefresh();
+  ZoomController.updateZoomStageMetrics();
 }
 
 
-function updateMarqueePool() {
-  if (!marqueeLines.length) {
-    return;
-  }
-  const requireApproval = reviewSettings.requireMarqueeApproval;
-  const eligibleRecords = Array.from(state.stickers.values()).filter((record) => {
-    const note = (record.note ?? "").trim();
-    if (!note) {
-      return false;
-    }
-    return requireApproval ? Boolean(record.isApproved) : true;
-  });
-  const baseNotes = eligibleRecords.map((record) => record.note.trim());
-  if (baseNotes.length && MARQUEE_RECENT_WEIGHT > 1) {
-    const recentRecords = eligibleRecords.slice(-MARQUEE_RECENT_COUNT);
-    recentRecords.forEach((record) => {
-      const note = record.note.trim();
-      for (let i = 1; i < MARQUEE_RECENT_WEIGHT; i += 1) {
-        baseNotes.push(note);
-      }
-    });
-  }
-  marqueeState.pool = baseNotes;
-  if (marqueeState.initialized) {
-    refreshMarqueeFlow();
-  }
-}
 
-function initMarqueeTicker() {
-  if (!marqueeLines.length) {
-    return;
-  }
-  initMarqueeViewportWatcher();
-  resetMarqueeTicker();
-  setupMarqueeLineListeners();
-  marqueeState.initialized = true;
-  refreshMarqueeFlow(true, true);
-}
 
-function initMarqueeViewportWatcher() {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    marqueeState.mobileViewport = null;
-    return;
-  }
-  marqueeState.mobileViewport = window.matchMedia(MOBILE_VIEWPORT_QUERY);
-  const handler = () => refreshMarqueeFlow(false, true);
-  if (typeof marqueeState.mobileViewport.addEventListener === "function") {
-    marqueeState.mobileViewport.addEventListener("change", handler);
-  } else if (typeof marqueeState.mobileViewport.addListener === "function") {
-    marqueeState.mobileViewport.addListener(handler);
-  }
-}
 
-function resetMarqueeTicker() {
-  clearMarqueeTimeouts();
-  marqueeState.activeLines.forEach((line) => line.classList.remove("is-active"));
-  marqueeState.activeLines.clear();
-  marqueeState.activeMessages.clear();
-  marqueeState.lineCursor = 0;
-  marqueeLines.forEach((line) => {
-    line.classList.remove("is-active");
-    line.dataset.message = "";
-  });
-}
-
-function setupMarqueeLineListeners() {
-  marqueeLines.forEach((line) => {
-    const track = line.querySelector(".marquee-track");
-    if (!track || track.dataset.marqueeBound === "true") {
-      return;
-    }
-    track.dataset.marqueeBound = "true";
-    track.addEventListener("animationend", handleMarqueeAnimationEnd);
-  });
-}
-
-function getResponsiveMarqueeLines() {
-  if (!marqueeLines.length) {
-    return [];
-  }
-  if (marqueeState.mobileViewport?.matches) {
-    return marqueeLines.filter((_, index) => MOBILE_VISIBLE_MARQUEE_INDICES.has(index));
-  }
-  return marqueeLines;
-}
-
-function refreshMarqueeFlow(seed = false, immediate = false) {
-  if (!marqueeLines.length) {
-    return;
-  }
-  updateMarqueeActiveLimit();
-  clearMarqueeTimeouts();
-  ensureMarqueeFlow(seed, immediate);
-}
-
-function updateMarqueeActiveLimit() {
-  const responsiveLines = getResponsiveMarqueeLines();
-  if (!responsiveLines.length) {
-    marqueeState.activeLimit = 0;
-    marqueeState.activeLines.forEach((line) => deactivateMarqueeLine(line));
-    return;
-  }
-  const allowedSet = new Set(responsiveLines);
-  marqueeState.activeLines.forEach((line) => {
-    if (!allowedSet.has(line)) {
-      deactivateMarqueeLine(line);
-    }
-  });
-  const cappedMax = Math.min(MAX_ACTIVE_MARQUEE_LINES, responsiveLines.length);
-  const desired = Math.min(responsiveLines.length, Math.max(MIN_ACTIVE_MARQUEE_LINES, cappedMax));
-  if (marqueeState.activeLimit === desired) {
-    return;
-  }
-  marqueeState.activeLimit = desired;
-  while (marqueeState.activeLines.size > marqueeState.activeLimit) {
-    const line = marqueeState.activeLines.values().next().value;
-    deactivateMarqueeLine(line);
-  }
-}
-
-function ensureMarqueeFlow(seed = false, immediate = false) {
-  const deficit = Math.max(0, marqueeState.activeLimit - marqueeState.activeLines.size);
-  const isMobileSeed = seed && Boolean(marqueeState.mobileViewport?.matches);
-  for (let i = 0; i < deficit; i += 1) {
-    const baseDelay = seed ? i * MARQUEE_STAGGER_DELAY_MS : (i === 0 ? 0 : MARQUEE_RESPAWN_DELAY_MS);
-    const jitter = seed && i === 0 ? 0 : seed ? MARQUEE_SEED_JITTER_MS : MARQUEE_RESPAWN_JITTER_MS;
-    const shouldBurst = isMobileSeed && i < MOBILE_SEED_BURST_COUNT;
-    queueMarqueeActivation(baseDelay, jitter, { immediate: immediate || shouldBurst });
-  }
-}
-
-function queueMarqueeActivation(delay = 0, jitter = 0, options = {}) {
-  const { immediate = false } = options;
-  const totalDelay = immediate ? 0 : Math.max(0, delay + (jitter ? Math.random() * jitter : 0));
-  const timerId = window.setTimeout(() => {
-    marqueeState.pendingTimeouts.delete(timerId);
-    startNextMarqueeLine();
-  }, totalDelay);
-  marqueeState.pendingTimeouts.add(timerId);
-}
-
-function clearMarqueeTimeouts() {
-  marqueeState.pendingTimeouts.forEach((id) => clearTimeout(id));
-  marqueeState.pendingTimeouts.clear();
-}
-
-function startNextMarqueeLine() {
-  if (marqueeState.activeLines.size >= marqueeState.activeLimit) {
-    return;
-  }
-  const line = findNextIdleMarqueeLine();
-  if (!line) {
-    return;
-  }
-  const message = pickUniqueMarqueeMessage();
-  if (!message) {
-    return;
-  }
-  const normalized = applyMarqueeText(line, message);
-  if (!normalized) {
-    return;
-  }
-  marqueeState.activeLines.add(line);
-  marqueeState.activeMessages.add(normalized);
-  restartMarqueeAnimation(line);
-}
-
-function restartMarqueeAnimation(line) {
-  const track = line.querySelector(".marquee-track");
-  if (!track) {
-    return;
-  }
-  line.classList.remove("is-active");
-  void track.offsetWidth;
-  requestAnimationFrame(() => line.classList.add("is-active"));
-}
-
-function findNextIdleMarqueeLine() {
-  const responsiveLines = getResponsiveMarqueeLines();
-  if (!responsiveLines.length) {
-    return null;
-  }
-  const idleLines = responsiveLines.filter((line) => !marqueeState.activeLines.has(line));
-  if (!idleLines.length) {
-    return null;
-  }
-  const randomIndex = Math.floor(Math.random() * idleLines.length);
-  return idleLines[randomIndex];
-}
-
-function pickUniqueMarqueeMessage() {
-  const available = getAvailableMarqueeMessages();
-  if (!available.length) {
-    return null;
-  }
-  const offset = Math.floor(Math.random() * available.length);
-  for (let i = 0; i < available.length; i += 1) {
-    const candidate = available[(offset + i) % available.length];
-    const normalized = normalizeMarqueeText(candidate);
-    if (!marqueeState.activeMessages.has(normalized)) {
-      return candidate;
-    }
-  }
-  return available[offset];
-}
-
-function getAvailableMarqueeMessages() {
-  return marqueeState.pool.length ? marqueeState.pool : ["神蹟留言即將出現"];
-}
-
-function handleMarqueeAnimationEnd(event) {
-  if (event.animationName !== "marquee-slide") {
-    return;
-  }
-  const track = event.currentTarget;
-  const line = track?.closest(".marquee-line");
-  if (!line) {
-    return;
-  }
-  deactivateMarqueeLine(line);
-  ensureMarqueeFlow(false, true);
-}
-
-function deactivateMarqueeLine(line) {
-  if (!line) {
-    return;
-  }
-  line.classList.remove("is-active");
-  const normalized = line.dataset.message;
-  if (normalized) {
-    marqueeState.activeMessages.delete(normalized);
-  }
-  marqueeState.activeLines.delete(line);
-  line.dataset.message = "";
-}
-
-function applyMarqueeText(line, text) {
-  if (!line) {
-    return "";
-  }
-  const displayText = (text ?? "").trim() || "神蹟留言即將出現";
-  const normalized = normalizeMarqueeText(displayText);
-  const track = line.querySelector(".marquee-track");
-  if (track) {
-    const span = track.querySelector(".marquee-text");
-    if (span) {
-      span.textContent = displayText;
-    }
-    updateMarqueeDuration(line, track);
-  }
-  line.dataset.message = normalized;
-  return normalized;
-}
-
-function normalizeMarqueeText(text) {
-  return (text ?? "").replace(/\s+/g, " ").trim();
-}
-
-function updateMarqueeDuration(line, track) {
-  if (!track) {
-    return;
-  }
-  const durationSeconds = computeMarqueeDurationSeconds(line, track);
-  if (durationSeconds) {
-    track.style.setProperty("--marquee-duration", `${durationSeconds.toFixed(2)}s`);
-  } else {
-    track.style.removeProperty("--marquee-duration");
-  }
-}
-
-function computeMarqueeDurationSeconds(line, track) {
-  if (!line || !track || !MARQUEE_SPEED_PX_PER_SEC) {
-    return null;
-  }
-  const viewportWidth = line.clientWidth || marqueeLayer?.clientWidth || window.innerWidth || 0;
-  const trackWidth = track.scrollWidth || track.offsetWidth || viewportWidth;
-  const travelDistance = viewportWidth + trackWidth;
-  if (!Number.isFinite(travelDistance) || travelDistance <= 0) {
-    return null;
-  }
-  const minSeconds = MARQUEE_MIN_DURATION_MS / 1000;
-  const maxSeconds = MARQUEE_MAX_DURATION_MS / 1000;
-  const rawSeconds = travelDistance / MARQUEE_SPEED_PX_PER_SEC;
-  return clampNumber(rawSeconds, minSeconds, maxSeconds);
-}
-
-function getPointerDistance() {
-  if (panState.pointers.size < 2) {
-    return 0;
-  }
-  const values = Array.from(panState.pointers.values());
-  const [a, b] = values;
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function getPointerMidpoint() {
-  if (panState.pointers.size < 2) {
-    return null;
-  }
-  const values = Array.from(panState.pointers.values());
-  const [a, b] = values;
-  return { clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 };
-}
-
-function isZoomTarget(event) {
-  if (!wallStage) {
-    return false;
-  }
-  const blocked = event.target.closest(".palette-sticker, .zoom-controls, #noteDialog, .note-dialog, .dialog-actions");
-  return !blocked;
-}
 
 function ensureDeviceId() {
   if (state.deviceId) {
@@ -1437,18 +590,18 @@ function ensureDeviceId() {
   try {
     const storage = window.localStorage;
     if (!storage) {
-      return createUuid();
+      return Utils.createUuid();
     }
     let deviceId = storage.getItem(DEVICE_STORAGE_KEY);
     if (!deviceId) {
-      deviceId = createUuid();
+      deviceId = Utils.createUuid();
       storage.setItem(DEVICE_STORAGE_KEY, deviceId);
     }
     state.deviceId = deviceId;
     return deviceId;
   } catch (error) {
     console.warn("Unable to access localStorage for device binding", error);
-    const fallbackId = createUuid();
+    const fallbackId = Utils.createUuid();
     state.deviceId = fallbackId;
     return fallbackId;
   }
@@ -1456,10 +609,10 @@ function ensureDeviceId() {
 
 function beginPlacement(x, y) {
   setPlacementMode("idle");
-  const tempId = `temp-${createUuid()}`;
-  const node = createStickerNode(tempId, x, y, true);
+  const tempId = `temp-${Utils.createUuid()}`;
+  const node = StickerManager.createStickerNode(tempId, x, y, true);
   stickersLayer.appendChild(node);
-  playPlacementPreviewEffect(x, y);
+  EffectsManager.playPlacementPreviewEffect(x, y);
   if (!state.deviceId) {
     state.deviceId = ensureDeviceId();
   }
@@ -1488,7 +641,7 @@ function beginPlacement(x, y) {
 function focusDialog(originNode, options = {}) {
   resetFlipCard();
   const { usePaletteSource = false } = options;
-  const paletteRect = usePaletteSource ? getPaletteTargetRect() : null;
+  const paletteRect = usePaletteSource ? StickerManager.getPaletteTargetRect() : null;
   const canAnimate = Boolean((paletteRect || originNode) && window.anime && typeof window.anime.timeline === "function");
   const openModal = () => {
     if (document.body) {
@@ -1507,13 +660,13 @@ function focusDialog(originNode, options = {}) {
     requestAnimationFrame(() => playFlipReveal());
   };
   if (canAnimate && originNode) {
-    setStickerInFlight(originNode, true);
-    animateStickerZoom(originNode, { sourceRect: paletteRect ?? undefined })
+    StickerManager.setStickerInFlight(originNode, true);
+    StickerManager.animateStickerZoom(originNode, { sourceRect: paletteRect ?? undefined })
       .then(openModal)
       .catch((error) => {
         console.error("Sticker zoom animation failed", error);
-        setStickerInFlight(originNode, false);
-        cleanupZoomOverlay();
+        StickerManager.setStickerInFlight(originNode, false);
+        StickerManager.cleanupZoomOverlay();
         try {
           openModal();
         } catch (openError) {
@@ -1522,7 +675,7 @@ function focusDialog(originNode, options = {}) {
       });
   } else {
     if (originNode) {
-      setStickerInFlight(originNode, true);
+      StickerManager.setStickerInFlight(originNode, true);
     }
     openModal();
   }
@@ -1539,18 +692,20 @@ async function handleDialogClose() {
   const result = noteDialog.returnValue || "";
   if (pendingSnapshot && pendingSnapshot.node) {
     try {
-      await animateStickerReturn(pendingSnapshot, result);
+      await StickerManager.animateStickerReturn(pendingSnapshot, result);
     } catch (error) {
       console.error("Sticker return animation failed", error);
-      finalizeReturnWithoutAnimation(pendingSnapshot.node, Boolean(pendingSnapshot.isNew && result !== "saved"));
+      StickerManager.finalizeReturnWithoutAnimation(pendingSnapshot.node, Boolean(pendingSnapshot.isNew && result !== "saved"));
     }
   }
   resetFlipCard();
-  cleanupZoomOverlay();
+  StickerManager.cleanupZoomOverlay();
 }
 
 async function handleFormSubmit(event) {
   event.preventDefault();
+  if (state.isSubmitting) return;
+
   const message = noteInput.value.trim();
   if (!message) {
     formError.textContent = "請輸入留言內容";
@@ -1573,10 +728,26 @@ async function handleFormSubmit(event) {
     formError.textContent = "尚未設定 Supabase，請先完成設定";
     return;
   }
-  if (pending.isNew) {
-    await saveNewSticker(pending, message);
-  } else {
-    await updateStickerMessage(pending, message);
+
+  state.isSubmitting = true;
+  const originalBtnText = saveButton ? saveButton.textContent : "";
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "儲存中...";
+  }
+
+  try {
+    if (pending.isNew) {
+      await saveNewSticker(pending, message);
+    } else {
+      await updateStickerMessage(pending, message);
+    }
+  } finally {
+    state.isSubmitting = false;
+    if (saveButton) {
+      saveButton.disabled = false;
+      if (originalBtnText) saveButton.textContent = originalBtnText;
+    }
   }
 }
 
@@ -1600,35 +771,24 @@ async function handleDeleteSticker() {
   deleteStickerBtn.disabled = true;
   deleteStickerBtn.textContent = "刪除中…";
   formError.textContent = "";
-  try {
-    let deleteQuery = supabase.from("wall_stickers").delete().eq("id", pending.id);
-    if (pending.deviceId) {
-      deleteQuery = deleteQuery.eq("device_id", pending.deviceId);
-    } else {
-      deleteQuery = deleteQuery.is("device_id", null);
-    }
-    const { error } = await deleteQuery;
-    if (error) {
-      throw error;
-    }
-    if (pending.node?.isConnected) {
-      pending.node.remove();
-    }
-    state.stickers.delete(pending.id);
-    pending.deleted = true;
-    pending.node = null;
-    updateFireIntensity();
-    await closeDialogWithResult("deleted");
-    showToast("貼紙已刪除", "success");
-  } catch (error) {
-    console.error(error);
-    formError.textContent = "刪除失敗，請稍後再試";
+  
+  const result = await StickerManager.deleteSticker(pending);
+  
+  if (result.error) {
+    const msg = result.error.message || result.error.code || "未知錯誤";
+    formError.textContent = `刪除失敗: ${msg}`;
+    console.error(result.error);
     deleteStickerBtn.disabled = false;
     deleteStickerBtn.textContent = originalLabel;
-  } finally {
-    if (deleteStickerBtn.disabled) {
-      deleteStickerBtn.disabled = false;
-    }
+    return;
+  }
+
+  await closeDialogWithResult("deleted");
+  showToast("留言已刪除", "success");
+  
+  // Reset button state (though dialog is closed)
+  if (deleteStickerBtn) {
+    deleteStickerBtn.disabled = false;
     deleteStickerBtn.textContent = originalLabel;
   }
 }
@@ -1665,12 +825,12 @@ function handlePlacementConflict(pending) {
   pending.node.classList.add("pending");
   const fallback = findAvailableSpot({ x: pending.x, y: pending.y });
   if (fallback) {
-    positionStickerNode(pending.node, fallback.x, fallback.y);
+    StickerManager.positionStickerNode(pending.node, fallback.x, fallback.y);
     pending.x = fallback.x;
     pending.y = fallback.y;
     formError.textContent = "這個位置剛被其他人貼上，已為你換到附近的新位置，請再儲存一次。";
     showToast("這個位置剛被其他人貼上，已為你換到附近的位置", "info");
-    playPlacementPreviewEffect(fallback.x, fallback.y);
+    EffectsManager.playPlacementPreviewEffect(fallback.x, fallback.y);
   } else {
     formError.textContent = "這個位置剛被其他人貼上，請關閉視窗後換個位置再試一次。";
     showToast("這個位置剛被其他人貼上，請換個位置", "danger");
@@ -1699,56 +859,18 @@ async function closeDialogWithResult(result) {
 }
 
 async function saveNewSticker(pending, message) {
-  pending.node.classList.add("pending");
-  const payload = {
-    p_x_norm: pending.x / viewBox.width,
-    p_y_norm: pending.y / viewBox.height,
-    p_note: message,
-    p_device_id: state.deviceId ?? null,
-  };
-  const { data, error } = await supabase.rpc("create_wall_sticker", payload);
-  pending.node.classList.remove("pending");
-  if (error) {
-    if (isPositionConflictError(error)) {
+  const result = await StickerManager.saveSticker(pending, message);
+  if (result.error) {
+    if (isPositionConflictError(result.error)) {
       handlePlacementConflict(pending);
     } else {
-      const msg = error.message || error.code || "未知錯誤";
+      const msg = result.error.message || result.error.code || "未知錯誤";
       formError.textContent = `儲存失敗: ${msg}`;
-      console.error("Save failed:", error);
+      console.error("Save failed:", result.error);
       showToast(`儲存失敗: ${msg}`, "danger");
     }
     return;
   }
-  const inserted = Array.isArray(data) ? data[0] : data;
-  if (!inserted?.id) {
-    formError.textContent = "儲存失敗: 伺服器未回傳 ID";
-    console.error("Unexpected insert payload", data);
-    return;
-  }
-  const newId = inserted.id;
-  pending.node.dataset.id = newId;
-  pending.id = newId;
-  pending.isNew = false;
-  pending.deviceId = payload.p_device_id ?? null;
-  pending.lockReason = null;
-  const newRecord = {
-    id: newId,
-    x: pending.x,
-    y: pending.y,
-    xNorm: inserted.x_norm ?? payload.p_x_norm,
-    yNorm: inserted.y_norm ?? payload.p_y_norm,
-    note: message,
-    node: pending.node,
-    created_at: inserted.created_at,
-    updated_at: inserted.updated_at,
-    deviceId: inserted.device_id ?? payload.p_device_id ?? null,
-    isApproved: Boolean(inserted.is_approved),
-    canViewNote: true,
-  };
-  state.stickers.set(newId, newRecord);
-  updateStickerReviewState(newRecord);
-  updateFireIntensity();
-  // runPopAnimation(pending.node);
   await closeDialogWithResult("saved");
   showToast("留言已保存", "success");
 }
@@ -1758,94 +880,24 @@ async function updateStickerMessage(pending, message) {
     formError.textContent = "";
     return;
   }
-  let updateQuery = supabase
-    .from("wall_stickers")
-    .update({ note: message })
-    .eq("id", pending.id);
-  if (pending.deviceId) {
-    updateQuery = updateQuery.eq("device_id", pending.deviceId);
-  } else {
-    updateQuery = updateQuery.is("device_id", null);
-  }
-  const { error, data } = await updateQuery.select().single();
-  if (error) {
-    const msg = error.message || error.code || "未知錯誤";
+  const result = await StickerManager.updateSticker(pending, message);
+  if (result.error) {
+    const msg = result.error.message || result.error.code || "未知錯誤";
     formError.textContent = `更新失敗: ${msg}`;
-    console.error(error);
+    console.error(result.error);
     return;
   }
   const record = state.stickers.get(pending.id);
   if (record) {
-    record.note = message;
-    record.updated_at = data?.updated_at ?? null;
-    if (data?.device_id) {
-      record.deviceId = data.device_id;
-    }
-    if (typeof data?.is_approved !== "undefined") {
-      record.isApproved = Boolean(data.is_approved);
-    }
-    record.canViewNote = true;
-    updateStickerReviewState(record);
-    runPulseAnimation(record.node);
+    EffectsManager.runPulseAnimation(record.node);
   }
   await closeDialogWithResult("saved");
   showToast("留言已更新", "success");
 }
 
-function createStickerNode(id, x, y, isPending = false) {
-  const group = document.createElementNS(svgNS, "g");
-  group.classList.add("sticker-node");
-  if (isPending) {
-    group.classList.add("pending");
-  }
-  group.dataset.id = id;
-  group.setAttribute("tabindex", "0");
-  const use = document.createElementNS(svgNS, "use");
-  use.setAttribute("href", "#heartSticker");
-  use.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#heartSticker");
-  group.appendChild(use);
-  positionStickerNode(group, x, y);
 
-  group.addEventListener("mouseenter", () => {
-    if (window.anime && !state.pending && !state.drag && !group.classList.contains("pending")) {
-      window.anime.remove(group);
-      window.anime({
-        targets: group,
-        scale: 1.15,
-        rotate: window.anime.random(-8, 8),
-        duration: 400,
-        easing: "easeOutElastic(1, .6)",
-      });
-    }
-  });
-  group.addEventListener("mouseleave", () => {
-    if (window.anime && !state.pending && !state.drag && !group.classList.contains("pending")) {
-      window.anime.remove(group);
-      window.anime({
-        targets: group,
-        scale: 1,
-        rotate: 0,
-        duration: 300,
-        easing: "easeOutQuad",
-      });
-    }
-  });
 
-  return group;
-}
 
-function handleStickerActivation(stickerId) {
-  setPlacementMode("idle");
-  const record = state.stickers.get(stickerId);
-  if (!record) {
-    return;
-  }
-  if (!record.isApproved && !record.canViewNote) {
-    triggerPendingReviewFeedback(record);
-    return;
-  }
-  openStickerModal(stickerId);
-}
 
 function triggerPendingReviewFeedback(record) {
   const node = record?.node;
@@ -1866,50 +918,11 @@ function triggerPendingReviewFeedback(record) {
   }
 }
 
-function positionStickerNode(node, x, y) {
-  const centerX = x - STICKER_RADIUS;
-  const centerY = y - STICKER_RADIUS;
-  const useEl = node.querySelector("use") ?? node.firstElementChild;
-  if (useEl) {
-    useEl.setAttribute("x", centerX.toFixed(2));
-    useEl.setAttribute("y", centerY.toFixed(2));
-    useEl.setAttribute("width", STICKER_DIAMETER);
-    useEl.setAttribute("height", STICKER_DIAMETER);
-  }
-  node.dataset.cx = x.toFixed(2);
-  node.dataset.cy = y.toFixed(2);
-  const highlight = node.querySelector(".drag-ghost-highlight");
-  if (highlight) {
-    highlight.setAttribute("cx", x.toFixed(2));
-    highlight.setAttribute("cy", y.toFixed(2));
-    highlight.setAttribute("r", (STICKER_RADIUS + 8).toFixed(2));
-  }
-}
 
-function attachDragHighlight(node) {
-  if (!node || node.querySelector(".drag-ghost-highlight")) {
-    return;
-  }
-  const halo = document.createElementNS(svgNS, "circle");
-  halo.classList.add("drag-ghost-highlight");
-  halo.setAttribute("cx", "0");
-  halo.setAttribute("cy", "0");
-  halo.setAttribute("r", String(STICKER_RADIUS + 8));
-  node.insertBefore(halo, node.firstChild ?? null);
-}
 
-function updateStickerReviewState(record) {
-  if (!record || !record.node) {
-    return;
-  }
-  const node = record.node;
-  const requireApproval = reviewSettings.requireStickerApproval;
-  const approved = Boolean(record.isApproved);
-  const visibleAsApproved = approved || !requireApproval;
-  node.classList.toggle("review-pending", requireApproval && !approved);
-  node.setAttribute("aria-label", visibleAsApproved ? "留言" : "審核中留言");
-  node.dataset.approved = approved ? "true" : "false";
-}
+
+
+
 
 function openStickerModal(id) {
   const record = state.stickers.get(id);
@@ -1932,7 +945,7 @@ function openStickerModal(id) {
   resetNoteInputScrollPosition();
   formError.textContent = "";
   setTimestampDisplay(record);
-  const lockReason = resolveLockReason(record);
+  const lockReason = Utils.resolveLockReason(record, state.deviceId);
   state.pending.lockReason = lockReason;
   state.pending.locked = Boolean(lockReason);
   if (lockReason === "approved") {
@@ -2028,12 +1041,7 @@ function randomWithinViewBox() {
   };
 }
 
-function clampNumber(value, min, max) {
-  if (Number.isNaN(value)) {
-    return min;
-  }
-  return Math.min(max, Math.max(min, value));
-}
+
 
 function clampToViewBox(value, isY = false) {
   if (isY) {
@@ -2145,487 +1153,21 @@ function updatePlacementHint(force = false) {
   }
 }
 
-function playPlacementPreviewEffect(x, y) {
-  if (!effectsLayer) {
-    return;
-  }
-  const cx = Number(x);
-  const cy = Number(y);
-  if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
-    return;
-  }
-  const group = document.createElementNS(svgNS, "g");
-  group.classList.add("effect-preview");
 
-  const glow = document.createElementNS(svgNS, "circle");
-  glow.classList.add("effect-preview-glow");
-  glow.setAttribute("cx", cx.toFixed(2));
-  glow.setAttribute("cy", cy.toFixed(2));
-  glow.setAttribute("r", "0");
-  glow.setAttribute("opacity", "0.6");
 
-  const ring = document.createElementNS(svgNS, "circle");
-  ring.classList.add("effect-preview-ring");
-  ring.setAttribute("cx", cx.toFixed(2));
-  ring.setAttribute("cy", cy.toFixed(2));
-  ring.setAttribute("r", "0");
-  ring.setAttribute("opacity", "0.9");
 
-  group.appendChild(glow);
-  group.appendChild(ring);
-  effectsLayer.appendChild(group);
 
-  const removeGroup = () => {
-    if (group.isConnected) {
-      group.remove();
-    }
-  };
 
-  if (window.anime && typeof window.anime.timeline === "function") {
-    const timeline = window.anime.timeline({ easing: "easeOutCubic" });
-    timeline
-      .add(
-        {
-          targets: glow,
-          r: [0, STICKER_DIAMETER * 3.6],
-          opacity: [0.6, 0],
-          duration: 620,
-        },
-        0,
-      )
-      .add(
-        {
-          targets: ring,
-          r: [0, STICKER_DIAMETER * 2.1],
-          strokeWidth: [8, 0],
-          opacity: [0.9, 0],
-          duration: 520,
-          easing: "easeOutQuad",
-        },
-        40,
-      );
-    if (timeline.finished && typeof timeline.finished.then === "function") {
-      timeline.finished.then(removeGroup).catch(removeGroup);
-    } else {
-      setTimeout(removeGroup, 640);
-    }
-  } else {
-    setTimeout(removeGroup, 640);
-  }
-}
 
-function playPlacementImpactEffect(node) {
-  if (!effectsLayer || !node) {
-    return;
-  }
-  const cx = Number(node.dataset.cx);
-  const cy = Number(node.dataset.cy);
-  if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
-    return;
-  }
-  const group = document.createElementNS(svgNS, "g");
-  group.classList.add("effect-impact");
 
-  const glow = document.createElementNS(svgNS, "circle");
-  glow.classList.add("impact-glow");
-  glow.setAttribute("cx", cx.toFixed(2));
-  glow.setAttribute("cy", cy.toFixed(2));
-   glow.setAttribute("r", "0");
-  glow.setAttribute("opacity", "0.75");
 
-  const halo = document.createElementNS(svgNS, "circle");
-  halo.classList.add("impact-halo");
-  halo.setAttribute("cx", cx.toFixed(2));
-  halo.setAttribute("cy", cy.toFixed(2));
-  halo.setAttribute("r", (STICKER_RADIUS * 0.6).toFixed(2));
-  halo.setAttribute("opacity", "0.9");
 
-  const wave = document.createElementNS(svgNS, "circle");
-  wave.classList.add("impact-wave");
-  wave.setAttribute("cx", cx.toFixed(2));
-  wave.setAttribute("cy", cy.toFixed(2));
-  wave.setAttribute("r", (STICKER_RADIUS * 0.75).toFixed(2));
-  wave.setAttribute("opacity", "0.9");
 
-  const ring = document.createElementNS(svgNS, "circle");
-  ring.classList.add("impact-ring");
-  ring.setAttribute("cx", cx.toFixed(2));
-  ring.setAttribute("cy", cy.toFixed(2));
-  ring.setAttribute("r", (STICKER_RADIUS * 0.5).toFixed(2));
-  ring.setAttribute("opacity", "0.95");
-  ring.setAttribute("stroke-dashoffset", "18");
 
-  const core = document.createElementNS(svgNS, "circle");
-  core.classList.add("impact-core");
-  core.setAttribute("cx", cx.toFixed(2));
-  core.setAttribute("cy", cy.toFixed(2));
-  core.setAttribute("r", "0");
-  core.setAttribute("opacity", "1");
 
-  group.appendChild(glow);
-  group.appendChild(halo);
-  group.appendChild(wave);
-  group.appendChild(ring);
-  group.appendChild(core);
 
-  const sparks = [];
-  const sparkCount = 8;
-  const sparkLength = STICKER_DIAMETER * 2.1;
-  for (let i = 0; i < sparkCount; i += 1) {
-    const angle = (Math.PI * 2 * i) / sparkCount;
-    const spark = document.createElementNS(svgNS, "line");
-    spark.classList.add("impact-spark");
-    spark.setAttribute("x1", cx.toFixed(2));
-    spark.setAttribute("y1", cy.toFixed(2));
-    spark.setAttribute("x2", cx.toFixed(2));
-    spark.setAttribute("y2", cy.toFixed(2));
-    spark.dataset.x2 = (cx + Math.cos(angle) * sparkLength).toFixed(2);
-    spark.dataset.y2 = (cy + Math.sin(angle) * sparkLength).toFixed(2);
-    group.appendChild(spark);
-    sparks.push(spark);
-  }
 
-  const embers = [];
-  const emberCount = 6;
-  for (let i = 0; i < emberCount; i += 1) {
-    const ember = document.createElementNS(svgNS, "circle");
-    ember.classList.add("impact-ember");
-    const theta = Math.random() * Math.PI * 2;
-    const distance = STICKER_RADIUS * (0.4 + Math.random() * 2.2);
-    const ex = cx + Math.cos(theta) * distance;
-    const ey = cy + Math.sin(theta) * distance;
-    ember.setAttribute("cx", ex.toFixed(2));
-    ember.setAttribute("cy", ey.toFixed(2));
-    ember.setAttribute("r", "0");
-    ember.setAttribute("opacity", "0.9");
-    group.appendChild(ember);
-    embers.push(ember);
-  }
 
-  effectsLayer.appendChild(group);
-
-  if (window.anime && typeof window.anime.timeline === "function") {
-    const cleanup = () => {
-      if (group.isConnected) {
-        group.remove();
-      }
-    };
-    const timeline = window.anime.timeline({ easing: "easeOutCubic" });
-    timeline
-      .add(
-        {
-          targets: glow,
-          r: [0, STICKER_DIAMETER * 4.2],
-          opacity: [0.75, 0],
-          duration: 880,
-        },
-        0,
-      )
-      .add(
-        {
-          targets: halo,
-          r: [STICKER_RADIUS * 0.6, STICKER_DIAMETER * 2.4],
-          strokeWidth: [10, 0],
-          opacity: [0.9, 0],
-          duration: 560,
-          easing: "easeOutQuad",
-        },
-        0,
-      )
-      .add(
-        {
-          targets: wave,
-          r: [STICKER_RADIUS * 0.75, STICKER_DIAMETER * 3.4],
-          opacity: [0.9, 0],
-          strokeWidth: [8, 0],
-          duration: 700,
-          easing: "easeOutCubic",
-        },
-        80,
-      )
-      .add(
-        {
-          targets: ring,
-          r: [STICKER_RADIUS * 0.5, STICKER_DIAMETER * 2.9],
-          opacity: [0.95, 0],
-          strokeWidth: [3, 0],
-          strokeDashoffset: [18, 0],
-          duration: 620,
-          easing: "easeOutQuad",
-        },
-        120,
-      )
-      .add(
-        {
-          targets: core,
-          r: [0, STICKER_RADIUS * 0.55],
-          opacity: [1, 0],
-          duration: 340,
-          easing: "easeOutQuad",
-        },
-        0,
-      )
-      .add(
-        {
-          targets: sparks,
-          x2: (el) => Number(el.dataset.x2),
-          y2: (el) => Number(el.dataset.y2),
-          opacity: [0, 1],
-          duration: 280,
-          easing: "easeOutExpo",
-          delay: window.anime.stagger(18),
-        },
-        0,
-      )
-      .add(
-        {
-          targets: sparks,
-          opacity: [1, 0],
-          strokeWidth: [3, 0],
-          duration: 260,
-          easing: "easeInQuad",
-          delay: window.anime.stagger(22),
-        },
-        320,
-      )
-      .add(
-        {
-          targets: embers,
-          r: [0, 5.5],
-          opacity: [0.9, 0],
-          duration: 540,
-          easing: "easeOutCubic",
-          delay: window.anime.stagger(60, { start: 100 }),
-        },
-        100,
-      );
-    if (timeline.finished && typeof timeline.finished.then === "function") {
-      timeline.finished.then(cleanup).catch(cleanup);
-    } else {
-      setTimeout(cleanup, 880);
-    }
-  } else {
-    setTimeout(() => {
-      if (group.isConnected) {
-        group.remove();
-      }
-    }, 720);
-  }
-}
-
-function initAmbientGlow() {
-  if (!ambientLayer) {
-    return;
-  }
-  if (mediaPrefersReducedMotion?.matches) {
-    destroyAmbientGlow();
-    return;
-  }
-  if (!window.anime || typeof window.anime.timeline !== "function") {
-    return;
-  }
-  destroyAmbientGlow();
-
-  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
-  const pathEntries = pathNodes
-    .map((path) => {
-      try {
-        const length = path.getTotalLength();
-        if (!Number.isFinite(length) || length <= 0) {
-          return null;
-        }
-        return { path, length };
-      } catch (error) {
-        console.warn("Ambient glow path sampling failed", error);
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  if (!pathEntries.length) {
-    return;
-  }
-
-  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
-  if (!Number.isFinite(combinedLength) || combinedLength <= 0) {
-    return;
-  }
-
-  const isCompactViewport = typeof window !== "undefined"
-    && typeof window.matchMedia === "function"
-    && window.matchMedia("(max-width: 768px)").matches;
-  const sparkCount = isCompactViewport ? 12 : 22;
-  const averageSpacing = combinedLength / sparkCount;
-  const jitterWindow = Math.min(averageSpacing * 0.6, 220);
-
-  for (let i = 0; i < sparkCount; i += 1) {
-    const offset = averageSpacing * i + (Math.random() - 0.5) * jitterWindow;
-    const normalizedCombined = ((offset % combinedLength) + combinedLength) % combinedLength;
-
-    let remaining = normalizedCombined;
-    let targetEntry = pathEntries[0];
-    for (const entry of pathEntries) {
-      if (remaining <= entry.length) {
-        targetEntry = entry;
-        break;
-      }
-      remaining -= entry.length;
-    }
-
-    let point;
-    try {
-      point = targetEntry.path.getPointAtLength(Math.max(0, remaining));
-    } catch (error) {
-      continue;
-    }
-    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-      continue;
-    }
-
-    const jitterX = window.anime.random(-28, 28);
-    const jitterY = window.anime.random(-26, 26);
-    const maxRadius = window.anime.random(18, 36);
-    const maxOpacity = window.anime.random(55, 88) / 100;
-    const strokeWidth = window.anime.random(12, 26) / 10;
-
-    const spark = document.createElementNS(svgNS, "circle");
-    spark.classList.add("ambient-spark");
-    spark.setAttribute("cx", (point.x + jitterX).toFixed(2));
-    spark.setAttribute("cy", (point.y + jitterY).toFixed(2));
-    spark.setAttribute("r", "0");
-    spark.setAttribute("opacity", "0");
-    spark.setAttribute("fill", "url(#eagleGlowGradient)");
-    spark.setAttribute("stroke", "rgba(255, 228, 188, 0.6)");
-    spark.setAttribute("stroke-width", strokeWidth.toFixed(2));
-    spark.dataset.maxRadius = maxRadius.toFixed(2);
-    spark.dataset.maxOpacity = maxOpacity.toFixed(2);
-    ambientLayer.appendChild(spark);
-    ambientState.nodes.push(spark);
-  }
-
-  ambientState.currentCount = ambientState.nodes.length;
-  if (!ambientState.currentCount) {
-    return;
-  }
-
-  const startDelay = window.anime.random(0, 360);
-  const timeline = window.anime.timeline({ loop: true, autoplay: true });
-  timeline
-    .add({
-      targets: ambientState.nodes,
-      r: (el) => Number(el.dataset.maxRadius ?? 24),
-      opacity: (el) => Number(el.dataset.maxOpacity ?? 0.7),
-      translateY: -40,
-      duration: 2200,
-      easing: "easeOutSine",
-      delay: window.anime.stagger(220, { start: startDelay }),
-    })
-    .add({
-      targets: ambientState.nodes,
-      r: 0,
-      opacity: 0,
-      translateY: -80,
-      duration: 2200,
-      easing: "easeInSine",
-      delay: window.anime.stagger(220, { direction: "reverse" }),
-    });
-
-  ambientState.animation = timeline;
-}
-
-function destroyAmbientGlow() {
-  if (ambientState.animation && typeof ambientState.animation.pause === "function") {
-    ambientState.animation.pause();
-  }
-  ambientState.animation = null;
-  ambientState.nodes.forEach((node) => {
-    if (node?.isConnected) {
-      node.remove();
-    }
-  });
-  ambientState.nodes.length = 0;
-  ambientState.currentCount = 0;
-  if (ambientState.resizeTimer) {
-    clearTimeout(ambientState.resizeTimer);
-    ambientState.resizeTimer = null;
-  }
-}
-
-function refreshAmbientGlow(force = false) {
-  if (!ambientLayer) {
-    destroyAmbientGlow();
-    return;
-  }
-  if (mediaPrefersReducedMotion?.matches) {
-    destroyAmbientGlow();
-    return;
-  }
-  if (!force) {
-    const isCompactViewport = typeof window !== "undefined"
-      && typeof window.matchMedia === "function"
-      && window.matchMedia("(max-width: 768px)").matches;
-    const desiredCount = isCompactViewport ? 12 : 22;
-    if (ambientState.currentCount === desiredCount) {
-      return;
-    }
-  }
-  initAmbientGlow();
-}
-
-function scheduleAmbientGlowRefresh() {
-  if (!ambientLayer) {
-    return;
-  }
-  if (ambientState.resizeTimer) {
-    clearTimeout(ambientState.resizeTimer);
-  }
-  ambientState.resizeTimer = window.setTimeout(() => {
-    ambientState.resizeTimer = null;
-    refreshAmbientGlow();
-  }, 260);
-}
-
-function runPopAnimation(node) {
-  if (!window.anime || !node) {
-    return;
-  }
-  node.style.transformOrigin = "50% 50%";
-  window.anime({
-    targets: node,
-    scale: [0, 1],
-    opacity: [0, 1],
-    translateY: [20, 0],
-    easing: "easeOutElastic(1, .5)",
-    duration: 1000,
-    delay: window.anime.random(0, 150),
-    complete: () => {
-      if (node?.style) {
-        node.style.removeProperty("transform");
-        node.style.removeProperty("opacity");
-      }
-    },
-  });
-}
-
-function runPulseAnimation(node) {
-  if (!window.anime || !node) {
-    return;
-  }
-  node.style.transformOrigin = "50% 50%";
-  window.anime({
-    targets: node,
-    scale: [1, 1.15],
-    direction: "alternate",
-    loop: 2,
-    duration: 400,
-    easing: "easeInOutSine",
-    complete: () => {
-      if (node?.style) {
-        node.style.removeProperty("transform");
-      }
-    },
-  });
-}
 
 function resetFlipCard() {
   if (!flipCardInner) {
@@ -2765,7 +1307,7 @@ function setTimestampDisplay(record) {
     noteTimestamp.hidden = true;
     return;
   }
-  const createdText = formatDateTime(record.created_at);
+  const createdText = Utils.formatDateTime(record.created_at, timestampFormatter);
   if (!createdText) {
     noteTimestamp.textContent = "";
     noteTimestamp.hidden = true;
@@ -2775,396 +1317,31 @@ function setTimestampDisplay(record) {
   noteTimestamp.hidden = false;
 }
 
-function formatDateTime(value) {
-  try {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-    if (timestampFormatter) {
-      return timestampFormatter.format(date);
-    }
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
-    const hh = String(date.getHours()).padStart(2, "0");
-    const min = String(date.getMinutes()).padStart(2, "0");
-    return `${yyyy}/${mm}/${dd} ${hh}:${min}`;
-  } catch (error) {
-    console.error("Failed to format date", error);
-    return null;
-  }
-}
 
-function animateStickerZoom(originNode, options = {}) {
-  if (!window.anime || typeof window.anime.timeline !== "function") {
-    return Promise.resolve();
-  }
-  const sourceRect = options?.sourceRect ?? originNode?.getBoundingClientRect?.();
-  if (!sourceRect || !sourceRect.width || !sourceRect.height) {
-    return Promise.reject(new Error("Origin sticker bounds unavailable"));
-  }
-  cleanupZoomOverlay();
-  const overlay = createStickerOverlay({
-    left: sourceRect.left,
-    top: sourceRect.top,
-    width: sourceRect.width,
-    height: sourceRect.height,
-    opacity: 0,
-  });
-  if (!overlay) {
-    return Promise.reject(new Error("Failed to create zoom overlay"));
-  }
 
-  const targetSize = computeZoomTargetSize();
-  const targetLeft = (window.innerWidth - targetSize) / 2;
-  const targetTop = (window.innerHeight - targetSize) / 2;
 
-  return new Promise((resolve) => {
-    let resolved = false;
-    const finishResolve = () => {
-      if (!resolved) {
-        resolved = true;
-        resolve();
-      }
-    };
 
-    const timeline = window.anime.timeline({
-      targets: overlay,
-      easing: "easeInOutCubic",
-    });
-    state.zoomAnimation = timeline;
 
-    const finalize = () => {
-      if (state.zoomAnimation === timeline && typeof timeline.pause === "function") {
-        timeline.pause();
-      }
-      if (state.zoomAnimation === timeline) {
-        state.zoomAnimation = null;
-      }
-      if (state.zoomOverlay === overlay) {
-        state.zoomOverlay = null;
-      }
-      overlay.remove();
-      if (state.zoomResolve === finalizeAndResolve) {
-        state.zoomResolve = null;
-      }
-    };
 
-    const finalizeAndResolve = () => {
-      finalize();
-      finishResolve();
-    };
 
-    state.zoomResolve = finalizeAndResolve;
 
-    timeline
-      .add({
-        left: targetLeft,
-        top: targetTop,
-        width: targetSize,
-        height: targetSize,
-        opacity: [0, 1],
-        duration: 480,
-        round: 2,
-        complete: finishResolve,
-      })
-      .add({
-        opacity: 0,
-        duration: 140,
-        easing: "easeInQuad",
-        delay: 20,
-        complete: finalizeAndResolve,
-      });
 
-    if (timeline.finished && typeof timeline.finished.then === "function") {
-      timeline.finished.catch(finalizeAndResolve);
-    } else {
-      setTimeout(finalizeAndResolve, 640);
-    }
-  });
-}
 
-function animateStickerReturn(pendingSnapshot, result) {
-  if (result === "deleted" || pendingSnapshot?.deleted) {
-    if (pendingSnapshot?.node?.isConnected) {
-      pendingSnapshot.node.remove();
-    }
-    return Promise.resolve();
-  }
-  const node = pendingSnapshot?.node;
-  if (!node) {
-    return Promise.resolve();
-  }
-  const returnToPalette = Boolean(pendingSnapshot.isNew && result !== "saved");
-  const shouldPlayImpact = !returnToPalette && result === "saved";
-  const hasAnime = Boolean(window.anime && typeof window.anime.timeline === "function");
-  if (!hasAnime) {
-    finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      playPlacementImpactEffect(node);
-    }
-    return Promise.resolve();
-  }
 
-  const centerRect = computeCenterRect();
-  const targetRaw = returnToPalette ? getPaletteTargetRect() : node.getBoundingClientRect();
-  if (!centerRect || !targetRaw || !targetRaw.width || !targetRaw.height) {
-    finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      playPlacementImpactEffect(node);
-    }
-    return Promise.resolve();
-  }
 
-  cleanupZoomOverlay();
-  const overlay = createStickerOverlay({
-    left: centerRect.left,
-    top: centerRect.top,
-    width: centerRect.width,
-    height: centerRect.height,
-    opacity: 1,
-  });
-  if (!overlay) {
-    finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      playPlacementImpactEffect(node);
-    }
-    return Promise.resolve();
-  }
 
-  const targetRect = normalizeTargetRect(targetRaw, returnToPalette);
-  if (!targetRect) {
-    overlay.remove();
-    finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      playPlacementImpactEffect(node);
-    }
-    return Promise.resolve();
-  }
 
-  return new Promise((resolve) => {
-    let finished = false;
-    let timelineRef = null;
 
-    const finalize = () => {
-      if (finished) {
-        return;
-      }
-      finished = true;
-      if (state.zoomAnimation === timelineRef && timelineRef && typeof timelineRef.pause === "function") {
-        timelineRef.pause();
-      }
-      if (state.zoomAnimation === timelineRef) {
-        state.zoomAnimation = null;
-      }
-      if (state.zoomOverlay === overlay) {
-        state.zoomOverlay = null;
-      }
-      overlay.remove();
-      finalizeReturnWithoutAnimation(node, returnToPalette);
-      if (shouldPlayImpact) {
-        playPlacementImpactEffect(node);
-      }
-      if (state.zoomResolve === finalizeAndResolve) {
-        state.zoomResolve = null;
-      }
-      resolve();
-    };
 
-    const finalizeAndResolve = () => finalize();
 
-    state.zoomResolve = finalizeAndResolve;
-    timelineRef = window.anime.timeline({
-      targets: overlay,
-      easing: "easeInOutCubic",
-    });
-    state.zoomAnimation = timelineRef;
 
-    timelineRef
-      .add({
-        left: targetRect.left,
-        top: targetRect.top,
-        width: targetRect.width,
-        height: targetRect.height,
-        duration: 420,
-        round: 2,
-      })
-      .add({
-        opacity: 0,
-        duration: 140,
-        easing: "easeInQuad",
-        delay: 30,
-        complete: finalizeAndResolve,
-      });
 
-    if (timelineRef.finished && typeof timelineRef.finished.then === "function") {
-      timelineRef.finished.catch(finalize);
-    } else {
-      setTimeout(finalize, 640);
-    }
-  });
-}
 
-function finalizeReturnWithoutAnimation(node, returnToPalette) {
-  if (!node) {
-    return;
-  }
-  if (returnToPalette) {
-    if (node.isConnected) {
-      node.remove();
-    }
-  } else {
-    setStickerInFlight(node, false);
-  }
-}
 
-function computeZoomTargetSize() {
-  const viewportMin = Math.min(window.innerWidth || 0, window.innerHeight || 0);
-  if (!viewportMin) {
-    return 360;
-  }
-  const ideal = viewportMin * 0.52;
-  const minSize = 320;
-  const maxSize = 440;
-  return Math.max(minSize, Math.min(ideal, maxSize));
-}
 
-function cleanupZoomOverlay() {
-  if (state.zoomResolve) {
-    const resolver = state.zoomResolve;
-    state.zoomResolve = null;
-    resolver();
-    return;
-  }
-  if (state.zoomAnimation && typeof state.zoomAnimation.pause === "function") {
-    state.zoomAnimation.pause();
-  }
-  state.zoomAnimation = null;
-  if (state.zoomOverlay) {
-    state.zoomOverlay.remove();
-    state.zoomOverlay = null;
-  }
-}
 
-function createStickerOverlay({ left, top, width, height, opacity = 0 }) {
-  if (!document.body) {
-    return null;
-  }
-  const overlay = document.createElement("div");
-  overlay.className = "zoom-overlay";
-  overlay.setAttribute("aria-hidden", "true");
-  overlay.style.left = `${left}px`;
-  overlay.style.top = `${top}px`;
-  overlay.style.width = `${width}px`;
-  overlay.style.height = `${height}px`;
-  overlay.style.opacity = Number.isFinite(opacity) ? String(opacity) : "0";
-  const image = document.createElement("img");
-  image.src = "svg/Top Heart Mark.svg";
-  image.alt = "";
-  image.draggable = false;
-  image.setAttribute("aria-hidden", "true");
-  overlay.appendChild(image);
-  document.body.appendChild(overlay);
-  state.zoomOverlay = overlay;
-  return overlay;
-}
 
-function computeCenterRect() {
-  const size = computeZoomTargetSize();
-  const left = (window.innerWidth - size) / 2;
-  const top = (window.innerHeight - size) / 2;
-  return { left, top, width: size, height: size };
-}
 
-function getPaletteTargetRect() {
-  if (!paletteSticker) {
-    return null;
-  }
-  const svg = paletteSticker.querySelector("svg");
-  if (svg) {
-    const svgRect = svg.getBoundingClientRect();
-    if (svgRect && svgRect.width && svgRect.height) {
-      return {
-        left: svgRect.left,
-        top: svgRect.top,
-        width: svgRect.width,
-        height: svgRect.height,
-      };
-    }
-  }
-  const rect = paletteSticker.getBoundingClientRect();
-  if (!rect.width || !rect.height) {
-    return null;
-  }
-  const size = Math.min(rect.width, rect.height);
-  const left = rect.left + (rect.width - size) / 2;
-  const top = rect.top + (rect.height - size) / 2;
-  return { left, top, width: size, height: size };
-}
-
-function normalizeTargetRect(rect, preferSquare = false) {
-  if (!rect) {
-    return null;
-  }
-  let { left, top, width, height } = rect;
-  if (!width || !height) {
-    return null;
-  }
-  if (preferSquare) {
-    const size = Math.min(width, height);
-    if (!size) {
-      return null;
-    }
-    left += (width - size) / 2;
-    top += (height - size) / 2;
-    width = size;
-    height = size;
-  }
-  return { left, top, width, height };
-}
-
-function setStickerInFlight(node, inFlight) {
-  if (!node) {
-    return;
-  }
-  node.classList.toggle("in-flight", Boolean(inFlight));
-}
-
-function isStickerLocked(record) {
-  if (!record) {
-    return false;
-  }
-  const createdAt = record.created_at ?? record.createdAt ?? null;
-  if (!createdAt) {
-    return false;
-  }
-  const created = new Date(createdAt);
-  if (Number.isNaN(created.getTime())) {
-    return false;
-  }
-  const ageMs = Date.now() - created.getTime();
-  const twentyFourHoursMs = 24 * 60 * 60 * 1000;
-  return ageMs > twentyFourHoursMs;
-}
-
-function resolveLockReason(record) {
-  if (!record) {
-    return null;
-  }
-  const recordDeviceId = record.deviceId ?? record.device_id ?? null;
-  const ownsRecord = !recordDeviceId || !state.deviceId || recordDeviceId === state.deviceId;
-  if (record.isApproved && ownsRecord) {
-    return "approved";
-  }
-  if (isStickerLocked(record)) {
-    return "time";
-  }
-  if (recordDeviceId && state.deviceId && recordDeviceId !== state.deviceId) {
-    return "device";
-  }
-  return null;
-}
 
 function setNoteLocked(locked, options = {}) {
   const isLocked = Boolean(locked);
@@ -3228,237 +1405,14 @@ function updateDialogSubtitle(isLocked, reason = null) {
   dialogSubtitle.hidden = false;
 }
 
-function createUuid() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-}
 
-function initShimmerSystem() {
-  const runLoop = () => {
-    const stickers = Array.from(state.stickers.values());
-    if (stickers.length > 0) {
-      // Max 3 concurrent shimmers
-      const currentShimmers = document.querySelectorAll('.sticker-node.shimmering').length;
-      
-      if (currentShimmers < 3) {
-        const randomRecord = stickers[Math.floor(Math.random() * stickers.length)];
-        
-        if (randomRecord && randomRecord.node && 
-            state.pending?.id !== randomRecord.id &&
-            state.drag?.node !== randomRecord.node &&
-            !randomRecord.node.classList.contains("pending") &&
-            !randomRecord.node.classList.contains("shimmering")) {
-          triggerShimmer(randomRecord.node);
-        }
-      }
-    }
-    // Schedule next run between 1s and 5s
-    setTimeout(runLoop, 1000 + Math.random() * 4000);
-  };
-  runLoop();
-}
 
-function triggerShimmer(node) {
-  if (!node) return;
-  
-  // 1. Animate the sticker itself (brightness/scale)
-  node.classList.add("shimmering");
 
-  // 2. Create the cross shine in the effects layer (to avoid clipping by eagle edge)
-  const cx = parseFloat(node.dataset.cx);
-  const cy = parseFloat(node.dataset.cy);
 
-  if (Number.isFinite(cx) && Number.isFinite(cy) && effectsLayer) {
-    const group = document.createElementNS(svgNS, "g");
-    group.setAttribute("transform", `translate(${cx}, ${cy})`);
-    group.style.pointerEvents = "none";
 
-    const sparkle = document.createElementNS(svgNS, "path");
-    sparkle.classList.add("shimmer-sparkle");
-    // Long, thin cross shape (Radius 85px, very thin center)
-    // This ensures the center doesn't obscure the sticker too much, while spikes are long
-    sparkle.setAttribute("d", "M0,-85 C1,-15 15,-1 85,0 C15,1 1,15 0,85 C-1,15 -15,1 -85,0 C-15,-1 -1,-15 0,-85");
-    
-    group.appendChild(sparkle);
-    effectsLayer.appendChild(group);
 
-    // Cleanup function
-    const cleanup = () => {
-      node.classList.remove("shimmering");
-      if (group.isConnected) group.remove();
-      node.removeEventListener("animationend", cleanup);
-    };
 
-    // Listen to the sticker's animation end
-    node.addEventListener("animationend", cleanup);
-  } else {
-    // Fallback if coordinates missing
-    const cleanup = () => {
-      node.classList.remove("shimmering");
-      node.removeEventListener("animationend", cleanup);
-    };
-    node.addEventListener("animationend", cleanup);
-  }
-}
 
-function initFireEffect() {
-  if (!ambientLayer) return;
-  if (mediaPrefersReducedMotion?.matches) return;
-  if (!window.anime || typeof window.anime.timeline !== "function") return;
 
-  // Reuse eagle paths for fire emission
-  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
-  const pathEntries = pathNodes
-    .map((path) => {
-      try {
-        const length = path.getTotalLength();
-        if (!Number.isFinite(length) || length <= 0) return null;
-        return { path, length };
-      } catch (error) {
-        return null;
-      }
-    })
-    .filter(Boolean);
 
-  if (!pathEntries.length) return;
 
-  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
-  
-  // Create a dedicated group for fire if not exists
-  let fireGroup = document.getElementById("fireGroup");
-  if (!fireGroup) {
-    fireGroup = document.createElementNS(svgNS, "g");
-    fireGroup.id = "fireGroup";
-    // Insert before stickersLayer to be behind stickers
-    if (stickersLayer && stickersLayer.parentNode) {
-      stickersLayer.parentNode.insertBefore(fireGroup, stickersLayer);
-    } else {
-      ambientLayer.appendChild(fireGroup);
-    }
-  }
-
-  fireState.active = true;
-  
-  // Check for mobile device to optimize performance
-  const isMobile = window.innerWidth < 768;
-
-  // Start the fire loop
-  const spawnFireParticle = () => {
-    if (!fireState.active) return;
-    
-    // Calculate spawn rate based on intensity
-    const intensity = fireState.intensity;
-    
-    // Performance throttling for mobile:
-    // Reduce frequency (higher delay), but we will increase particle size to compensate
-    let delayBase = isMobile ? 180 : 120;
-    let delayMin = isMobile ? 60 : 30;
-    
-    // Spawn delay: decreases as intensity increases
-    const delay = delayBase - (intensity * (delayBase - delayMin));
-    
-    // Batch size: fewer particles on mobile
-    let maxBatch = isMobile ? 2 : 5;
-    const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
-
-    for (let i = 0; i < batchSize; i++) {
-      createFireParticle(pathEntries, combinedLength, fireGroup, intensity, isMobile);
-    }
-
-    setTimeout(spawnFireParticle, delay);
-  };
-
-  spawnFireParticle();
-}
-
-function createFireParticle(pathEntries, combinedLength, container, intensity, isMobile) {
-  // Pick a random point on the eagle
-  const offset = Math.random() * combinedLength;
-  let remaining = offset;
-  let targetEntry = pathEntries[0];
-  for (const entry of pathEntries) {
-    if (remaining <= entry.length) {
-      targetEntry = entry;
-      break;
-    }
-    remaining -= entry.length;
-  }
-
-  let point;
-  try {
-    point = targetEntry.path.getPointAtLength(remaining);
-  } catch (e) { return; }
-
-  if (!point) return;
-
-  const particle = document.createElementNS(svgNS, "circle");
-  particle.classList.add("fire-particle");
-  
-  // Randomize position slightly
-  const jitter = 15 + (intensity * 25);
-  const startX = point.x + (Math.random() - 0.5) * jitter;
-  const startY = point.y + (Math.random() - 0.5) * jitter;
-
-  particle.setAttribute("cx", startX.toFixed(2));
-  particle.setAttribute("cy", startY.toFixed(2));
-  
-  // Visual Refinement:
-  // 1. Size: Further reduced as requested (2px - 6px range)
-  // Mobile still gets a slight boost to compensate for lower particle count
-  const mobileScale = isMobile ? 1.5 : 1;
-  const baseSize = (2 + (intensity * 4)) * mobileScale; // 2px to 6px base
-  const size = baseSize * (0.8 + Math.random() * 0.4); 
-  particle.setAttribute("r", size.toFixed(2));
-
-  // 2. Color: Hotter, more vibrant colors
-  // Mix of Yellow/White (hot core) and Orange/Red (flames)
-  // Higher intensity = more chance of hot core particles
-  const isCore = Math.random() < (0.2 + intensity * 0.3); 
-  const hue = isCore ? 40 + Math.random() * 15 : 0 + Math.random() * 35; // 40-55 (Yellow) or 0-35 (Red-Orange)
-  const lightness = isCore ? 70 + Math.random() * 20 : 50 + Math.random() * 15;
-  
-  particle.style.fill = `hsl(${hue}, 100%, ${lightness}%)`;
-  // Start invisible, fade in handled by anime.js
-  particle.style.opacity = 0;
-
-  container.appendChild(particle);
-
-  // 3. Motion: "Raging" = Faster, higher, more turbulent
-  const duration = 600 + Math.random() * 800; // Faster life (0.6s - 1.4s)
-  const travelY = -80 - (intensity * 180) - (Math.random() * 60); // Higher reach
-  const travelX = (Math.random() - 0.5) * (50 + intensity * 50); // Wider spread
-
-  // 4. Animation: "Puff" effect (Grow then Shrink)
-  window.anime({
-    targets: particle,
-    opacity: [
-      { value: 0, duration: 0 },
-      { value: 0.9, duration: duration * 0.15 }, // Fade in fast
-      { value: 0, duration: duration * 0.85, easing: 'easeInQuad' } // Fade out
-    ],
-    translateY: travelY,
-    translateX: travelX,
-    scale: [
-      { value: 0.3, duration: 0 },
-      { value: 1.4, duration: duration * 0.4, easing: 'easeOutQuad' }, // Puff up
-      { value: 0, duration: duration * 0.6, easing: 'easeInQuad' } // Shrink away
-    ],
-    easing: 'easeOutQuad',
-    duration: duration,
-    complete: () => {
-      if (particle.isConnected) particle.remove();
-    }
-  });
-}
-
-function updateFireIntensity() {
-  const count = state.stickers.size;
-  // 0 to 520 stickers maps to 0.2 to 1 intensity
-  const maxStickers = 520;
-  const minIntensity = 0.2;
-  const progress = Math.min(count / maxStickers, 1);
-  
-  fireState.intensity = minIntensity + (progress * (1 - minIntensity));
-}

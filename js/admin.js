@@ -33,6 +33,10 @@ const selectAllCheckbox = document.getElementById("selectAllCheckbox");
 const batchActions = document.getElementById("batchActions");
 const batchApproveBtn = document.getElementById("batchApproveBtn");
 const batchDeleteBtn = document.getElementById("batchDeleteBtn");
+const paginationControls = document.getElementById("paginationControls");
+const paginationInfo = document.getElementById("paginationInfo");
+const prevPageBtn = document.getElementById("prevPageBtn");
+const nextPageBtn = document.getElementById("nextPageBtn");
 
 if (exportBtn) {
   exportBtn.disabled = true;
@@ -51,11 +55,13 @@ if (configNotice) {
 const state = {
   authorized: false,
   entries: [],
-  filteredEntries: [],
   loading: false,
   toastTimer: null,
   selectedIds: new Set(),
   searchTerm: "",
+  currentPage: 1,
+  pageSize: 50,
+  totalCount: 0,
 };
 
 const reviewSettingsState = {
@@ -93,12 +99,24 @@ try {
   console.warn("DateTime format unavailable", error);
 }
 
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 loginForm?.addEventListener("submit", handleLogin);
 refreshBtn?.addEventListener("click", () => {
   if (!state.authorized || state.loading) {
     return;
   }
-  void loadStickers(true);
+  void loadStickers(1, true);
 });
 logoutBtn?.addEventListener("click", handleLogout);
 entriesBody?.addEventListener("input", handleRowInput);
@@ -106,12 +124,14 @@ entriesBody?.addEventListener("click", handleTableClick);
 entriesBody?.addEventListener("change", handleTableChange);
 exportBtn?.addEventListener("click", handleExportEntries);
 exportCsvBtn?.addEventListener("click", handleExportCsv);
-searchInput?.addEventListener("input", handleSearchInput);
+searchInput?.addEventListener("input", debounce(handleSearchInput, 500));
 marqueeToggle?.addEventListener("change", handleMarqueeToggleChange);
 stickerToggle?.addEventListener("change", handleStickerToggleChange);
 selectAllCheckbox?.addEventListener("change", handleSelectAllChange);
 batchApproveBtn?.addEventListener("click", handleBatchApprove);
 batchDeleteBtn?.addEventListener("click", handleBatchDelete);
+prevPageBtn?.addEventListener("click", () => changePage(state.currentPage - 1));
+nextPageBtn?.addEventListener("click", () => changePage(state.currentPage + 1));
 
 document.addEventListener("DOMContentLoaded", () => {
   passwordInput?.focus();
@@ -153,13 +173,15 @@ async function handleLogin(event) {
   }
   supabaseClient = createSupabaseClient({ headers: { "x-admin-secret": ADMIN_SECRET_HEADER } });
   void initializeReviewSettings();
-  void loadStickers();
+  void loadStickers(1);
 }
 
 function handleLogout() {
   state.authorized = false;
   state.entries = [];
   state.selectedIds.clear();
+  state.currentPage = 1;
+  state.totalCount = 0;
   renderEntries();
   emptyState.hidden = true;
   syncPanelVisibility();
@@ -181,7 +203,7 @@ function handleLogout() {
   }
 }
 
-async function loadStickers(showToastOnError = false) {
+async function loadStickers(page = 1, showToastOnError = false) {
   if (!state.authorized) {
     return;
   }
@@ -202,14 +224,27 @@ async function loadStickers(showToastOnError = false) {
     loadingIndicator.hidden = false;
   }
   emptyState.hidden = true;
+  
+  const from = (page - 1) * state.pageSize;
+  const to = from + state.pageSize - 1;
+
   try {
-    const { data, error } = await supabaseClient
+    let query = supabaseClient
       .from("wall_sticker_entries")
-      .select("id, note, x_norm, y_norm, created_at, updated_at, is_approved")
-      .order("created_at", { ascending: false });
+      .select("id, note, x_norm, y_norm, created_at, updated_at, is_approved", { count: 'exact' })
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (state.searchTerm) {
+      query = query.ilike('note', `%${state.searchTerm}%`);
+    }
+
+    const { data, error, count } = await query;
+
     if (error) {
       throw error;
     }
+    
     state.entries = Array.isArray(data)
       ? data.map((entry) => ({
           ...entry,
@@ -218,14 +253,15 @@ async function loadStickers(showToastOnError = false) {
           is_approved: Boolean(entry.is_approved),
         }))
       : [];
-    state.filteredEntries = [...state.entries];
+    
+    state.totalCount = count || 0;
+    state.currentPage = page;
     state.selectedIds.clear();
-    if (searchInput) {
-      searchInput.value = "";
-      state.searchTerm = "";
-    }
+    
     renderEntries();
-    if (!state.entries.length) {
+    updatePaginationControls();
+    
+    if (!state.entries.length && page === 1) {
       emptyState.hidden = false;
     }
     updateBatchActionsState();
@@ -240,30 +276,48 @@ async function loadStickers(showToastOnError = false) {
   }
 }
 
+function changePage(newPage) {
+  if (newPage < 1 || newPage > Math.ceil(state.totalCount / state.pageSize)) {
+    return;
+  }
+  loadStickers(newPage);
+}
+
+function updatePaginationControls() {
+  if (!paginationControls) return;
+  
+  const totalPages = Math.ceil(state.totalCount / state.pageSize) || 1;
+  paginationControls.hidden = state.totalCount === 0;
+  
+  if (paginationInfo) {
+    paginationInfo.textContent = `第 ${state.currentPage} 頁，共 ${totalPages} 頁 (總計 ${state.totalCount} 筆)`;
+  }
+  
+  if (prevPageBtn) {
+    prevPageBtn.disabled = state.currentPage <= 1;
+  }
+  
+  if (nextPageBtn) {
+    nextPageBtn.disabled = state.currentPage >= totalPages;
+  }
+}
+
 function renderEntries() {
   if (!entriesBody || !rowTemplate) {
     return;
   }
   entriesBody.innerHTML = "";
-  const displayEntries = state.searchTerm ? state.filteredEntries : state.entries;
+  const displayEntries = state.entries;
   
   if (!Array.isArray(displayEntries) || !displayEntries.length) {
     updateTotalCount();
-    if (state.searchTerm) {
-      // Show no search results state if needed, or just empty
-    }
     return;
   }
   const fragment = document.createDocumentFragment();
-  const total = state.entries.length; // Use total count for numbering to keep it consistent? Or relative?
-  // Let's use the index in the full list for numbering if possible, or just display index.
-  // Actually, if filtered, the numbering might be confusing if we use index.
-  // Let's use the original index from the full list.
   
-  displayEntries.forEach((entry) => {
-    // Find original index for display number
-    const originalIndex = state.entries.findIndex(e => e.id === entry.id);
-    const index = originalIndex !== -1 ? originalIndex : 0;
+  displayEntries.forEach((entry, index) => {
+    // Calculate absolute index for display number
+    const absoluteIndex = (state.currentPage - 1) * state.pageSize + index;
     
     const clone = rowTemplate.content.firstElementChild.cloneNode(true);
     clone.dataset.id = entry.id;
@@ -286,7 +340,11 @@ function renderEntries() {
     const approveButton = clone.querySelector('button[data-action="approve"]');
     const revokeButton = clone.querySelector('button[data-action="revoke"]');
 
-    const displayNumber = total - index;
+    // Display number logic: Total - Absolute Index
+    // If searching, this number might be confusing if it represents "nth result" vs "nth total record"
+    // Let's stick to "nth result" for now as it's simpler with server-side search
+    const displayNumber = state.totalCount - absoluteIndex;
+    
     if (numberCell) {
       numberCell.textContent = `#${displayNumber}`;
     }
@@ -584,11 +642,10 @@ function updateTotalCount() {
   if (!totalCountNode) {
     return;
   }
-  const total = state.entries.length;
-  const pending = state.entries.filter((entry) => !entry.is_approved).length;
-  totalCountNode.textContent = pending
-    ? `${total}（待審 ${pending}）`
-    : total.toString();
+  // Note: This count might be slightly off if we don't query the pending count separately
+  // But for performance, we can just show total count or fetch pending count in a separate lightweight query if needed.
+  // For now, let's just show total count.
+  totalCountNode.textContent = state.totalCount.toString();
 }
 
 function handleMarqueeToggleChange(event) {
@@ -801,20 +858,7 @@ function handleExportEntries() {
 function handleSearchInput(event) {
   const term = event.target.value.trim().toLowerCase();
   state.searchTerm = term;
-  
-  if (!term) {
-    state.filteredEntries = [...state.entries];
-  } else {
-    state.filteredEntries = state.entries.filter(entry => {
-      const note = (entry.note || "").toLowerCase();
-      const id = (entry.id || "").toLowerCase();
-      const date = formatDate(entry.created_at).toLowerCase();
-      return note.includes(term) || id.includes(term) || date.includes(term);
-    });
-  }
-  
-  renderEntries();
-  updateBatchActionsState();
+  loadStickers(1);
 }
 
 function handleExportCsv() {
