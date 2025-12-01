@@ -247,8 +247,11 @@ function revealSticker(sticker) {
   // Enhanced animation: Large Pop + Elastic Bounce
   if (window.anime) {
     // Reset styles first
+    const isMobile = window.innerWidth < 640;
+    const startScale = isMobile ? 2.0 : 3.5; // Reduce scale on mobile to prevent layout issues
+
     sticker.node.style.opacity = "0";
-    sticker.node.style.transform = "scale(3.5)"; // Start much larger
+    sticker.node.style.transform = `scale(${startScale})`; 
     sticker.node.style.filter = "brightness(2.5)"; // Brighter flash
     
     window.anime.timeline({
@@ -256,7 +259,7 @@ function revealSticker(sticker) {
     })
     .add({
       opacity: [0, 1],
-      scale: [3.5, 1],
+      scale: [startScale, 1],
       duration: 850,
       easing: "easeOutElastic(1, .5)" // Bouncy elastic effect
     })
