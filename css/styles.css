@@ -35,6 +35,7 @@
 html,
 body {
   height: 100%;
+  height: 100dvh;
 }
 
 html {
@@ -45,6 +46,7 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
   overflow: hidden;
   overscroll-behavior-y: none;
   touch-action: none;
@@ -63,8 +65,8 @@ body {
 
 main {
   /* Reserve breathing room for floating UI and keep wall centered */
-  --main-padding-top: clamp(3rem, 7vh, 4.25rem);
-  --main-padding-bottom: clamp(9rem, 32vh, 12rem);
+  --main-padding-top: clamp(3rem, 7dvh, 4.25rem);
+  --main-padding-bottom: clamp(9rem, 32dvh, 12rem);
   --main-padding-inline: clamp(1rem, 6vw, 2.4rem);
   flex: 1;
   display: grid;
@@ -128,7 +130,7 @@ main::before {
 .marquee-layer {
   position: fixed;
   inset: 0;
-  padding: clamp(1rem, 4vh, 2rem) clamp(1rem, 4vw, 2.25rem);
+  padding: clamp(1rem, 4dvh, 2rem) clamp(1rem, 4vw, 2.25rem);
   pointer-events: none;
   display: flex;
   flex-direction: column;
@@ -333,7 +335,7 @@ main::before {
   justify-content: center;
   width: min(
     calc(100vw - var(--main-padding-inline, 2rem) * 2),
-    calc((100vh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem)) * 1.96795)
+    calc((100dvh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem)) * 1.96795)
   );
   max-width: 1500px;
   aspect-ratio: 3500 / 1779.31;
@@ -360,7 +362,7 @@ main::before {
 #wallSvg {
   width: 100%;
   height: auto;
-  max-height: calc(100vh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem));
+  max-height: calc(100dvh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem));
   display: block;
   transition: none;
   transform-origin: center;
@@ -407,21 +409,21 @@ main::before {
 
 @media (min-width: 1024px) {
   main {
-    --main-padding-top: clamp(2.25rem, 4vh, 3.5rem);
-    --main-padding-bottom: clamp(2.8rem, 5vh, 4rem);
+    --main-padding-top: clamp(2.25rem, 4dvh, 3.5rem);
+    --main-padding-bottom: clamp(2.8rem, 5dvh, 4rem);
     --main-padding-inline: clamp(1.5rem, 5vw, 3.5rem);
   }
 
   .wall-stage {
     width: min(
       100vw - clamp(0.5rem, 3vw, 2rem),
-      calc((100vh - var(--main-padding-top) - var(--main-padding-bottom)) * 1.96795)
+      calc((100dvh - var(--main-padding-top) - var(--main-padding-bottom)) * 1.96795)
     );
     max-width: min(2048px, 99vw);
   }
 
   #wallSvg {
-    max-height: calc(100vh - var(--main-padding-top) - var(--main-padding-bottom));
+    max-height: calc(100dvh - var(--main-padding-top) - var(--main-padding-bottom));
   }
 
   .drag-palette {
@@ -484,7 +486,7 @@ main::before {
 
 .drag-palette {
   position: fixed;
-  bottom: calc(env(safe-area-inset-bottom) + clamp(1.5rem, 6vh, 3.4rem));
+  bottom: calc(env(safe-area-inset-bottom) + clamp(1.5rem, 6dvh, 3.4rem));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -502,7 +504,7 @@ main::before {
 
 .zoom-controls {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + clamp(0.5rem, 2.4vh, 1.2rem));
+  top: calc(env(safe-area-inset-top) + clamp(0.5rem, 2.4dvh, 1.2rem));
   left: clamp(0.6rem, 4vw, 1.2rem);
   display: flex;
   align-items: center;
@@ -876,7 +878,7 @@ main::before {
 
 #statusToast {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + clamp(1rem, 5vh, 2.6rem));
+  top: calc(env(safe-area-inset-top) + clamp(1rem, 5dvh, 2.6rem));
   left: 50%;
   transform: translate(-50%, -140%);
   background: #ffffff;
@@ -1377,7 +1379,7 @@ body.placement-active #paletteSticker svg {
 
   .drag-palette {
     position: fixed;
-    bottom: calc(env(safe-area-inset-bottom) + clamp(0.75rem, 2.6vh, 1.6rem));
+    bottom: calc(env(safe-area-inset-bottom) + clamp(0.75rem, 2.6dvh, 1.6rem));
     left: 50%;
     transform: translateX(-50%);
     width: auto;
@@ -1417,7 +1419,7 @@ body.placement-active #paletteSticker svg {
   }
   
   #statusToast {
-    top: calc(env(safe-area-inset-top) + clamp(1rem, 5vh, 2.6rem));
+    top: calc(env(safe-area-inset-top) + clamp(1rem, 5dvh, 2.6rem));
   }
 }
 
@@ -1821,7 +1823,7 @@ body.playback-mode .marquee-layer {
 /* Search Bar Overlay */
 .search-bar {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + clamp(3.5rem, 8vh, 5rem));
+  top: calc(env(safe-area-inset-top) + clamp(3.5rem, 8dvh, 5rem));
   left: 50%;
   transform: translateX(-50%);
   width: min(90vw, 460px);
@@ -2034,7 +2036,7 @@ body.search-active .drag-palette {
 
 .playback-year {
   position: absolute;
-  bottom: clamp(5rem, 14vh, 8rem);
+  bottom: clamp(5rem, 14dvh, 8rem);
   left: clamp(1.5rem, 4vw, 3rem);
   font-size: clamp(2.5rem, 6vw, 4.5rem);
   font-weight: 800;
@@ -2053,7 +2055,7 @@ body.search-active .drag-palette {
 
 .playback-date {
   position: absolute;
-  bottom: clamp(5rem, 14vh, 8rem);
+  bottom: clamp(5rem, 14dvh, 8rem);
   right: clamp(1.5rem, 4vw, 3rem);
   font-size: clamp(2rem, 5vw, 3.5rem);
   font-weight: 300;
@@ -2078,7 +2080,7 @@ body.search-active .drag-palette {
 
 .playback-counter {
   position: absolute;
-  top: clamp(3.5rem, 10vh, 6rem);
+  top: clamp(3.5rem, 10dvh, 6rem);
   right: clamp(1.5rem, 4vw, 3rem);
   bottom: auto;
   font-size: clamp(3.5rem, 8vw, 6rem);
