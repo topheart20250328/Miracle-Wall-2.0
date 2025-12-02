@@ -610,7 +610,9 @@ function triggerShimmer(node) {
     elements.effectsLayer.appendChild(group);
 
     // Cleanup function
+    let safetyTimer = null;
     const cleanup = () => {
+      if (safetyTimer) clearTimeout(safetyTimer);
       node.classList.remove("shimmering");
       if (group.isConnected) group.remove();
       node.removeEventListener("animationend", cleanup);
@@ -618,13 +620,18 @@ function triggerShimmer(node) {
 
     // Listen to the sticker's animation end
     node.addEventListener("animationend", cleanup);
+    // Safety timeout to prevent endless loops if animation is interrupted (e.g. by drag/redraw)
+    safetyTimer = setTimeout(cleanup, 2400);
   } else {
     // Fallback if coordinates missing
+    let safetyTimer = null;
     const cleanup = () => {
+      if (safetyTimer) clearTimeout(safetyTimer);
       node.classList.remove("shimmering");
       node.removeEventListener("animationend", cleanup);
     };
     node.addEventListener("animationend", cleanup);
+    safetyTimer = setTimeout(cleanup, 2400);
   }
 }
 

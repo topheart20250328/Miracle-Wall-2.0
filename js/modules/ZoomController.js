@@ -232,6 +232,10 @@ function resetZoomView() {
         viewportState.offsetY = 0;
         applyZoomTransform(false);
         updateZoomIndicator();
+        // Trigger refresh if callback provided
+        if (typeof elements.onZoomReset === 'function') {
+            elements.onZoomReset();
+        }
       }
     });
   } else {
@@ -240,6 +244,9 @@ function resetZoomView() {
     viewportState.offsetY = 0;
     applyZoomTransform();
     updateZoomIndicator();
+    if (typeof elements.onZoomReset === 'function') {
+        elements.onZoomReset();
+    }
   }
 }
 

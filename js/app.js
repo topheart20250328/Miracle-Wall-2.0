@@ -6,6 +6,7 @@ import * as ZoomController from "./modules/ZoomController.js";
 import * as EffectsManager from "./modules/EffectsManager.js";
 import * as StickerManager from "./modules/StickerManager.js";
 import * as PlaybackController from "./modules/PlaybackController.js";
+import * as SearchController from "./modules/SearchController.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
 const wallStage = document.getElementById("wallStage");
@@ -101,7 +102,7 @@ const PLACEMENT_MESSAGES = {
   click: "在老鷹上點擊以貼上",
   drag: "拖曳到老鷹上方並鬆開以貼上",
 };
-const SUBTITLE_TEXT = "（最多 800 字，留言於一日後鎖定）";
+const SUBTITLE_TEXT = "";
 
 const state = {
   stickers: new Map(),
@@ -158,7 +159,21 @@ function init() {
 
   AudioManager.initAudioManager(backgroundAudio, audioToggle);
   ZoomController.initZoomController({
-    wallStage, wallWrapper, wallSvg, stickersLayer, zoomSlider, zoomResetBtn, zoomIndicator
+    wallStage, wallWrapper, wallSvg, stickersLayer, zoomSlider, zoomResetBtn, zoomIndicator,
+    onZoomReset: () => {
+        // If playback is active, do NOT refresh stickers, just reset view (which ZoomController does)
+        if (document.body.classList.contains("playback-mode")) {
+            return;
+        }
+        
+        if (!isSupabaseConfigured()) return;
+        // Only refresh if not using realtime (though we are, user asked for this logic)
+        // But user said: "if you already have set real-time update stickers setting, then no need to add this function"
+        // Since we DO have realtime subscription in init(), we technically don't need this.
+        // However, to be safe and follow "refresh latest message" request explicitly:
+        // We will just re-fetch to ensure sync if realtime missed something.
+        StickerManager.loadExistingStickers().catch(console.error);
+    }
   }, requiresStickerForceRedraw);
   EffectsManager.initEffectsManager({
     effectsLayer, ambientLayer, stickersLayer
@@ -166,6 +181,27 @@ function init() {
   MarqueeController.initMarqueeController(marqueeLayer, marqueeLines, (stickerId) => {
     if (stickerId) {
       StickerManager.handleStickerActivation(stickerId);
+    }
+  });
+  SearchController.initSearchController({
+    searchBtn: document.getElementById("searchBtn"),
+    searchBar: document.getElementById("searchBar"),
+    input: document.getElementById("searchInput"),
+    clearBtn: document.getElementById("searchClearBtn"),
+    closeBtn: document.getElementById("searchCloseBtn"),
+    countDisplay: document.getElementById("searchCount"),
+    dialogPrevBtn: document.getElementById("dialogPrevBtn"),
+    dialogNextBtn: document.getElementById("dialogNextBtn"),
+    dialogSearchCounter: document.getElementById("dialogSearchCounter")
+  }, {
+    getStickers: () => state.stickers,
+    onFocusSticker: (sticker) => {
+      if (sticker && sticker.id) {
+        StickerManager.handleStickerActivation(sticker.id);
+      }
+    },
+    onNavigateSticker: (sticker) => {
+      handleStickerNavigation(sticker);
     }
   });
   PlaybackController.initPlaybackController({
@@ -180,6 +216,9 @@ function init() {
     onUpdateIntensity: (count) => EffectsManager.setFireIntensity(count),
     onPlaybackStateChange: (isPlaying) => {
       EffectsManager.setShimmerPaused(isPlaying);
+      if (isPlaying) {
+        SearchController.closeSearch();
+      }
     },
     onStickerReveal: (sticker) => {
       if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
@@ -334,6 +373,88 @@ function handleJumpToRecent() {
   }
 }
 
+function handleStickerNavigation(sticker) {
+  if (!sticker || !sticker.id) return;
+  
+  // 1. Update state.pending
+  const record = state.stickers.get(sticker.id);
+  if (!record) return;
+
+  state.pending = {
+    id: record.id,
+    x: record.x,
+    y: record.y,
+    node: record.node,
+    isNew: false,
+    deviceId: record.deviceId ?? null,
+    lockReason: null,
+    isApproved: Boolean(record.isApproved),
+    canViewNote: Boolean(record.canViewNote),
+  };
+
+  const lockReason = Utils.resolveLockReason(record, state.deviceId);
+  state.pending.lockReason = lockReason;
+  state.pending.locked = Boolean(lockReason);
+
+  // 2. Animate Flip (Back -> Front -> Back) to swap content
+  if (!flipCardInner || !window.anime) {
+    // Fallback if no animation support
+    updateDialogContent(record, lockReason);
+    return;
+  }
+
+  if (state.flipAnimation) {
+    state.flipAnimation.pause();
+  }
+
+  // Flip halfway to hide current content
+  const timeline = window.anime.timeline({
+    targets: flipCardInner,
+    easing: "easeInOutCubic",
+    duration: 600,
+  });
+  state.flipAnimation = timeline;
+
+  timeline
+    .add({ 
+      rotateY: 90, 
+      duration: 250,
+      complete: () => {
+        // Swap content while hidden
+        updateDialogContent(record, lockReason);
+      }
+    })
+    .add({ 
+      rotateY: 180, 
+      duration: 350, 
+      easing: "easeOutCubic" 
+    });
+    
+  timeline.finished.then(() => {
+    if (state.flipAnimation === timeline) {
+      state.flipAnimation = null;
+      finalizeFlipReveal();
+    }
+  });
+}
+
+function updateDialogContent(record, lockReason) {
+  dialogTitle.textContent = "神蹟留言";
+  noteInput.value = record.note ?? "";
+  resetNoteInputScrollPosition();
+  formError.textContent = "";
+  setTimestampDisplay(record);
+  
+  if (lockReason === "approved") {
+    formError.textContent = "";
+  } else {
+    formError.textContent = "";
+  }
+  
+  setNoteLocked(Boolean(lockReason), { reason: lockReason });
+  updateDeleteButton();
+}
+
 function handleEagleClick(event) {
   const stickerNode = event.target.closest(".sticker-node");
   if (stickerNode) {
@@ -349,6 +470,14 @@ function handleEagleClick(event) {
   }
   if (state.placementMode !== "click") {
     const now = Date.now();
+    // Don't show warning if search is active
+    if (document.body.classList.contains("search-active")) {
+      return;
+    }
+    // Don't show warning if playback is active
+    if (document.body.classList.contains("playback-mode")) {
+      return;
+    }
     if (now - state.lastClickWarning > 1400) {
       showToast("點擊下方貼紙放置", "info");
       state.lastClickWarning = now;
@@ -356,13 +485,42 @@ function handleEagleClick(event) {
     return;
   }
   const svgPoint = clientToSvg(event.clientX, event.clientY);
-  const candidate = findAvailableSpot(svgPoint ?? undefined);
-  if (!candidate) {
-    showToast("暫時找不到可用位置，試試拖曳方式", "danger");
+  if (!svgPoint) return;
+
+  // Check if click is directly valid
+  if (isValidSpot(svgPoint.x, svgPoint.y)) {
+    setPlacementMode("idle");
+    beginPlacement(svgPoint.x, svgPoint.y);
     return;
   }
-  setPlacementMode("idle");
-  beginPlacement(candidate.x, candidate.y);
+
+  // If not valid, try to find nearest valid spot towards center
+  const center = { x: viewBox.x + viewBox.width / 2, y: viewBox.y + viewBox.height / 2 };
+  const nearest = findNearestValidSpot(svgPoint, center);
+  
+  if (nearest) {
+    setPlacementMode("idle");
+    beginPlacement(nearest.x, nearest.y);
+    showToast("已自動貼在最近的可放置位置", "success");
+    return;
+  }
+
+  showToast("此處無法放置，請點擊老鷹範圍內", "danger");
+}
+
+function findNearestValidSpot(start, end) {
+  const steps = 20;
+  const dx = (end.x - start.x) / steps;
+  const dy = (end.y - start.y) / steps;
+  
+  for (let i = 1; i <= steps; i++) {
+    const testX = start.x + dx * i;
+    const testY = start.y + dy * i;
+    if (isValidSpot(testX, testY)) {
+      return { x: testX, y: testY };
+    }
+  }
+  return null;
 }
 
 function handlePalettePointerDown(event) {
@@ -674,7 +832,9 @@ function focusDialog(originNode, options = {}) {
     }
     try {
       if (typeof noteDialog.showModal === "function") {
-        noteDialog.showModal();
+        if (!noteDialog.open) {
+          noteDialog.showModal();
+        }
       } else {
         noteDialog.setAttribute("open", "true");
       }
@@ -725,6 +885,7 @@ async function handleDialogClose() {
   }
   resetFlipCard();
   StickerManager.cleanupZoomOverlay();
+  SearchController.onDialogClosed();
 }
 
 async function handleFormSubmit(event) {
@@ -739,7 +900,7 @@ async function handleFormSubmit(event) {
   const pending = state.pending;
   if (pending?.locked) {
     if (pending.lockReason === "approved") {
-      formError.textContent = "留言已通過審核，如需調整請聯繫管理員";
+      formError.textContent = "";
     } else {
       formError.textContent = "";
     }
@@ -974,13 +1135,14 @@ function openStickerModal(id) {
   state.pending.lockReason = lockReason;
   state.pending.locked = Boolean(lockReason);
   if (lockReason === "approved") {
-    formError.textContent = "留言已通過審核，如需調整請聯繫管理員";
+    formError.textContent = "";
   } else {
     formError.textContent = "";
   }
   setNoteLocked(Boolean(lockReason), { reason: lockReason });
   updateDeleteButton();
   focusDialog(record.node);
+  SearchController.onStickerOpened(id);
 }
 
 function isValidSpot(x, y) {
@@ -1229,8 +1391,8 @@ function playFlipReveal() {
     duration: 520,
   });
   timeline
-    .add({ rotateY: 96, scale: 1.04, duration: 220 })
-    .add({ rotateY: 180, scale: 1, duration: 240, easing: "easeOutCubic" });
+    .add({ rotateY: 90, duration: 220 })
+    .add({ rotateY: 180, duration: 240, easing: "easeOutCubic" });
   state.flipAnimation = timeline;
   if (timeline.finished && typeof timeline.finished.then === "function") {
     timeline.finished
@@ -1307,8 +1469,8 @@ function playFlipReturn() {
     };
 
     timeline
-      .add({ rotateY: 120, scale: 1.02, duration: 150 })
-      .add({ rotateY: 0, scale: 1, duration: 190, easing: "easeOutCubic" });
+      .add({ rotateY: 90, duration: 150 })
+      .add({ rotateY: 0, duration: 190, easing: "easeOutCubic" });
 
     if (timeline.finished && typeof timeline.finished.then === "function") {
       timeline.finished
@@ -1418,8 +1580,8 @@ function updateDialogSubtitle(isLocked, reason = null) {
   }
   if (isLocked) {
     if (reason === "approved") {
-      dialogSubtitle.textContent = "此留言已通過審核，內容目前為唯讀";
-      dialogSubtitle.hidden = false;
+      dialogSubtitle.textContent = "";
+      dialogSubtitle.hidden = true;
     } else {
       dialogSubtitle.textContent = "";
       dialogSubtitle.hidden = true;
@@ -1427,7 +1589,7 @@ function updateDialogSubtitle(isLocked, reason = null) {
     return;
   }
   dialogSubtitle.textContent = SUBTITLE_TEXT;
-  dialogSubtitle.hidden = false;
+  dialogSubtitle.hidden = !SUBTITLE_TEXT;
 }
 
 

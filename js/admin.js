@@ -37,6 +37,10 @@ const paginationControls = document.getElementById("paginationControls");
 const paginationInfo = document.getElementById("paginationInfo");
 const prevPageBtn = document.getElementById("prevPageBtn");
 const nextPageBtn = document.getElementById("nextPageBtn");
+const deleteConfirmModal = document.getElementById("deleteConfirmModal");
+const modalConfirmBtn = document.getElementById("modalConfirmBtn");
+const modalCancelBtn = document.getElementById("modalCancelBtn");
+const modalMessage = document.getElementById("modalMessage");
 
 if (exportBtn) {
   exportBtn.disabled = true;
@@ -73,6 +77,7 @@ const reviewSettingsState = {
 };
 
 let supabaseClient = null;
+let pendingDeleteAction = null;
 
 function syncPanelVisibility() {
   if (loginPanel) {
@@ -132,12 +137,38 @@ batchApproveBtn?.addEventListener("click", handleBatchApprove);
 batchDeleteBtn?.addEventListener("click", handleBatchDelete);
 prevPageBtn?.addEventListener("click", () => changePage(state.currentPage - 1));
 nextPageBtn?.addEventListener("click", () => changePage(state.currentPage + 1));
+modalCancelBtn?.addEventListener("click", closeDeleteModal);
+modalConfirmBtn?.addEventListener("click", executePendingDelete);
 
 document.addEventListener("DOMContentLoaded", () => {
   passwordInput?.focus();
 });
 
 syncPanelVisibility();
+
+function openDeleteModal(message, action) {
+  if (modalMessage) modalMessage.textContent = message;
+  pendingDeleteAction = action;
+  if (deleteConfirmModal) {
+    deleteConfirmModal.hidden = false;
+    deleteConfirmModal.setAttribute("aria-hidden", "false");
+  }
+}
+
+function closeDeleteModal() {
+  pendingDeleteAction = null;
+  if (deleteConfirmModal) {
+    deleteConfirmModal.hidden = true;
+    deleteConfirmModal.setAttribute("aria-hidden", "true");
+  }
+}
+
+async function executePendingDelete() {
+  if (pendingDeleteAction) {
+    await pendingDeleteAction();
+  }
+  closeDeleteModal();
+}
 
 async function handleLogin(event) {
   event.preventDefault();
@@ -588,38 +619,37 @@ async function deleteEntry(row, button) {
     showToast("找不到這筆留言的 ID。", "danger");
     return;
   }
-  const confirmDelete = window.confirm("確定要刪除這筆留言嗎？刪除後無法復原。");
-  if (!confirmDelete) {
-    return;
-  }
-  if (!supabaseClient) {
-    showToast("尚未建立管理連線，請重新登入。", "danger");
-    return;
-  }
-  const originalLabel = button.textContent;
-  button.disabled = true;
-  button.textContent = "刪除中…";
-  try {
-    const { error } = await supabaseClient
-      .from("wall_stickers")
-      .delete()
-      .eq("id", id);
-    if (error) {
-      throw error;
+  
+  openDeleteModal("確定要刪除這筆留言嗎？刪除後無法復原。", async () => {
+    if (!supabaseClient) {
+      showToast("尚未建立管理連線，請重新登入。", "danger");
+      return;
     }
-    state.entries = state.entries.filter((entry) => entry.id !== id);
-    renderEntries();
-    if (!state.entries.length) {
-      emptyState.hidden = false;
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = "刪除中…";
+    try {
+      const { error } = await supabaseClient
+        .from("wall_stickers")
+        .delete()
+        .eq("id", id);
+      if (error) {
+        throw error;
+      }
+      state.entries = state.entries.filter((entry) => entry.id !== id);
+      renderEntries();
+      if (!state.entries.length) {
+        emptyState.hidden = false;
+      }
+      showToast("已刪除留言。", "success");
+    } catch (error) {
+      console.error("Failed to delete entry", error);
+      showToast("刪除失敗，請稍後再試。", "danger");
+    } finally {
+      button.disabled = false;
+      button.textContent = originalLabel ?? "刪除";
     }
-    showToast("已刪除留言。", "success");
-  } catch (error) {
-    console.error("Failed to delete entry", error);
-    showToast("刪除失敗，請稍後再試。", "danger");
-  } finally {
-    button.disabled = false;
-    button.textContent = originalLabel ?? "刪除";
-  }
+  });
 }
 
 function updateLocalEntry(id, changes = {}) {
@@ -1077,40 +1107,38 @@ async function handleBatchDelete() {
   const ids = Array.from(state.selectedIds);
   if (!ids.length) return;
   
-  if (!confirm(`確定要刪除選取的 ${ids.length} 則留言嗎？此動作無法復原。`)) {
-    return;
-  }
-  
-  if (!supabaseClient) {
-    showToast("尚未建立管理連線，請重新登入。", "danger");
-    return;
-  }
-  
-  batchDeleteBtn.disabled = true;
-  const originalText = batchDeleteBtn.textContent;
-  batchDeleteBtn.textContent = "處理中...";
-  
-  try {
-    const { error } = await supabaseClient
-      .from("wall_stickers")
-      .delete()
-      .in("id", ids);
-      
-    if (error) throw error;
-    
-    state.entries = state.entries.filter(entry => !ids.includes(entry.id));
-    state.selectedIds.clear();
-    renderEntries();
-    if (!state.entries.length) {
-      emptyState.hidden = false;
+  openDeleteModal(`確定要刪除選取的 ${ids.length} 則留言嗎？此動作無法復原。`, async () => {
+    if (!supabaseClient) {
+      showToast("尚未建立管理連線，請重新登入。", "danger");
+      return;
     }
-    updateBatchActionsState();
-    showToast(`已刪除 ${ids.length} 則留言。`, "success");
-  } catch (error) {
-    console.error("Batch delete failed", error);
-    showToast("批次刪除失敗，請稍後再試。", "danger");
-  } finally {
-    batchDeleteBtn.disabled = false;
-    batchDeleteBtn.textContent = originalText;
-  }
+    
+    batchDeleteBtn.disabled = true;
+    const originalText = batchDeleteBtn.textContent;
+    batchDeleteBtn.textContent = "處理中...";
+    
+    try {
+      const { error } = await supabaseClient
+        .from("wall_stickers")
+        .delete()
+        .in("id", ids);
+        
+      if (error) throw error;
+      
+      state.entries = state.entries.filter(entry => !ids.includes(entry.id));
+      state.selectedIds.clear();
+      renderEntries();
+      if (!state.entries.length) {
+        emptyState.hidden = false;
+      }
+      updateBatchActionsState();
+      showToast(`已刪除 ${ids.length} 則留言。`, "success");
+    } catch (error) {
+      console.error("Batch delete failed", error);
+      showToast("批次刪除失敗，請稍後再試。", "danger");
+    } finally {
+      batchDeleteBtn.disabled = false;
+      batchDeleteBtn.textContent = originalText;
+    }
+  });
 }

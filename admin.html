@@ -133,6 +133,21 @@
 
   <div id="adminToast" class="admin-toast" role="status" aria-live="polite"></div>
 
+  <div id="deleteConfirmModal" class="modal-overlay" hidden aria-hidden="true">
+    <div class="modal-container" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <header class="modal-header">
+        <h3 id="modalTitle" class="modal-title">確認刪除</h3>
+      </header>
+      <div class="modal-body">
+        <p id="modalMessage">確定要刪除這筆留言嗎？此動作無法復原。</p>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" id="modalCancelBtn" class="ghost-btn">取消</button>
+        <button type="button" id="modalConfirmBtn" class="danger-btn">確認刪除</button>
+      </footer>
+    </div>
+  </div>
+
   <script type="module" src="js/admin.js"></script>
 </body>
 </html>

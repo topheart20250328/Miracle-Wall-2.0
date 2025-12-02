@@ -5,14 +5,20 @@ const PLAYBACK_SPEED_MS = 100; // Time between stickers (adjustable)
 const MIN_PLAYBACK_DURATION_MS = 5000; // Minimum total duration
 const MAX_PLAYBACK_DURATION_MS = 20000; // Maximum total duration
 
+let dragStartX = 0;
+let dragStartY = 0;
+let isDragInteraction = false;
+
 const state = {
   isPlaying: false,
+  isFinished: false,
   animationFrame: null,
   sortedStickers: [],
   currentIndex: 0,
   lastFrameTime: 0,
   accumulatedTime: 0,
   intervalPerSticker: 50,
+  startTimeout: null,
   elements: {
     dateContainer: null,
     yearDisplay: null,
@@ -44,6 +50,44 @@ export function initPlaybackController(elements, callbacks) {
   }
 }
 
+function attachGlobalListeners() {
+  document.addEventListener("click", handleGlobalClick);
+  document.addEventListener("pointerdown", handlePointerDown);
+  document.addEventListener("pointerup", handlePointerUp);
+}
+
+function removeGlobalListeners() {
+  document.removeEventListener("click", handleGlobalClick);
+  document.removeEventListener("pointerdown", handlePointerDown);
+  document.removeEventListener("pointerup", handlePointerUp);
+}
+
+function handlePointerDown(e) {
+  dragStartX = e.clientX;
+  dragStartY = e.clientY;
+  isDragInteraction = false;
+}
+
+function handlePointerUp(e) {
+  const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
+  if (dist > 10) {
+    isDragInteraction = true;
+  }
+}
+
+function handleGlobalClick(e) {
+  if (!state.isPlaying || !state.isFinished) return;
+
+  // If this was a drag interaction, do not stop playback
+  if (isDragInteraction) return;
+
+  // Ignore clicks on controls
+  if (e.target.closest(".zoom-controls")) return;
+
+  // Stop playback if clicked outside
+  stopPlayback();
+}
+
 function togglePlayback() {
   if (state.isPlaying) {
     stopPlayback();
@@ -59,6 +103,7 @@ export function startPlayback(stickersMap) {
   if (state.isPlaying || !stickersMap || stickersMap.size === 0) return;
 
   state.isPlaying = true;
+  state.isFinished = false;
   state.currentIndex = 0;
   state.lastFrameTime = performance.now();
   state.accumulatedTime = 0;
@@ -81,6 +126,9 @@ export function startPlayback(stickersMap) {
 
   // 2. Prepare UI
   document.body.classList.add("playback-mode");
+  document.body.classList.remove("playback-finished");
+  attachGlobalListeners();
+
   if (state.elements.playButton) {
     state.elements.playButton.classList.add("is-playing");
     state.elements.playButton.textContent = "■"; // Stop symbol
@@ -101,6 +149,13 @@ export function startPlayback(stickersMap) {
   // 3. Hide all stickers initially (with fade out)
   state.sortedStickers.forEach(s => {
     if (s.node) {
+      // Fix: Clear any residual animations or inline styles that might block CSS transitions
+      if (window.anime) window.anime.remove(s.node);
+      s.node.classList.remove("pending", "review-pending", "review-blocked", "in-flight");
+      s.node.style.removeProperty("transform");
+      s.node.style.removeProperty("opacity");
+      s.node.style.removeProperty("filter");
+      
       s.node.classList.add("playback-preparing");
     }
   });
@@ -123,7 +178,8 @@ export function startPlayback(stickersMap) {
   }
 
   // 5. Start Loop after fade out delay
-  setTimeout(() => {
+  if (state.startTimeout) clearTimeout(state.startTimeout);
+  state.startTimeout = setTimeout(() => {
     if (!state.isPlaying) return; // Check if stopped during delay
     
     // Now actually hide them for the animation logic
@@ -145,6 +201,10 @@ export function stopPlayback() {
   if (!state.isPlaying) return;
 
   state.isPlaying = false;
+  if (state.startTimeout) {
+    clearTimeout(state.startTimeout);
+    state.startTimeout = null;
+  }
   if (state.animationFrame) {
     cancelAnimationFrame(state.animationFrame);
     state.animationFrame = null;
@@ -152,6 +212,9 @@ export function stopPlayback() {
 
   // Restore UI
   document.body.classList.remove("playback-mode");
+  document.body.classList.remove("playback-finished");
+  removeGlobalListeners();
+
   if (state.elements.playButton) {
     state.elements.playButton.classList.remove("is-playing");
     state.elements.playButton.textContent = "▶"; // Play symbol
@@ -214,7 +277,10 @@ function playbackLoop(timestamp) {
     for (let i = 0; i < itemsToReveal; i++) {
       if (state.currentIndex >= state.sortedStickers.length) {
         // Finished
-        setTimeout(stopPlayback, 2000);
+        state.isFinished = true;
+        state.animationFrame = null;
+        document.body.classList.add("playback-finished");
+        showFinishedDateRange();
         return; 
       }
 
@@ -295,6 +361,99 @@ function updateDateDisplay(dateString) {
 
 function updateCounterDisplay(current, total) {
   if (state.elements.counterDisplay) {
-    state.elements.counterDisplay.textContent = `${current} / ${total}`;
+    // Only show current count, hide total to keep suspense
+    state.elements.counterDisplay.textContent = `${current}`;
+  }
+}
+
+function showFinishedDateRange() {
+  if (state.sortedStickers.length === 0) return;
+  
+  const first = state.sortedStickers[0];
+  const last = state.sortedStickers[state.sortedStickers.length - 1];
+  
+  const d1 = new Date(first.created_at);
+  const d2 = new Date(last.created_at);
+  
+  // Format Year
+  const y1 = d1.getFullYear();
+  const y2 = d2.getFullYear();
+  const yearText = y1 === y2 ? `${y1}` : `${y1} - ${y2}`;
+  
+  // Format Date
+  const m1 = String(d1.getMonth() + 1).padStart(2, "0");
+  const dd1 = String(d1.getDate()).padStart(2, "0");
+  const m2 = String(d2.getMonth() + 1).padStart(2, "0");
+  const dd2 = String(d2.getDate()).padStart(2, "0");
+  
+  // Helper function for fade transition
+  const updateWithFade = (element, newText) => {
+    if (!element) return;
+    // If text is same, do nothing
+    if (element.textContent === newText) return;
+
+    // Apply transition
+    element.style.transition = "opacity 0.6s ease";
+    element.style.opacity = "0";
+    
+    setTimeout(() => {
+      element.textContent = newText;
+      element.style.opacity = "1";
+      
+      // Clean up inline styles after transition
+      setTimeout(() => {
+        element.style.removeProperty("transition");
+        element.style.removeProperty("opacity");
+      }, 600);
+    }, 600);
+  };
+
+  // Special handling for year display: Fade in oldest year, keep newest visible
+  if (state.elements.yearDisplay) {
+    const newestYearText = `${y2}`;
+    const oldestYearText = `${y1}`;
+    
+    if (oldestYearText !== newestYearText) {
+      // Construct HTML to fade in the oldest part
+      state.elements.yearDisplay.innerHTML = `<span class="year-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 0.6s ease">${oldestYearText} - </span>${newestYearText}</span>`;
+      
+      // Trigger reflow to ensure transition works
+      requestAnimationFrame(() => {
+        const span = state.elements.yearDisplay.querySelector(".oldest-part");
+        if (span) {
+          span.style.opacity = "1";
+        }
+      });
+    } else {
+      // If years are same, just ensure text is correct (no fade needed if already showing)
+      if (state.elements.yearDisplay.textContent !== newestYearText) {
+        state.elements.yearDisplay.textContent = newestYearText;
+      }
+    }
+  }
+  
+  // Special handling for date display: Fade in oldest date, keep newest visible
+  if (state.elements.dateDisplay) {
+    const newestDateText = `${m2}.${dd2}`;
+    const oldestDateText = `${m1}.${dd1}`;
+    
+    if (oldestDateText !== newestDateText) {
+      // Construct HTML to fade in the oldest part
+      // Wrap in a span to ensure they stay on the same line within the flex container (which is column)
+      state.elements.dateDisplay.innerHTML = `<span class="date-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 0.6s ease">${oldestDateText} - </span>${newestDateText}</span>`;
+      
+      // Trigger reflow to ensure transition works
+      requestAnimationFrame(() => {
+        const span = state.elements.dateDisplay.querySelector(".oldest-part");
+        if (span) {
+          span.style.opacity = "1";
+        }
+      });
+    } else {
+      // If dates are same, just ensure text is correct (no fade needed if already showing)
+      if (state.elements.dateDisplay.textContent !== newestDateText) {
+        state.elements.dateDisplay.textContent = newestDateText;
+      }
+    }
   }
 }

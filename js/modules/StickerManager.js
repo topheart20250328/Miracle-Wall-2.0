@@ -2,6 +2,9 @@
 import { supabase, isSupabaseConfigured } from "../supabase-config.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
+import * as Utils from "./Utils.js";
+import * as SearchController from "./SearchController.js";
+
 const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 
@@ -58,6 +61,23 @@ export async function loadExistingStickers() {
   }
   
   data.forEach((record) => {
+    // Check if sticker already exists to prevent duplication
+    if (globalState.stickers.has(record.id)) {
+      const existing = globalState.stickers.get(record.id);
+      // Update mutable properties
+      existing.note = record.note ?? "";
+      existing.isApproved = Boolean(record.is_approved);
+      existing.updated_at = record.updated_at;
+      
+      // Re-calculate permissions
+      const isOwner = !record.device_id || !globalState.deviceId || record.device_id === globalState.deviceId;
+      const requireApproval = globalReviewSettings.requireStickerApproval;
+      existing.canViewNote = !requireApproval || record.is_approved || isOwner;
+      
+      updateStickerReviewState(existing);
+      return;
+    }
+
     const x = record.x_norm * globalViewBox.width;
     const y = record.y_norm * globalViewBox.height;
     const node = createStickerNode(record.id, x, y, false);
@@ -202,7 +222,7 @@ export function animateStickerZoom(originNode, options = {}) {
     top: sourceRect.top,
     width: sourceRect.width,
     height: sourceRect.height,
-    opacity: 0,
+    opacity: 1,
   });
   if (!overlay) {
     return Promise.reject(new Error("Failed to create zoom overlay"));
@@ -211,6 +231,7 @@ export function animateStickerZoom(originNode, options = {}) {
   const targetSize = computeZoomTargetSize();
   const targetLeft = (window.innerWidth - targetSize) / 2;
   const targetTop = (window.innerHeight - targetSize) / 2;
+  const isMobile = window.innerWidth <= 640;
 
   return new Promise((resolve) => {
     let resolved = false;
@@ -256,7 +277,6 @@ export function animateStickerZoom(originNode, options = {}) {
         top: targetTop,
         width: targetSize,
         height: targetSize,
-        opacity: [0, 1],
         duration: 480,
         round: 2,
         complete: finishResolve,
@@ -300,6 +320,7 @@ export function animateStickerReturn(pendingSnapshot, result) {
   }
 
   const centerRect = computeCenterRect();
+  const isMobile = window.innerWidth <= 640;
   const targetRaw = returnToPalette ? getPaletteTargetRect() : node.getBoundingClientRect();
   if (!centerRect || !targetRaw || !targetRaw.width || !targetRaw.height) {
     finalizeReturnWithoutAnimation(node, returnToPalette);

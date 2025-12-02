@@ -152,7 +152,23 @@
         >
         <span id="zoomIndicator" class="zoom-indicator" aria-live="polite">100%</span>
         <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
-        <button type="button" id="jumpToRecentBtn" class="zoom-recent" aria-label="查看最新留言">★</button>
+        <button type="button" id="searchBtn" class="zoom-search" aria-label="搜尋留言">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </button>
+      </div>
+      <div id="searchBar" class="search-bar" hidden>
+        <div class="search-input-wrapper">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="searchInput" placeholder="搜尋留言..." aria-label="搜尋留言">
+        </div>
+        <div class="search-actions">
+          <span id="searchCount" class="search-count"></span>
+          <div class="search-divider"></div>
+          <button type="button" id="searchCloseBtn" class="search-close-btn" aria-label="關閉搜尋">✕</button>
+        </div>
       </div>
       <div id="playbackDateContainer" class="playback-date-container" aria-hidden="true">
         <span id="playbackYearDisplay" class="playback-year"></span>
@@ -178,7 +194,17 @@
       <header class="dialog-header">
         <h2 id="dialogTitle">神蹟留言</h2>
         <span class="dialog-subtitle" id="dialogSubtitle">（最多 800 字，留言於一日後鎖定）</span>
+        <div id="dialogSearchCounter" class="dialog-search-counter" hidden></div>
       </header>
+      
+      <!-- Search Navigation Arrows (Only visible when searching) -->
+      <button type="button" id="dialogPrevBtn" class="dialog-nav-btn prev" hidden aria-label="上一則搜尋結果">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <button type="button" id="dialogNextBtn" class="dialog-nav-btn next" hidden aria-label="下一則搜尋結果">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+
       <div class="flip-card">
         <div class="flip-card-inner" id="flipCardInner" data-state="front">
           <section class="flip-face front" id="flipFront" aria-hidden="false">
@@ -235,10 +261,29 @@
           </div>
         </div>
         <div class="settings-row info-row">
-          <div class="settings-icon">★</div>
+          <div class="settings-icon">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+          </div>
           <div>
-            <p class="settings-label">最新留言</p>
-            <p class="settings-description">快速跳轉至最新新增的神蹟留言。</p>
+            <p class="settings-label">搜尋留言</p>
+            <p class="settings-description">輸入關鍵字搜尋神蹟留言。</p>
+          </div>
+        </div>
+        <div class="settings-row info-row">
+          <div class="settings-icon" style="font-size: 0.7rem;">✨</div>
+          <div>
+            <p class="settings-label">閃爍提示</p>
+            <p class="settings-description">閃爍的貼紙代表最新發布的留言。</p>
+          </div>
+        </div>
+        <div class="settings-row info-row">
+          <div class="settings-icon" style="font-size: 0.7rem;">💬</div>
+          <div>
+            <p class="settings-label">跑馬燈</p>
+            <p class="settings-description">點擊上方跑馬燈文字可查看完整內容。</p>
           </div>
         </div>
       </section>
