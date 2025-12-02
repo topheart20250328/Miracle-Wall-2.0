@@ -1867,7 +1867,7 @@ body.playback-mode .marquee-layer {
   background: transparent;
   border: none;
   color: #ffffff;
-  font-size: 0.95rem;
+  font-size: 16px; /* Prevent iOS zoom (must be at least 16px) */
   width: 100%;
   outline: none;
   font-family: inherit;
