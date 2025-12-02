@@ -49,12 +49,20 @@ function toggleSearch() {
 function openSearch() {
   state.isActive = true;
   document.body.classList.add("search-active");
+  
+  // Force scroll to top to prevent layout jumps
+  window.scrollTo(0, 0);
+
   if (state.elements.searchBar) {
     state.elements.searchBar.classList.add("visible");
     state.elements.searchBar.hidden = false;
   }
   if (state.elements.input) {
-    state.elements.input.focus();
+    // Delay focus slightly to allow layout to stabilize, then force scroll to top again
+    setTimeout(() => {
+      state.elements.input.focus();
+      window.scrollTo(0, 0);
+    }, 100);
   }
   // Initial filter (empty or previous value)
   handleInput();
