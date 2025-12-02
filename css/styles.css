@@ -1981,14 +1981,6 @@ body.search-active .sticker-node.search-highlight use {
   stroke-width: 8;
 }
 
-body.search-active .drag-palette,
-body.search-active .zoom-controls {
-  opacity: 0;
-  pointer-events: none;
-  visibility: hidden;
-  transition: opacity 0.3s ease, visibility 0s linear 0.3s;
-}
-
 /* Playback Mode Styles */
 .zoom-playback {
   border: 1px solid rgba(255, 215, 0, 0.5);
