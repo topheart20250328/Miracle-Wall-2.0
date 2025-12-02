@@ -1823,7 +1823,7 @@ body.playback-mode .marquee-layer {
 /* Search Bar Overlay */
 .search-bar {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + clamp(3.5rem, 8dvh, 5rem));
+  top: calc(env(safe-area-inset-top) + 1.5rem);
   left: 50%;
   transform: translateX(-50%);
   width: min(90vw, 460px);
