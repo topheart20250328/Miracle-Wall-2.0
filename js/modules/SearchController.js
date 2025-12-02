@@ -67,10 +67,18 @@ export function closeSearch() {
   if (state.elements.input) {
     state.elements.input.blur();
   }
-  // Force reset scroll position to prevent layout displacement
-  window.scrollTo(0, 0);
-
+  
   document.body.classList.remove("search-active");
+
+  // Force reset scroll position to prevent layout displacement
+  // Use multiple delays to catch the browser state after keyboard animation finishes
+  // This ensures the viewport resets correctly even if the keyboard animation is slow
+  [100, 300, 500].forEach(delay => {
+    setTimeout(() => {
+      window.scrollTo(0, 0);
+    }, delay);
+  });
+
   if (state.elements.searchBar) {
     state.elements.searchBar.classList.remove("visible");
     // Wait for transition to hide
