@@ -257,18 +257,40 @@ function handleOutsideClick(event) {
 
   const searchBar = state.elements.searchBar;
   const searchBtn = state.elements.searchBtn;
+  const noteDialog = document.getElementById("noteDialog");
+  const target = event.target;
   
   // If click is inside search bar or on search button, do nothing
-  if ((searchBar && searchBar.contains(event.target)) || 
-      (searchBtn && searchBtn.contains(event.target))) {
+  if ((searchBar && searchBar.contains(target)) || 
+      (searchBtn && searchBtn.contains(target))) {
     return;
   }
 
-  // If click is on a sticker, let the sticker handler deal with it (don't close search immediately if it's a result)
-  // But if the user wants to close search by clicking "outside", clicking on the wall background should close it.
-  // Let's assume clicking on empty space closes it.
-  
-  closeSearch();
+  // If click is inside the note dialog (e.g. navigation buttons)
+  if (noteDialog && noteDialog.contains(target)) {
+    return;
+  }
+
+  // Define what constitutes "background" (clicking these closes search)
+  // Everything else (stickers, eagle, UI controls) keeps search open
+  const isBackground = 
+    target === document.body ||
+    target === document.documentElement ||
+    target.tagName === 'MAIN' ||
+    target.classList.contains('wall-section') ||
+    target.id === 'wallStage' ||
+    target.id === 'wallWrapper' ||
+    target.id === 'wallSvg' ||
+    target.id === 'stickersLayer' ||
+    target.id === 'effectsLayer' ||
+    target.id === 'ambientLayer' ||
+    target.id === 'dragOverlay' ||
+    target.id === 'marqueeLayer' ||
+    target.id === 'playbackOverlay';
+
+  if (isBackground) {
+    closeSearch();
+  }
 }
 
 function debounce(func, wait) {

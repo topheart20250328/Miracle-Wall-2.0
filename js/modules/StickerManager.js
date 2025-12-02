@@ -402,12 +402,19 @@ export function animateStickerReturn(pendingSnapshot, result) {
         height: targetRect.height,
         duration: 420,
         round: 2,
+        complete: () => {
+          // Show the original sticker BEFORE fading out the overlay
+          // This prevents the "flash" of empty space
+          if (!returnToPalette && node) {
+            setStickerInFlight(node, false);
+          }
+        }
       })
       .add({
         opacity: 0,
-        duration: 140,
-        easing: "easeInQuad",
-        delay: 30,
+        duration: 200, // Slightly longer fade out for smoothness
+        easing: "easeOutQuad",
+        // No delay needed if we show the sticker at the start of this phase
         complete: finalizeAndResolve,
       });
 
@@ -429,6 +436,21 @@ export function finalizeReturnWithoutAnimation(node, returnToPalette) {
     }
   } else {
     setStickerInFlight(node, false);
+    
+    // Reset any lingering hover/zoom effects
+    if (window.anime) {
+      window.anime.remove(node);
+      window.anime({
+        targets: node,
+        scale: 1,
+        rotate: 0,
+        duration: 300,
+        easing: "easeOutQuad",
+      });
+    } else {
+      // Fallback if anime is not available
+      node.style.transform = "";
+    }
   }
 }
 
