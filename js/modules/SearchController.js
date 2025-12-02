@@ -58,10 +58,18 @@ function openSearch() {
   }
   // Initial filter (empty or previous value)
   handleInput();
+
+  // Add click listener to close search when clicking outside
+  setTimeout(() => {
+    document.addEventListener("click", handleOutsideClick);
+  }, 100);
 }
 
 export function closeSearch() {
   state.isActive = false;
+
+  // Remove click listener
+  document.removeEventListener("click", handleOutsideClick);
 
   // Fix for mobile keyboard layout issues (especially iOS/LINE)
   if (state.elements.input) {
@@ -234,6 +242,25 @@ function hideDialogNav() {
   if (state.elements.dialogPrevBtn) state.elements.dialogPrevBtn.hidden = true;
   if (state.elements.dialogNextBtn) state.elements.dialogNextBtn.hidden = true;
   if (state.elements.dialogSearchCounter) state.elements.dialogSearchCounter.hidden = true;
+}
+
+function handleOutsideClick(event) {
+  if (!state.isActive) return;
+
+  const searchBar = state.elements.searchBar;
+  const searchBtn = state.elements.searchBtn;
+  
+  // If click is inside search bar or on search button, do nothing
+  if ((searchBar && searchBar.contains(event.target)) || 
+      (searchBtn && searchBtn.contains(event.target))) {
+    return;
+  }
+
+  // If click is on a sticker, let the sticker handler deal with it (don't close search immediately if it's a result)
+  // But if the user wants to close search by clicking "outside", clicking on the wall background should close it.
+  // Let's assume clicking on empty space closes it.
+  
+  closeSearch();
 }
 
 function debounce(func, wait) {
