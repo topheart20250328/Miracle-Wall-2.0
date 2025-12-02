@@ -62,6 +62,14 @@ function openSearch() {
 
 export function closeSearch() {
   state.isActive = false;
+
+  // Fix for mobile keyboard layout issues (especially iOS/LINE)
+  if (state.elements.input) {
+    state.elements.input.blur();
+  }
+  // Force reset scroll position to prevent layout displacement
+  window.scrollTo(0, 0);
+
   document.body.classList.remove("search-active");
   if (state.elements.searchBar) {
     state.elements.searchBar.classList.remove("visible");
