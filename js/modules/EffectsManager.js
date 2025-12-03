@@ -56,6 +56,8 @@ export function initEffectsManager(domElements, reducedMotion) {
   initAmbientGlow();
   initFireEffect();
   initBottomFire();
+  initHolyFire();
+  initResonanceCanvas();
 }
 
 export function playPlacementPreviewEffect(x, y) {
@@ -846,59 +848,261 @@ export function runPulseAnimation(node) {
 }
 
 export function playResonanceEffect() {
-  if (!elements.effectsLayer) return;
+  // Add heat on click
+  resonanceState.heat = Math.min(HEAT_CONFIG.maxHeat, resonanceState.heat + HEAT_CONFIG.gain);
   
-  // Create 1 heart per click
-  const colors = ["#ff5d5d", "#ff8e8e", "#ffc0c0", "#ffffff"];
+  // Performance Protection:
+  // If too many particles, reduce emission or skip
+  const currentParticles = resonanceState.particles.length;
+  if (currentParticles > 500) return; // Hard cap
   
-  const div = document.createElement("div");
-  div.classList.add("resonance-heart");
-  div.innerHTML = `<svg viewBox="0 0 24 24" width="100%" height="100%"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;
+  // Add particles
+  // Always spawn 1 particle per click to avoid clutter
+  let count = 1;
   
-  // Randomize styles
-  // Increase size variation: 10px to 30px
-  const size = 10 + Math.random() * 20;
-  const color = colors[Math.floor(Math.random() * colors.length)];
-  // Distribute evenly across the screen (5% to 95%)
-  const left = 5 + Math.random() * 90; 
-  
-  div.style.position = "fixed";
-  div.style.bottom = "-40px"; // Start slightly below visible area
-  div.style.left = `${left}%`;
-  div.style.width = `${size}px`;
-  div.style.height = `${size}px`;
-  div.style.color = color;
-  div.style.pointerEvents = "none";
-  div.style.zIndex = "2000";
-  div.style.opacity = "0";
-  
-  document.body.appendChild(div);
-  
-  // Animate - Slower and longer
-  if (window.anime) {
-    const duration = 4000 + Math.random() * 2000; // 4-6 seconds
-    const floatHeight = window.innerHeight * 0.6 + Math.random() * window.innerHeight * 0.2;
+  // Throttle count if heavy load
+  if (currentParticles > 300) count = Math.max(1, Math.floor(count / 2));
 
-    window.anime({
-      targets: div,
-      translateY: -floatHeight,
-      translateX: (Math.random() - 0.5) * 80, // Slight horizontal drift
-      opacity: [
-        { value: 1, duration: 400, easing: 'easeOutQuad' },
-        { value: 1, duration: duration * 0.6 }, // Stay visible longer
-        { value: 0, duration: duration * 0.3, easing: 'easeInQuad' }
-      ],
-      scale: [
-        { value: 0, duration: 0 },
-        { value: 1, duration: 400, easing: 'easeOutBack' }
-      ],
-      easing: "easeOutSine", // Linear-ish float
-      duration: duration,
-      complete: () => div.remove()
+  for (let i = 0; i < count; i++) {
+    // Size increases slightly with heat
+    const baseSize = 10 + (resonanceState.heat / 20); 
+    const size = baseSize + Math.random() * 10;
+    
+    const x = (5 + Math.random() * 90) * resonanceState.width / 100;
+    const y = resonanceState.height + 40;
+    
+    // Gradual Color Transition with Jitter
+    const color = getHeatColor(resonanceState.heat);
+
+    resonanceState.particles.push({
+      x,
+      y,
+      size,
+      color,
+      vx: (Math.random() - 0.5) * 1.0,
+      vy: -(2 + Math.random() * 2 + (resonanceState.heat / 25)), 
+      life: 1,
+      decay: 0.005 + Math.random() * 0.01
     });
-  } else {
-    div.remove();
   }
+}
+
+// New Resonance State (Canvas & Heat)
+const resonanceState = {
+  canvas: null,
+  ctx: null,
+  particles: [],
+  heat: 0,
+  width: 0,
+  height: 0,
+  lastTime: 0,
+  onlineCount: 1
+};
+
+const HEAT_CONFIG = {
+  baseDecay: 5,        // 基礎衰減：每秒降 5% (確保單人難以維持滿熱度)
+  decayPerPerson: 0.3, // 人數加成：每人每秒多降 0.3% (人多時需要更多互動)
+  gain: 0.5,           // 點擊增益：每下增加 0.5% (正常難度)
+  maxHeat: 100
+};
+
+function getHeatColor(heat) {
+  // Interpolate between Red (#ff5d5d) and Soft Warm Yellow (#ffeeb4)
+  // Red: 255, 93, 93
+  // Soft Yellow: 255, 238, 180
+  
+  // Clamp heat to 0-100
+  const h = Math.max(0, Math.min(100, heat));
+  const t = h / 100; // 0.0 to 1.0
+  
+  // Non-linear interpolation
+  const easeT = t * t; 
+  
+  const baseR = 255;
+  const baseG = 93 + (238 - 93) * easeT;
+  const baseB = 93 + (180 - 93) * easeT;
+  
+  // Add random variation to avoid uniformity
+  // Reduced jitter range for cleaner colors
+  const jitter = (Math.random() - 0.5) * 40; 
+  const r = Math.min(255, Math.max(180, baseR + jitter)); 
+  const g = Math.min(255, Math.max(0, baseG + jitter));
+  const b = Math.min(255, Math.max(0, baseB + jitter));
+
+  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+}
+
+export function updateOnlineCount(count) {
+  resonanceState.onlineCount = Math.max(1, count);
+}
+
+function initResonanceCanvas() {
+  if (mediaPrefersReducedMotion?.matches) return;
+  
+  const canvas = document.createElement("canvas");
+  canvas.id = "resonanceCanvas";
+  canvas.style.position = "fixed";
+  canvas.style.inset = "0";
+  canvas.style.pointerEvents = "none";
+  canvas.style.zIndex = "850"; // Below playback overlay (900) but above wall
+  
+  // Fix: Append to wall-section to share stacking context with playbackOverlay
+  // This ensures z-index 850 (hearts) < z-index 900 (playback overlay) works correctly
+  const container = document.querySelector(".wall-section") || document.body;
+  container.appendChild(canvas);
+  
+  resonanceState.canvas = canvas;
+  resonanceState.ctx = canvas.getContext("2d");
+  
+  const resize = () => {
+    resonanceState.width = window.innerWidth;
+    resonanceState.height = window.innerHeight;
+    canvas.width = resonanceState.width;
+    canvas.height = resonanceState.height;
+  };
+  
+  window.addEventListener("resize", resize);
+  resize();
+  
+  startResonanceLoop();
+}
+
+function startResonanceLoop() {
+  const loop = (time) => {
+    requestAnimationFrame(loop);
+    
+    // Skip if tab is hidden to save battery
+    if (document.hidden) return;
+
+    const dt = (time - resonanceState.lastTime) / 1000;
+    resonanceState.lastTime = time;
+    
+    if (dt > 0.1) return; // Skip large jumps
+    
+    // 1. Decay Heat
+    // Dynamic Difficulty:
+    // Base decay ensures single user cannot reach 100% (Need ~16 CPS to beat base decay of 8)
+    // Scaling decay ensures large crowds still need to be active (~2.4 CPS per person)
+    const currentDecay = Math.max(
+      HEAT_CONFIG.baseDecay, 
+      resonanceState.onlineCount * HEAT_CONFIG.decayPerPerson
+    );
+
+    if (resonanceState.heat > 0) {
+      resonanceState.heat = Math.max(0, resonanceState.heat - (currentDecay * dt));
+    }
+    
+    // Sync Holy Fire intensity
+    if (holyFireState.ctx) {
+        holyFireState.intensity = resonanceState.heat / 100;
+    }
+
+    // 2. Render Particles
+    const ctx = resonanceState.ctx;
+    ctx.clearRect(0, 0, resonanceState.width, resonanceState.height);
+    
+    // Random Sparkles at High Heat (>80%)
+    // Replaces the previous full-screen flash
+    if (resonanceState.heat > 80) {
+      // Chance to spawn a sparkle based on heat
+      // Reduced spawn chance for a more gentle effect
+      // Heat 80 -> 2% chance, Heat 100 -> 10% chance
+      const spawnChance = (resonanceState.heat - 80) / 200; 
+      if (Math.random() < spawnChance) {
+         const x = Math.random() * resonanceState.width;
+         const y = Math.random() * resonanceState.height * 0.8; // Mostly top 80%
+         const size = 2 + Math.random() * 4;
+         
+         resonanceState.particles.push({
+            type: 'sparkle',
+            x, y, size,
+            life: 0, // Start at 0 for fade in
+            maxLife: 1,
+            state: 'in', // in, out
+            decay: 0.01 + Math.random() * 0.01, // Slower decay/fade
+            color: `rgba(255, 255, ${200 + Math.random() * 55}, 1)` // White/Yellowish
+         });
+      }
+    }
+
+    for (let i = resonanceState.particles.length - 1; i >= 0; i--) {
+      const p = resonanceState.particles[i];
+      
+      if (p.type === 'sparkle') {
+         // Handle Sparkle Lifecycle (Fade In -> Fade Out)
+         if (p.state === 'in') {
+             p.life += p.decay;
+             if (p.life >= p.maxLife) {
+                 p.life = p.maxLife;
+                 p.state = 'out';
+             }
+         } else {
+             p.life -= p.decay;
+             if (p.life <= 0) {
+                 resonanceState.particles.splice(i, 1);
+                 continue;
+             }
+         }
+
+         // Draw Sparkle (Cross/Star shape)
+         ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
+         ctx.fillStyle = p.color;
+         ctx.save();
+         ctx.translate(p.x, p.y);
+         // Rotate slowly
+         ctx.rotate(Date.now() * 0.001); 
+         
+         ctx.beginPath();
+         // Draw 4-point star
+         const s = p.size * (0.5 + p.life * 0.5); // Pulse size
+         ctx.moveTo(0, -s * 2);
+         ctx.quadraticCurveTo(s * 0.2, -s * 0.2, s * 2, 0);
+         ctx.quadraticCurveTo(s * 0.2, s * 0.2, 0, s * 2);
+         ctx.quadraticCurveTo(-s * 0.2, s * 0.2, -s * 2, 0);
+         ctx.quadraticCurveTo(-s * 0.2, -s * 0.2, 0, -s * 2);
+         ctx.fill();
+         ctx.restore();
+         continue;
+      }
+
+      // Generic decay for other particles (Hearts)
+      p.life -= p.decay;
+      if (p.life <= 0) {
+        resonanceState.particles.splice(i, 1);
+        continue;
+      }
+
+      p.x += p.vx;
+      p.y += p.vy;
+      
+      ctx.globalAlpha = p.life;
+      ctx.fillStyle = p.color;
+      
+      const size = p.size * p.life; 
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      
+      // Draw Heart
+      ctx.beginPath();
+      const topCurveHeight = size * 0.3;
+      ctx.moveTo(0, topCurveHeight);
+      ctx.bezierCurveTo(0, 0, -size / 2, 0, -size / 2, topCurveHeight);
+      ctx.bezierCurveTo(-size / 2, size / 2, 0, size * 0.8, 0, size);
+      ctx.bezierCurveTo(0, size * 0.8, size / 2, size / 2, size / 2, topCurveHeight);
+      ctx.bezierCurveTo(size / 2, 0, 0, 0, 0, topCurveHeight);
+      ctx.fill();
+      
+      // Add Glow if hot
+      if (resonanceState.heat > 50) {
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "rgba(255, 200, 100, 0.5)";
+        ctx.fill();
+      }
+      
+      ctx.restore();
+    }
+  };
+  requestAnimationFrame(loop);
 }
 
 function initBottomFire() {
@@ -946,15 +1150,187 @@ function initBottomFire() {
   startBottomFireLoop();
 }
 
+const holyFireState = {
+  canvas: null,
+  ctx: null,
+  firePixels: [],
+  width: 0,
+  height: 0,
+  intensity: 0,
+  displayIntensity: 0, // Lagging intensity for smooth rise
+  paletteRGB: null
+};
+
+function initHolyFire() {
+  if (mediaPrefersReducedMotion?.matches) return;
+  
+  const canvas = document.createElement("canvas");
+  canvas.id = "holyFireCanvas";
+  const w = 160;
+  const h = 100;
+  canvas.width = w;
+  canvas.height = h;
+  
+  Object.assign(canvas.style, {
+    position: "fixed",
+    bottom: "0",
+    left: "0",
+    width: "100%",
+    height: "90vh", // Increased height to reach above eagle
+    pointerEvents: "none",
+    zIndex: "10", // Behind wall-stage (20)
+    opacity: "0.8", 
+    mixBlendMode: "screen", // Additive blending
+    filter: "blur(10px)",
+    // Mask out the bottom 15% to keep UI clear
+    maskImage: "linear-gradient(to top, rgba(0,0,0,1) 10%, rgba(0,0,0,0) 100%)",
+    webkitMaskImage: "linear-gradient(to top, rgba(0,0,0,1) 10%, rgba(0,0,0,0) 100%)"
+  });
+  
+  // Append to wall-section to be in the correct stacking context
+  const container = document.querySelector(".wall-section") || document.body;
+  container.appendChild(canvas);
+  
+  holyFireState.canvas = canvas;
+  holyFireState.ctx = canvas.getContext("2d");
+  holyFireState.width = w;
+  holyFireState.height = h;
+  holyFireState.firePixels = new Array(w * h).fill(0);
+  
+  startHolyFireLoop();
+}
+
+function startHolyFireLoop() {
+  const { width, height, firePixels, ctx } = holyFireState;
+  let lastTime = 0;
+  // Performance: Reduce FPS on mobile or if tab is hidden
+  const isMobile = window.innerWidth < 768;
+  const fps = isMobile ? 10 : 15; 
+  const interval = 1000 / fps;
+  
+  const update = (time) => {
+    requestAnimationFrame(update);
+    
+    // Skip if tab is hidden to save battery
+    if (document.hidden) return;
+
+    const delta = time - lastTime;
+    if (delta < interval) return;
+    lastTime = time - (delta % interval);
+
+    // Smoothly interpolate display intensity towards target intensity
+    // This prevents the fire from "jumping" up instantly
+    const targetIntensity = holyFireState.intensity;
+    const diff = targetIntensity - holyFireState.displayIntensity;
+    if (Math.abs(diff) > 0.001) {
+        holyFireState.displayIntensity += diff * 0.005; // Very slow ease-in for gradual rise
+    } else {
+        holyFireState.displayIntensity = targetIntensity;
+    }
+
+    // 1. Update Source based on intensity
+    // Intensity 0 = No fire, Intensity 1 = Raging fire
+    const intensity = holyFireState.displayIntensity;
+    
+    // Only generate source if intensity > 0
+    if (intensity > 0.01) {
+      for (let x = 0; x < width; x++) {
+        const index = (height - 1) * width + x;
+        // Source probability increases with intensity
+        // Cap visual density at ~40% (0.4 multiplier) to keep it looking like flames not a block
+        if (Math.random() < (intensity * 0.4)) {
+           // Scale max heat by intensity so low intensity = short fire
+           // Was fixed at 36, now 18 to 36 based on intensity
+           const maxHeat = 18 + (intensity * 18);
+           firePixels[index] = Math.floor(maxHeat); 
+        } else {
+           firePixels[index] = Math.max(0, firePixels[index] - 2);
+        }
+      }
+    } else {
+      // Extinguish source
+      for (let x = 0; x < width; x++) {
+        const index = (height - 1) * width + x;
+        firePixels[index] = Math.max(0, firePixels[index] - 4);
+      }
+    }
+
+    // 2. Propagate
+    for (let x = 0; x < width; x++) {
+      for (let y = 1; y < height; y++) {
+        const srcIndex = y * width + x;
+        const pixelHeat = firePixels[srcIndex];
+        
+        if (pixelHeat === 0) {
+          firePixels[srcIndex - width] = 0;
+        } else {
+          // Decay logic
+          // Higher intensity = Less decay = Taller fire
+          // To reach top (height 100), we need very low decay at max intensity
+          // At intensity 1.0: decayChance = 0.55 - 0.53 = 0.02 (2% chance to decay)
+          const decayChance = 0.55 - (intensity * 0.53); 
+          const decay = Math.random() < decayChance ? 1 : 0;
+          const dstIndex = srcIndex - width + (Math.random() > 0.5 ? 1 : -1); // More turbulent wind
+          
+          if (dstIndex >= 0 && dstIndex < width * height) {
+             firePixels[dstIndex] = Math.max(0, pixelHeat - decay);
+          }
+        }
+      }
+    }
+
+    // 3. Render
+    const imgData = ctx.createImageData(width, height);
+    const data = imgData.data;
+    
+    if (!holyFireState.paletteRGB) {
+       // Golden/Holy Fire Palette
+       // Transparent -> GoldenRod -> Gold -> LightYellow -> White
+       holyFireState.paletteRGB = [
+        [0,0,0,0],
+        [184,134,11,0], [184,134,11,10], [218,165,32,30], // Dark GoldenRod
+        [218,165,32,60], [255,215,0,90], [255,215,0,120], // Gold
+        [255,223,0,150], [255,223,0,180], [255,255,0,200], // Yellow
+        [255,255,100,220], [255,255,150,230], [255,255,200,240], // Light Yellow
+        [255,255,220,250], [255,255,240,255], [255,255,255,255], // White
+        // Fill rest with white
+        ...Array(21).fill([255,255,255,255])
+      ];
+    }
+    
+    const paletteRGB = holyFireState.paletteRGB;
+    
+    for (let i = 0; i < firePixels.length; i++) {
+      const heat = firePixels[i];
+      // Map heat 0-36 to palette
+      const color = paletteRGB[Math.min(36, heat)] || paletteRGB[0];
+      const baseIdx = i * 4;
+      data[baseIdx] = color[0];
+      data[baseIdx + 1] = color[1];
+      data[baseIdx + 2] = color[2];
+      data[baseIdx + 3] = color[3];
+    }
+    
+    ctx.putImageData(imgData, 0, 0);
+  };
+  
+  update(0);
+}
+
 function startBottomFireLoop() {
   const { width, height, firePixels, ctx } = bottomFireState;
   let lastTime = 0;
-  const fps = 12; // Reduced FPS for slow burning effect
+  // Performance: Reduce FPS on mobile or if tab is hidden
+  const isMobile = window.innerWidth < 768;
+  const fps = isMobile ? 8 : 12; 
   const interval = 1000 / fps;
   
   const update = (time) => {
     bottomFireState.animationId = requestAnimationFrame(update);
     
+    // Skip if tab is hidden to save battery
+    if (document.hidden) return;
+
     const delta = time - lastTime;
     if (delta < interval) return;
     

@@ -215,6 +215,7 @@ function init() {
       if (onlineCountNum) {
         onlineCountNum.textContent = count;
       }
+      EffectsManager.updateOnlineCount(count);
     },
     onResonance: () => {
       EffectsManager.playResonanceEffect();

@@ -473,7 +473,29 @@ export function finalizeReturnWithoutAnimation(node, returnToPalette) {
 }
 
 function computeZoomTargetSize() {
-  const viewportMin = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+  const width = window.innerWidth || 0;
+  const height = window.innerHeight || 0;
+  const viewportMin = Math.min(width, height);
+
+  // Match CSS media query (max-width: 640px)
+  if (width <= 640) {
+    // 1. Calculate Card Preferred Width from CSS: width: clamp(340px, 84vw, 440px);
+    const cardIdeal = width * 0.84;
+    const cardWidth = Math.max(340, Math.min(cardIdeal, 440));
+
+    // 2. Calculate Dialog Constraint from CSS: 
+    // .note-dialog { width: min(520px, 92vw); padding: clamp(1.8rem, 3vw, 2.6rem); }
+    // On mobile (<640px), 3vw is usually smaller than 1.8rem (28.8px), so padding is fixed at 1.8rem.
+    // 1.8rem * 16px/rem * 2 sides = 57.6px
+    const paddingPx = 57.6; 
+    const dialogWidth = Math.min(520, width * 0.92);
+    const maxAvailableWidth = dialogWidth - paddingPx;
+
+    // The actual rendered size will be the smaller of the two (Card CSS vs Dialog Constraint)
+    return Math.min(cardWidth, maxAvailableWidth);
+  }
+
+  // Default CSS: width: clamp(320px, 52vmin, 440px);
   if (!viewportMin) {
     return 360;
   }

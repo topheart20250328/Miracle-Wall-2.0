@@ -18,6 +18,7 @@
 
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .sr-only {
@@ -1046,6 +1047,13 @@ main::before {
 
 .note-dialog.closing::backdrop {
   animation: backdrop-out 0.35s ease-out forwards;
+}
+
+.note-dialog.closing .dialog-actions,
+.note-dialog.closing .note-timestamp {
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+  pointer-events: none;
 }
 
 @keyframes backdrop-in {
