@@ -25,6 +25,13 @@
   <meta name="twitter:title" content="Top Heart Miracle Wall 2.0">
   <meta name="twitter:description" content="即時瀏覽、分享並記錄每一則神蹟留言。">
   <meta name="twitter:image" content="png/Top%20Church.png">
+  <script>
+    try {
+      if (localStorage.getItem("onlineStatus") === "false") {
+        document.documentElement.classList.add("hide-online-status");
+      }
+    } catch (e) {}
+  </script>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
@@ -246,10 +253,22 @@
         <div class="settings-row">
           <div>
             <p id="audioSettingLabel" class="settings-label">背景音樂</p>
-            <p class="settings-description">切換播放狀態，縮小或離開頁面時會自動停止。</p>
+            <p class="settings-description">切換音樂播放。</p>
           </div>
           <label class="switch">
             <input type="checkbox" id="audioToggle" role="switch" aria-labelledby="audioSettingLabel">
+            <span class="switch-track" aria-hidden="true">
+              <span class="switch-thumb"></span>
+            </span>
+          </label>
+        </div>
+        <div class="settings-row" style="margin-top: 1.5rem;">
+          <div>
+            <p id="onlineSettingLabel" class="settings-label">上線狀態</p>
+            <p class="settings-description">顯示在線人數與互動愛心。</p>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="onlineToggle" role="switch" aria-labelledby="onlineSettingLabel" checked>
             <span class="switch-track" aria-hidden="true">
               <span class="switch-thumb"></span>
             </span>

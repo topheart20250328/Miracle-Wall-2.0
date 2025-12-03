@@ -35,6 +35,7 @@ const settingsDialog = document.getElementById("settingsDialog");
 const settingsCloseBtn = document.getElementById("settingsCloseBtn");
 const settingsForm = document.getElementById("settingsForm");
 const audioToggle = document.getElementById("audioToggle");
+const onlineToggle = document.getElementById("onlineToggle");
 const marqueeLayer = document.getElementById("marqueeLayer");
 const marqueeLines = marqueeLayer ? Array.from(marqueeLayer.querySelectorAll(".marquee-line")) : [];
 const MAX_ACTIVE_MARQUEE_LINES = 3;
@@ -137,6 +138,12 @@ const isIOSDevice = /iPad|iPhone|iPod/i.test(userAgent);
 const isLineInApp = /Line\//i.test(userAgent);
 const requiresStickerForceRedraw = isIOSDevice || isLineInApp;
 
+// Apply online status preference immediately to prevent flash of content
+const initialOnlineStatus = localStorage.getItem("onlineStatus") !== "false";
+if (onlineCountBtn) {
+  onlineCountBtn.style.display = initialOnlineStatus ? "" : "none";
+}
+
 init().catch((err) => console.error(err));
 initSettingsDialog();
 
@@ -217,10 +224,19 @@ function init() {
       }
       EffectsManager.updateOnlineCount(count);
     },
-    onResonance: () => {
-      EffectsManager.playResonanceEffect();
+    onResonance: (payload) => {
+      // 若已關閉上線狀態，則不顯示他人的共鳴效果
+      if (onlineToggle && !onlineToggle.checked) return;
+
+      // Pass the remote heat value to sync if needed
+      EffectsManager.playResonanceEffect(payload?.heat);
     },
+    getHeat: () => EffectsManager.getResonanceHeat(),
   });
+
+  // Initialize Online Status
+  const savedOnlineStatus = localStorage.getItem("onlineStatus") !== "false";
+  updateOnlineStatus(savedOnlineStatus);
 
   // 綁定共鳴按鈕事件
   if (onlineCountBtn) {
@@ -376,10 +392,36 @@ function initSettingsDialog() {
   audioToggle?.addEventListener("change", (event) => {
     AudioManager.setAudioPreference(Boolean(event.target.checked));
   });
+  onlineToggle?.addEventListener("change", (event) => {
+    const isEnabled = event.target.checked;
+    localStorage.setItem("onlineStatus", isEnabled);
+    updateOnlineStatus(isEnabled);
+  });
+  
+  // Sync UI state
+  if (onlineToggle) {
+    onlineToggle.checked = localStorage.getItem("onlineStatus") !== "false";
+  }
   AudioManager.updateAudioToggleUI();
 }
 
+function updateOnlineStatus(isEnabled) {
+  RealtimeController.setPresenceState(isEnabled);
+  
+  if (isEnabled) {
+    document.documentElement.classList.remove("hide-online-status");
+  } else {
+    document.documentElement.classList.add("hide-online-status");
+  }
 
+  if (onlineCountBtn) {
+    // Use visibility instead of display to keep layout if needed, 
+    // but display: none is usually better for "hiding" completely.
+    // However, if the layout depends on it, we might need to check.
+    // Given it's a floating button usually, display: none is fine.
+    onlineCountBtn.style.display = isEnabled ? "" : "none";
+  }
+}
 
 function handleJumpToRecent() {
   const stickers = Array.from(state.stickers.values());

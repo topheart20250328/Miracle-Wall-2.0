@@ -5,10 +5,13 @@ let channel = null;
 let callbacks = {
   onOnlineCountChange: () => {},
   onResonance: () => {},
+  getHeat: () => 0, // Default getter
 };
 let state = {
   onlineCount: 0,
 };
+let isSubscribed = false;
+let shouldTrack = false;
 
 export function initRealtimeController(controllerCallbacks) {
   callbacks = { ...callbacks, ...controllerCallbacks };
@@ -35,25 +38,49 @@ export function initRealtimeController(controllerCallbacks) {
       callbacks.onOnlineCountChange(count);
     })
     .on('broadcast', { event: 'resonance' }, (payload) => {
-      callbacks.onResonance(payload);
+      callbacks.onResonance(payload.payload); // Pass the inner payload which contains heat
     })
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
-        await channel.track({
-          online_at: new Date().toISOString(),
-        });
+        isSubscribed = true;
+        if (shouldTrack) {
+          await channel.track({
+            online_at: new Date().toISOString(),
+          });
+        }
       }
     });
+}
+
+export async function setPresenceState(isEnabled) {
+  shouldTrack = isEnabled;
+  if (!channel) return;
+
+  if (isSubscribed) {
+    if (isEnabled) {
+      await channel.track({
+        online_at: new Date().toISOString(),
+      });
+    } else {
+      await channel.untrack();
+    }
+  }
 }
 
 export async function triggerResonance() {
   if (!channel) return;
   
+  // Get current local heat to share with others
+  const currentHeat = callbacks.getHeat ? callbacks.getHeat() : 0;
+
   // Broadcast to others
   await channel.send({
     type: 'broadcast',
     event: 'resonance',
-    payload: { from: deviceId },
+    payload: { 
+      from: deviceId,
+      heat: currentHeat 
+    },
   });
 }
 

@@ -847,7 +847,18 @@ export function runPulseAnimation(node) {
   });
 }
 
-export function playResonanceEffect() {
+export function getResonanceHeat() {
+  return resonanceState.heat;
+}
+
+export function playResonanceEffect(remoteHeat = null) {
+  // Sync: If remote heat is higher, catch up immediately
+  if (remoteHeat !== null && typeof remoteHeat === "number") {
+    if (remoteHeat > resonanceState.heat) {
+      resonanceState.heat = remoteHeat;
+    }
+  }
+
   // Add heat on click
   resonanceState.heat = Math.min(HEAT_CONFIG.maxHeat, resonanceState.heat + HEAT_CONFIG.gain);
   
@@ -872,6 +883,7 @@ export function playResonanceEffect() {
     const y = resonanceState.height + 40;
     
     // Gradual Color Transition with Jitter
+    // Uses LOCAL heat state, so high-heat users see high-heat colors even from low-heat users
     const color = getHeatColor(resonanceState.heat);
 
     resonanceState.particles.push({
