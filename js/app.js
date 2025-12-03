@@ -163,6 +163,11 @@ function init() {
   cancelModalBtn.addEventListener("click", handleCancelAction);
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
+  noteDialog.addEventListener("click", (event) => {
+    if (event.target === noteDialog) {
+      handleCancelAction();
+    }
+  });
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
   jumpToRecentBtn?.addEventListener("click", handleJumpToRecent);
   document.addEventListener("keydown", handleGlobalKeyDown);
@@ -171,6 +176,7 @@ function init() {
   AudioManager.initAudioManager(backgroundAudio, audioToggle);
   ZoomController.initZoomController({
     wallStage, wallWrapper, wallSvg, stickersLayer, zoomSlider, zoomResetBtn, zoomIndicator,
+    interactionTarget: document.body, // Allow zooming/panning from anywhere on the screen
     onZoomReset: () => {
         // If playback is active, do NOT refresh stickers, just reset view (which ZoomController does)
         if (document.body.classList.contains("playback-mode")) {
@@ -203,9 +209,11 @@ function init() {
     countDisplay: document.getElementById("searchCount"),
     dialogPrevBtn: document.getElementById("dialogPrevBtn"),
     dialogNextBtn: document.getElementById("dialogNextBtn"),
-    dialogSearchCounter: document.getElementById("dialogSearchCounter")
+    dialogSearchCounter: document.getElementById("dialogSearchCounter"),
+    searchQuickFilters: document.getElementById("searchQuickFilters")
   }, {
     getStickers: () => state.stickers,
+    getDeviceId: () => state.deviceId,
     onFocusSticker: (sticker) => {
       if (sticker && sticker.id) {
         StickerManager.handleStickerActivation(sticker.id);
@@ -265,8 +273,14 @@ function init() {
     },
     onStickerReveal: (sticker) => {
       if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
-        EffectsManager.playSimpleImpact(sticker.x, sticker.y);
+        EffectsManager.playRevealBurst(sticker.x, sticker.y);
       }
+    },
+    onPlaybackNearEnd: () => {
+      EffectsManager.playEagleSweepEffect();
+    },
+    onPlaybackComplete: () => {
+      PlaybackController.finalizePlaybackUI();
     }
   });
   StickerManager.initStickerManager({
@@ -1039,7 +1053,16 @@ async function handleFormSubmit(event) {
 
 async function handleDeleteSticker() {
   const pending = state.pending;
-  if (!pending || pending.isNew || (pending.locked && pending.lockReason !== "approved")) {
+  
+  let isTimeLocked = false;
+  if (pending && !pending.isNew) {
+    const record = state.stickers.get(pending.id);
+    if (record) {
+      isTimeLocked = Utils.isStickerLocked(record, state.deviceId);
+    }
+  }
+
+  if (!pending || pending.isNew || isTimeLocked || (pending.locked && pending.lockReason !== "approved")) {
     return;
   }
   if (pending.deviceId && state.deviceId && pending.deviceId !== state.deviceId) {
@@ -1661,10 +1684,20 @@ function updateDeleteButton() {
   }
   const pending = state.pending;
   const ownDevice = !pending?.deviceId || !state.deviceId || pending.deviceId === state.deviceId;
+  
+  let isTimeLocked = false;
+  if (pending && !pending.isNew) {
+    const record = state.stickers.get(pending.id);
+    if (record) {
+      isTimeLocked = Utils.isStickerLocked(record, state.deviceId);
+    }
+  }
+
   const canDelete = Boolean(
     pending
       && !pending.isNew
       && ownDevice
+      && !isTimeLocked
       && (!pending.locked || pending.lockReason === "approved")
   );
   deleteStickerBtn.hidden = !canDelete;

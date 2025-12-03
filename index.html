@@ -151,7 +151,12 @@
           <span id="onlineCountNum">1</span>
         </button>
         <button type="button" id="playbackBtn" class="zoom-playback" aria-label="播放回顧">▶</button>
-        <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
+        <button type="button" id="searchBtn" class="zoom-search" aria-label="搜尋留言">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+        </button>
         <label for="zoomSlider" class="sr-only">縮放百分比</label>
         <input
           type="range"
@@ -165,12 +170,7 @@
         >
         <span id="zoomIndicator" class="zoom-indicator" aria-live="polite">100%</span>
         <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
-        <button type="button" id="searchBtn" class="zoom-search" aria-label="搜尋留言">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-        </button>
+        <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
       </div>
       <div id="searchBar" class="search-bar" hidden>
         <div class="search-input-wrapper">
@@ -182,6 +182,12 @@
           <div class="search-divider"></div>
           <button type="button" id="searchCloseBtn" class="search-close-btn" aria-label="關閉搜尋">✕</button>
         </div>
+      </div>
+      <div id="searchQuickFilters" class="search-quick-filters" hidden>
+        <button type="button" class="quick-filter-btn" data-filter="latest">最新 5 則</button>
+        <button type="button" class="quick-filter-btn" data-filter="mine">我的留言</button>
+        <button type="button" class="quick-filter-btn" data-filter="month">本月留言</button>
+        <button type="button" class="quick-filter-btn" data-filter="random">隨機觀看</button>
       </div>
       <div id="playbackDateContainer" class="playback-date-container" aria-hidden="true">
         <span id="playbackYearDisplay" class="playback-year"></span>

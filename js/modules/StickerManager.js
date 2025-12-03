@@ -160,6 +160,12 @@ export function createStickerNode(id, x, y, isPending = false) {
   }
   group.dataset.id = id;
   group.setAttribute("tabindex", "0");
+  
+  // Add title for tooltip
+  const title = document.createElementNS(svgNS, "title");
+  title.textContent = "點擊查看留言";
+  group.appendChild(title);
+
   const use = document.createElementNS(svgNS, "use");
   use.setAttribute("href", "#heartSticker");
   use.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#heartSticker");

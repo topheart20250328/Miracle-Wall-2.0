@@ -19,6 +19,7 @@ const state = {
   accumulatedTime: 0,
   intervalPerSticker: 50,
   startTimeout: null,
+  sweepTriggered: false,
   elements: {
     dateContainer: null,
     yearDisplay: null,
@@ -33,6 +34,8 @@ const state = {
     getStickers: null,
     onUpdateIntensity: null,
     onPlaybackStateChange: null,
+    onPlaybackNearEnd: null,
+    onPlaybackComplete: null,
   }
 };
 
@@ -104,6 +107,7 @@ export function startPlayback(stickersMap) {
 
   state.isPlaying = true;
   state.isFinished = false;
+  state.sweepTriggered = false;
   state.currentIndex = 0;
   state.lastFrameTime = performance.now();
   state.accumulatedTime = 0;
@@ -274,13 +278,35 @@ function playbackLoop(timestamp) {
   }
 
   if (itemsToReveal > 0) {
+    // Check for near-end trigger (Sweep Effect)
+    // Trigger when remaining time is close to sweep duration (2.5s)
+    // We use 2600ms to ensure it starts slightly before the very end
+    if (!state.sweepTriggered) {
+      const remainingItems = state.sortedStickers.length - state.currentIndex;
+      const timeRemaining = remainingItems * state.intervalPerSticker;
+      
+      if (timeRemaining <= 1500) {
+        state.sweepTriggered = true;
+        if (state.callbacks.onPlaybackNearEnd) {
+          state.callbacks.onPlaybackNearEnd();
+        }
+      }
+    }
+
     for (let i = 0; i < itemsToReveal; i++) {
       if (state.currentIndex >= state.sortedStickers.length) {
         // Finished
         state.isFinished = true;
         state.animationFrame = null;
-        document.body.classList.add("playback-finished");
-        showFinishedDateRange();
+        
+        // Trigger completion callback (UI Reveal)
+        // Now happens immediately when stickers finish
+        if (state.callbacks.onPlaybackComplete) {
+          state.callbacks.onPlaybackComplete();
+        } else {
+          finalizePlaybackUI();
+        }
+        
         return; 
       }
 
@@ -318,7 +344,7 @@ function revealSticker(sticker) {
 
     sticker.node.style.opacity = "0";
     sticker.node.style.transform = `scale(${startScale})`; 
-    sticker.node.style.filter = "brightness(2.5)"; // Brighter flash
+    sticker.node.style.filter = "brightness(2.5) drop-shadow(0 0 40px rgba(255,255,255,1))"; // Brighter flash with glow
     
     window.anime.timeline({
       targets: sticker.node,
@@ -330,8 +356,11 @@ function revealSticker(sticker) {
       easing: "easeOutElastic(1, .5)" // Bouncy elastic effect
     })
     .add({
-      filter: ["brightness(2.5)", "brightness(1)"],
-      duration: 400,
+      filter: [
+        "brightness(2.5) drop-shadow(0 0 40px rgba(255,255,255,1))", 
+        "brightness(1) drop-shadow(0 0 0px rgba(255,255,255,0))"
+      ],
+      duration: 600,
       easing: "easeOutQuad"
     }, 0); // Run in parallel with scale
     
@@ -364,11 +393,17 @@ function updateCounterDisplay(current, total) {
     // Only show current count, hide total to keep suspense
     state.elements.counterDisplay.textContent = `${current}`;
     
-    if (current === total && total > 0) {
-      state.elements.counterDisplay.classList.add("counter-highlight");
-    } else {
-      state.elements.counterDisplay.classList.remove("counter-highlight");
-    }
+    // Note: Highlight logic moved to finalizePlaybackUI to sync with sweep effect
+    state.elements.counterDisplay.classList.remove("counter-highlight");
+  }
+}
+
+export function finalizePlaybackUI() {
+  document.body.classList.add("playback-finished");
+  showFinishedDateRange();
+  
+  if (state.elements.counterDisplay) {
+    state.elements.counterDisplay.classList.add("counter-highlight");
   }
 }
 

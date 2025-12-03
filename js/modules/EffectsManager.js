@@ -365,6 +365,226 @@ export function playSimpleImpact(x, y) {
   }
 }
 
+function ensureRevealGradient() {
+  if (document.getElementById("revealGlowGradient")) return;
+  if (!elements.effectsLayer) return;
+  const svg = elements.effectsLayer.ownerSVGElement;
+  if (!svg) return;
+
+  let defs = svg.querySelector("defs");
+  if (!defs) {
+    defs = document.createElementNS(svgNS, "defs");
+    svg.insertBefore(defs, svg.firstChild);
+  }
+
+  const gradient = document.createElementNS(svgNS, "radialGradient");
+  gradient.id = "revealGlowGradient";
+  
+  const stop1 = document.createElementNS(svgNS, "stop");
+  stop1.setAttribute("offset", "0%");
+  stop1.setAttribute("stop-color", "#ffffff");
+  stop1.setAttribute("stop-opacity", "0.9");
+
+  const stop2 = document.createElementNS(svgNS, "stop");
+  stop2.setAttribute("offset", "40%");
+  stop2.setAttribute("stop-color", "#ffffff");
+  stop2.setAttribute("stop-opacity", "0.4");
+
+  const stop3 = document.createElementNS(svgNS, "stop");
+  stop3.setAttribute("offset", "100%");
+  stop3.setAttribute("stop-color", "#ffffff");
+  stop3.setAttribute("stop-opacity", "0");
+
+  gradient.appendChild(stop1);
+  gradient.appendChild(stop2);
+  gradient.appendChild(stop3);
+  defs.appendChild(gradient);
+}
+
+export function playRevealBurst(x, y) {
+  if (!elements.effectsLayer) return;
+  
+  ensureRevealGradient();
+
+  // Performance check
+  if (elements.effectsLayer.childElementCount > 60) return;
+
+  const group = document.createElementNS(svgNS, "g");
+  group.style.pointerEvents = "none";
+  group.style.mixBlendMode = "screen";
+  
+  // 1. Core white flash (filled circle)
+  const core = document.createElementNS(svgNS, "circle");
+  core.setAttribute("cx", x.toFixed(2));
+  core.setAttribute("cy", y.toFixed(2));
+  core.setAttribute("r", "0");
+  core.setAttribute("fill", "#ffffff");
+  core.setAttribute("opacity", "1");
+  
+  // 2. Outer diffuse glow (large circle with gradient)
+  const glow = document.createElementNS(svgNS, "circle");
+  glow.setAttribute("cx", x.toFixed(2));
+  glow.setAttribute("cy", y.toFixed(2));
+  glow.setAttribute("r", "0");
+  glow.setAttribute("fill", "url(#revealGlowGradient)");
+  glow.setAttribute("opacity", "1");
+  
+  // 3. Expanding Ring
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.setAttribute("cx", x.toFixed(2));
+  ring.setAttribute("cy", y.toFixed(2));
+  ring.setAttribute("r", "0");
+  ring.setAttribute("fill", "none");
+  ring.setAttribute("stroke", "#ffffff");
+  ring.setAttribute("stroke-width", "4");
+  ring.setAttribute("opacity", "0.8");
+
+  group.appendChild(glow);
+  group.appendChild(core);
+  group.appendChild(ring);
+  elements.effectsLayer.appendChild(group);
+
+  if (window.anime) {
+    const timeline = window.anime.timeline({
+      easing: "easeOutExpo",
+      complete: () => {
+        if (group.isConnected) group.remove();
+      }
+    });
+    
+    timeline
+      .add({
+        targets: core,
+        r: [0, STICKER_DIAMETER * 1.5], // Expand to 1.5x sticker size
+        opacity: [1, 0],
+        duration: 500
+      }, 0)
+      .add({
+        targets: glow,
+        r: [0, STICKER_DIAMETER * 6], // Expand to 6x sticker size (Larger range)
+        opacity: [1, 0],
+        duration: 900 // Slower fade for larger area
+      }, 0)
+      .add({
+        targets: ring,
+        r: [0, STICKER_DIAMETER * 2.5],
+        strokeWidth: [4, 0],
+        opacity: [0.8, 0],
+        duration: 600
+      }, 0);
+      
+  } else {
+    setTimeout(() => { if (group.isConnected) group.remove(); }, 900);
+  }
+}
+
+export function playEagleSweepEffect(onComplete) {
+  if (!elements.effectsLayer) {
+    if (onComplete) onComplete();
+    return;
+  }
+  
+  const eaglePaths = document.querySelectorAll("#eagleBody, #eagleTail");
+  if (!eaglePaths.length) {
+    if (onComplete) onComplete();
+    return;
+  }
+
+  // Create a group for the sweep
+  const sweepGroup = document.createElementNS(svgNS, "g");
+  sweepGroup.style.pointerEvents = "none";
+  sweepGroup.style.mixBlendMode = "screen"; 
+  // Softer filter
+  sweepGroup.style.filter = "drop-shadow(0 0 4px rgba(255,255,255,0.6))";
+  
+  // Define the gradient
+  const gradientId = `eagleSweepGradient-${Date.now()}`;
+  const defs = document.createElementNS(svgNS, "defs");
+  const gradient = document.createElementNS(svgNS, "linearGradient");
+  gradient.id = gradientId;
+  gradient.setAttribute("gradientUnits", "userSpaceOnUse");
+  
+  // Calculate bounds
+  let minX = Infinity, maxX = -Infinity;
+  eaglePaths.forEach(p => {
+    try {
+      const bbox = p.getBBox();
+      minX = Math.min(minX, bbox.x);
+      maxX = Math.max(maxX, bbox.x + bbox.width);
+    } catch (e) {}
+  });
+  
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
+    minX = 0;
+    maxX = 1000;
+  }
+  
+  const totalWidth = maxX - minX;
+  // Wider band again for softer look (0.5)
+  const bandWidth = totalWidth * 0.5; 
+  
+  const startX1 = minX - bandWidth;
+  const startX2 = minX;
+  const endX1 = maxX;
+  const endX2 = maxX + bandWidth;
+
+  gradient.setAttribute("x1", startX1);
+  gradient.setAttribute("y1", "0");
+  gradient.setAttribute("x2", startX2);
+  gradient.setAttribute("y2", "0");
+  
+  // Softer gradient stops
+  const stops = [
+    { offset: "0%", color: "#ffffff", opacity: "0" },
+    { offset: "20%", color: "#ffffff", opacity: "0.1" },
+    { offset: "50%", color: "#ffffff", opacity: "0.8" }, // Not full 1.0
+    { offset: "80%", color: "#ffffff", opacity: "0.1" },
+    { offset: "100%", color: "#ffffff", opacity: "0" }
+  ];
+  
+  stops.forEach(s => {
+    const stop = document.createElementNS(svgNS, "stop");
+    stop.setAttribute("offset", s.offset);
+    stop.setAttribute("stop-color", s.color);
+    stop.setAttribute("stop-opacity", s.opacity);
+    gradient.appendChild(stop);
+  });
+  
+  defs.appendChild(gradient);
+  sweepGroup.appendChild(defs);
+  
+  eaglePaths.forEach(path => {
+    const clone = path.cloneNode(true);
+    clone.removeAttribute("id");
+    clone.removeAttribute("class");
+    clone.setAttribute("fill", `url(#${gradientId})`);
+    clone.setAttribute("stroke", "none");
+    clone.style.opacity = "1";
+    sweepGroup.appendChild(clone);
+  });
+  
+  elements.effectsLayer.appendChild(sweepGroup);
+  
+  if (window.anime) {
+    window.anime({
+      targets: gradient,
+      x1: [startX1, endX1],
+      x2: [startX2, endX2],
+      easing: "easeInOutSine",
+      duration: 2500, // Back to 2.5s
+      complete: () => {
+        if (sweepGroup.isConnected) sweepGroup.remove();
+        if (onComplete) onComplete();
+      }
+    });
+  } else {
+     setTimeout(() => { 
+       if (sweepGroup.isConnected) sweepGroup.remove(); 
+       if (onComplete) onComplete();
+     }, 2500);
+  }
+}
+
 export function initAmbientGlow() {
   if (!elements.ambientLayer) {
     return;

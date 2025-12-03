@@ -30,24 +30,28 @@ let elements = {
   zoomSlider: null,
   zoomResetBtn: null,
   zoomIndicator: null,
+  interactionTarget: null,
 };
 let requiresStickerForceRedraw = false;
 let resetAnimation = null;
+let interactionElement = null;
 
 export function initZoomController(domElements, forceRedraw) {
   elements = { ...elements, ...domElements };
   requiresStickerForceRedraw = forceRedraw;
+  
+  interactionElement = elements.interactionTarget || elements.wallStage;
 
-  if (!elements.wallStage || !elements.wallWrapper) {
+  if (!elements.wallStage || !elements.wallWrapper || !interactionElement) {
     return;
   }
   applyZoomTransform();
   updateZoomIndicator();
-  elements.wallStage.addEventListener("wheel", handleStageWheel, { passive: false });
-  elements.wallStage.addEventListener("pointerdown", handleStagePointerDown);
-  elements.wallStage.addEventListener("pointermove", handleStagePointerMove);
-  elements.wallStage.addEventListener("pointerup", handleStagePointerUp);
-  elements.wallStage.addEventListener("pointercancel", handleStagePointerUp);
+  interactionElement.addEventListener("wheel", handleStageWheel, { passive: false });
+  interactionElement.addEventListener("pointerdown", handleStagePointerDown);
+  interactionElement.addEventListener("pointermove", handleStagePointerMove);
+  interactionElement.addEventListener("pointerup", handleStagePointerUp);
+  interactionElement.addEventListener("pointercancel", handleStagePointerUp);
   if (elements.zoomSlider) {
     const sliderMin = zoomState.minScale * 100;
     const sliderMax = zoomState.maxScale * 100;
@@ -151,9 +155,9 @@ function handleStagePointerMove(event) {
   const dy = event.clientY - panState.startY;
   if (!panState.moved) {
     panState.moved = Math.hypot(dx, dy) > 8;
-    if (panState.moved && typeof elements.wallStage?.setPointerCapture === "function") {
+    if (panState.moved && typeof interactionElement?.setPointerCapture === "function") {
       try {
-        elements.wallStage.setPointerCapture(event.pointerId);
+        interactionElement.setPointerCapture(event.pointerId);
       } catch (error) {
         console.warn("Pointer capture failed", error);
       }
@@ -187,9 +191,9 @@ function handleStagePointerUp(event) {
 }
 
 function releasePointer(pointerId) {
-  if (typeof elements.wallStage?.releasePointerCapture === "function") {
+  if (typeof interactionElement?.releasePointerCapture === "function") {
     try {
-      elements.wallStage.releasePointerCapture(pointerId);
+      interactionElement.releasePointerCapture(pointerId);
     } catch {
       // ignore
     }
