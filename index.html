@@ -137,6 +137,12 @@
         </div>
       </div>
       <div class="zoom-controls" role="group" aria-label="縮放控制">
+        <button type="button" id="onlineCountBtn" class="zoom-online" aria-label="在線人數與共鳴">
+          <svg class="online-heart-light" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+          </svg>
+          <span id="onlineCountNum">1</span>
+        </button>
         <button type="button" id="playbackBtn" class="zoom-playback" aria-label="播放回顧">▶</button>
         <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
         <label for="zoomSlider" class="sr-only">縮放百分比</label>
@@ -283,7 +289,14 @@
           <div class="settings-icon" style="font-size: 0.7rem;">💬</div>
           <div>
             <p class="settings-label">跑馬燈</p>
-            <p class="settings-description">點擊上方跑馬燈文字可查看完整內容。</p>
+            <p class="settings-description">點擊跑馬燈文字可查看完整內容。</p>
+          </div>
+        </div>
+        <div class="settings-row info-row">
+          <div class="settings-icon" style="font-size: 0.7rem;">❤️</div>
+          <div>
+            <p class="settings-label">即時互動</p>
+            <p class="settings-description">顯示目前在線人數，點擊愛心可發送祝福。</p>
           </div>
         </div>
       </section>

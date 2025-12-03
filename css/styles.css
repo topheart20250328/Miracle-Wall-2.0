@@ -594,7 +594,6 @@ main::before {
 }
 
 .zoom-settings.is-inactive,
-.zoom-reset.is-inactive,
 .zoom-recent.is-inactive {
   opacity: 0.48;
 }
@@ -2269,5 +2268,45 @@ body.playback-mode .zoom-controls {
 
 .palette-highlight .palette-sticker {
   animation: paletteFloat 2s ease-in-out infinite;
+}
+
+.zoom-online {
+  border: 1px solid rgba(103, 245, 154, 0.5);
+  background: rgba(255, 255, 255, 0.08);
+  color: #67f59a;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease, border-color 160ms ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.zoom-online:hover,
+.zoom-online:focus-visible {
+  background: rgba(255, 255, 255, 0.2);
+  color: #8affb3;
+  transform: translateY(-1px);
+}
+
+.zoom-online:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.online-heart-light {
+  filter: drop-shadow(0 0 6px currentColor);
+  animation: heartPulse 2s ease-in-out infinite;
+}
+
+@keyframes heartPulse {
+  0%, 100% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.resonance-heart {
+  filter: drop-shadow(0 0 4px rgba(0,0,0,0.3));
 }
 

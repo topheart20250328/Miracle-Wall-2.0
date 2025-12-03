@@ -7,6 +7,7 @@ import * as EffectsManager from "./modules/EffectsManager.js";
 import * as StickerManager from "./modules/StickerManager.js";
 import * as PlaybackController from "./modules/PlaybackController.js";
 import * as SearchController from "./modules/SearchController.js";
+import * as RealtimeController from "./modules/RealtimeController.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
 const wallStage = document.getElementById("wallStage");
@@ -22,6 +23,8 @@ const zoomSlider = document.getElementById("zoomSlider");
 const zoomResetBtn = document.getElementById("zoomResetBtn");
 const jumpToRecentBtn = document.getElementById("jumpToRecentBtn");
 const playbackBtn = document.getElementById("playbackBtn");
+const onlineCountBtn = document.getElementById("onlineCountBtn");
+const onlineCountNum = document.getElementById("onlineCountNum");
 const playbackDateContainer = document.getElementById("playbackDateContainer");
 const playbackYearDisplay = document.getElementById("playbackYearDisplay");
 const playbackDateDisplay = document.getElementById("playbackDateDisplay");
@@ -205,6 +208,28 @@ function init() {
       handleStickerNavigation(sticker);
     }
   });
+
+  // 初始化即時互動功能 (線上人數 + 共鳴)
+  RealtimeController.initRealtimeController({
+    onOnlineCountChange: (count) => {
+      if (onlineCountNum) {
+        onlineCountNum.textContent = count;
+      }
+    },
+    onResonance: () => {
+      EffectsManager.playResonanceEffect();
+    },
+  });
+
+  // 綁定共鳴按鈕事件
+  if (onlineCountBtn) {
+    onlineCountBtn.addEventListener("click", () => {
+      RealtimeController.triggerResonance();
+      // 本地也立即播放一次效果，讓點擊者有即時回饋
+      EffectsManager.playResonanceEffect();
+    });
+  }
+
   PlaybackController.initPlaybackController({
     playButton: playbackBtn,
     dateContainer: playbackDateContainer,
