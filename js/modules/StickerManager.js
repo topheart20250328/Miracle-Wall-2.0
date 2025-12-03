@@ -32,6 +32,49 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
   globalViewBox = viewBox;
   globalReviewSettings = reviewSettings;
   callbacks = { ...callbacks, ...managerCallbacks };
+  setupStickerDelegation();
+}
+
+function setupStickerDelegation() {
+  if (!elements.stickersLayer) return;
+
+  elements.stickersLayer.addEventListener("mouseover", (e) => {
+    const group = e.target.closest(".sticker-node");
+    if (group) {
+      if (group.contains(e.relatedTarget)) return;
+      if (!group.classList.contains("pending") && !globalState.drag && !globalState.pending) {
+        if (window.anime) {
+          window.anime.remove(group);
+          window.anime({
+            targets: group,
+            scale: 1.15,
+            rotate: window.anime.random(-8, 8),
+            duration: 400,
+            easing: "easeOutElastic(1, .6)",
+          });
+        }
+      }
+    }
+  });
+
+  elements.stickersLayer.addEventListener("mouseout", (e) => {
+    const group = e.target.closest(".sticker-node");
+    if (group) {
+      if (group.contains(e.relatedTarget)) return;
+      if (!group.classList.contains("pending") && !globalState.drag && !globalState.pending) {
+        if (window.anime) {
+          window.anime.remove(group);
+          window.anime({
+            targets: group,
+            scale: 1,
+            rotate: 0,
+            duration: 300,
+            easing: "easeOutQuad",
+          });
+        }
+      }
+    }
+  });
 }
 
 export async function loadExistingStickers() {
@@ -122,31 +165,6 @@ export function createStickerNode(id, x, y, isPending = false) {
   use.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", "#heartSticker");
   group.appendChild(use);
   positionStickerNode(group, x, y);
-
-  group.addEventListener("mouseenter", () => {
-    if (window.anime && !globalState.pending && !globalState.drag && !group.classList.contains("pending")) {
-      window.anime.remove(group);
-      window.anime({
-        targets: group,
-        scale: 1.15,
-        rotate: window.anime.random(-8, 8),
-        duration: 400,
-        easing: "easeOutElastic(1, .6)",
-      });
-    }
-  });
-  group.addEventListener("mouseleave", () => {
-    if (window.anime && !globalState.pending && !globalState.drag && !group.classList.contains("pending")) {
-      window.anime.remove(group);
-      window.anime({
-        targets: group,
-        scale: 1,
-        rotate: 0,
-        duration: 300,
-        easing: "easeOutQuad",
-      });
-    }
-  });
 
   return group;
 }

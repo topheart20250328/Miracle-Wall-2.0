@@ -122,6 +122,7 @@ const state = {
   deviceId: initialDeviceId ?? null,
   isSubmitting: false,
   recentIndex: 0,
+  dragRafId: null,
 };
 const reviewSettings = {
   requireMarqueeApproval: true,
@@ -256,6 +257,17 @@ function init() {
   }
   return StickerManager.loadExistingStickers().then(() => {
     MarqueeController.initMarqueeTicker();
+    
+    // Highlight palette sticker on load
+    const palette = document.querySelector(".drag-palette");
+    if (palette) {
+      setTimeout(() => {
+        palette.classList.add("palette-highlight");
+        setTimeout(() => {
+          palette.classList.remove("palette-highlight");
+        }, 6000); // Highlight for 6 seconds
+      }, 1000); // Start after 1 second
+    }
   });
 }
 
@@ -557,21 +569,37 @@ function handlePalettePointerMove(event) {
   if (!drag || event.pointerId !== drag.pointerId) {
     return;
   }
-  const dx = event.clientX - drag.startClientX;
-  const dy = event.clientY - drag.startClientY;
-  if (!drag.active) {
-    const distance = Math.hypot(dx, dy);
-    if (distance < DRAG_ACTIVATION_DISTANCE) {
-      return;
-    }
-    if (!activatePaletteDrag(event)) {
-      return;
-    }
+  
+  drag.lastMoveEvent = event;
+  if (state.dragRafId) {
+    return;
   }
-  updateDragPosition(event);
+
+  state.dragRafId = requestAnimationFrame(() => {
+    state.dragRafId = null;
+    const e = drag.lastMoveEvent;
+    if (!e || !state.drag) return;
+
+    const dx = e.clientX - drag.startClientX;
+    const dy = e.clientY - drag.startClientY;
+    if (!drag.active) {
+      const distance = Math.hypot(dx, dy);
+      if (distance < DRAG_ACTIVATION_DISTANCE) {
+        return;
+      }
+      if (!activatePaletteDrag(e)) {
+        return;
+      }
+    }
+    updateDragPosition(e);
+  });
 }
 
 function handlePalettePointerUp(event) {
+  if (state.dragRafId) {
+    cancelAnimationFrame(state.dragRafId);
+    state.dragRafId = null;
+  }
   if (typeof paletteSticker?.hasPointerCapture === "function" && paletteSticker.hasPointerCapture(event.pointerId)) {
     paletteSticker.releasePointerCapture(event.pointerId);
   }
@@ -595,6 +623,10 @@ function handlePalettePointerUp(event) {
 }
 
 function handlePalettePointerCancel(event) {
+  if (state.dragRafId) {
+    cancelAnimationFrame(state.dragRafId);
+    state.dragRafId = null;
+  }
   if (typeof paletteSticker?.hasPointerCapture === "function" && paletteSticker.hasPointerCapture(event.pointerId)) {
     paletteSticker.releasePointerCapture(event.pointerId);
   }
@@ -1028,6 +1060,7 @@ async function closeDialogWithResult(result) {
     return;
   }
   state.closing = true;
+  noteDialog.classList.add("closing");
   try {
     await playFlipReturn().catch((error) => {
       console.error("Flip return animation failed", error);
@@ -1040,6 +1073,7 @@ async function closeDialogWithResult(result) {
       }
     }
   } finally {
+    noteDialog.classList.remove("closing");
     state.closing = false;
   }
 }

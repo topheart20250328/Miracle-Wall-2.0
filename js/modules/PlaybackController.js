@@ -363,6 +363,12 @@ function updateCounterDisplay(current, total) {
   if (state.elements.counterDisplay) {
     // Only show current count, hide total to keep suspense
     state.elements.counterDisplay.textContent = `${current}`;
+    
+    if (current === total && total > 0) {
+      state.elements.counterDisplay.classList.add("counter-highlight");
+    } else {
+      state.elements.counterDisplay.classList.remove("counter-highlight");
+    }
   }
 }
 
@@ -393,7 +399,7 @@ function showFinishedDateRange() {
     if (element.textContent === newText) return;
 
     // Apply transition
-    element.style.transition = "opacity 0.6s ease";
+    element.style.transition = "opacity 2s ease";
     element.style.opacity = "0";
     
     setTimeout(() => {
@@ -404,8 +410,8 @@ function showFinishedDateRange() {
       setTimeout(() => {
         element.style.removeProperty("transition");
         element.style.removeProperty("opacity");
-      }, 600);
-    }, 600);
+      }, 2000);
+    }, 100); // Short delay before changing text
   };
 
   // Special handling for year display: Fade in oldest year, keep newest visible
@@ -415,7 +421,7 @@ function showFinishedDateRange() {
     
     if (oldestYearText !== newestYearText) {
       // Construct HTML to fade in the oldest part
-      state.elements.yearDisplay.innerHTML = `<span class="year-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 0.6s ease">${oldestYearText} - </span>${newestYearText}</span>`;
+      state.elements.yearDisplay.innerHTML = `<span class="year-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 2s ease">${oldestYearText} - </span>${newestYearText}</span>`;
       
       // Trigger reflow to ensure transition works
       requestAnimationFrame(() => {
@@ -440,7 +446,7 @@ function showFinishedDateRange() {
     if (oldestDateText !== newestDateText) {
       // Construct HTML to fade in the oldest part
       // Wrap in a span to ensure they stay on the same line within the flex container (which is column)
-      state.elements.dateDisplay.innerHTML = `<span class="date-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 0.6s ease">${oldestDateText} - </span>${newestDateText}</span>`;
+      state.elements.dateDisplay.innerHTML = `<span class="date-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 2s ease">${oldestDateText} - </span>${newestDateText}</span>`;
       
       // Trigger reflow to ensure transition works
       requestAnimationFrame(() => {

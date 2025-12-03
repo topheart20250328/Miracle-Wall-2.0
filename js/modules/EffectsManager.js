@@ -658,6 +658,22 @@ export function initFireEffect() {
 
   const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
   
+  // Pre-calculate spawn points to avoid getPointAtLength in loop
+  const spawnPoints = [];
+  const sampleResolution = 3; // Sample every 3px
+  
+  pathEntries.forEach(entry => {
+    const steps = Math.floor(entry.length / sampleResolution);
+    for (let i = 0; i <= steps; i++) {
+      try {
+        const point = entry.path.getPointAtLength(i * sampleResolution);
+        spawnPoints.push({ x: point.x, y: point.y });
+      } catch (e) { /* ignore */ }
+    }
+  });
+
+  if (spawnPoints.length === 0) return;
+
   // Create a dedicated group for fire if not exists
   let fireGroup = document.getElementById("fireGroup");
   if (!fireGroup) {
@@ -696,7 +712,7 @@ export function initFireEffect() {
     const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
 
     for (let i = 0; i < batchSize; i++) {
-      createFireParticle(pathEntries, combinedLength, fireGroup, intensity, isMobile);
+      createFireParticle(spawnPoints, fireGroup, intensity, isMobile);
     }
 
     setTimeout(spawnFireParticle, delay);
@@ -705,25 +721,10 @@ export function initFireEffect() {
   spawnFireParticle();
 }
 
-function createFireParticle(pathEntries, combinedLength, container, intensity, isMobile) {
+function createFireParticle(spawnPoints, container, intensity, isMobile) {
   try {
-    // Pick a random point on the eagle
-    const offset = Math.random() * combinedLength;
-    let remaining = offset;
-    let targetEntry = pathEntries[0];
-    for (const entry of pathEntries) {
-      if (remaining <= entry.length) {
-        targetEntry = entry;
-        break;
-      }
-      remaining -= entry.length;
-    }
-
-    let point;
-    try {
-      point = targetEntry.path.getPointAtLength(remaining);
-    } catch (e) { return; }
-
+    // Pick a random pre-calculated point
+    const point = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
     if (!point) return;
 
     const particle = document.createElementNS(svgNS, "circle");
