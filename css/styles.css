@@ -358,9 +358,6 @@ main::before {
   transform-origin: center;
   pointer-events: none;
   transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
-  backface-visibility: hidden;
-  will-change: transform;
-  isolation: isolate;
 }
 
 #wallSvg {
@@ -2286,10 +2283,7 @@ body.playback-mode .playback-overlay::after {
 
 body.playback-mode .wall-wrapper {
   transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
-  transform: scale(0.92) translateY(-2%);
-  will-change: transform;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
+  /* transform: scale(0.92) translateY(-2%); Removed to prevent mobile rendering issues */
 }
 
 /* Ensure controls stay fixed relative to viewport */
