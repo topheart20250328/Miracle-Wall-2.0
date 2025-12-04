@@ -1068,6 +1068,11 @@ function focusDialog(originNode, options = {}) {
       console.warn("Failed to open modal for measurement", e);
     }
 
+    // Force layout update to ensure getBoundingClientRect works
+    if (noteDialog) {
+      void noteDialog.offsetHeight;
+    }
+
     // 2. Measure the actual card position
     let targetRect = null;
     const card = document.querySelector(".flip-card");
@@ -1344,6 +1349,10 @@ async function closeDialogWithResult(result) {
     if (pendingSnapshot && pendingSnapshot.node) {
         // Recalculate current card position to ensure accuracy after keyboard/scroll shifts
         const card = document.querySelector(".flip-card");
+        
+        // Force layout update to ensure accurate measurement
+        if (card) void card.offsetHeight;
+
         let currentCardRect = null;
         if (card) {
           const rect = card.getBoundingClientRect();

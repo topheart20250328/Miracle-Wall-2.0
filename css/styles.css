@@ -300,6 +300,13 @@ main::before {
   filter: drop-shadow(0 15px 10px rgba(0,0,0,0.4)) drop-shadow(0 0 1px rgba(255,255,255,0.3));
 }
 
+@media (max-width: 640px) {
+  .wall .eagle-shape-group {
+    /* Simpler shadow for mobile to avoid rendering artifacts/double vision */
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));
+  }
+}
+
 .wall .eagle-shape:hover {
   /* Brightness on hover */
   filter: brightness(1.1);
@@ -964,7 +971,7 @@ main::before {
 /* Dialog Navigation Buttons */
 .dialog-nav-btn {
   position: absolute;
-  top: 50%;
+  top: 40%;
   transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1025,11 +1032,11 @@ main::before {
   }
   
   .dialog-nav-btn.prev {
-    left: 0.2rem;
+    left: -1.2rem;
   }
   
   .dialog-nav-btn.next {
-    right: 0.2rem;
+    right: -1.2rem;
   }
   
   .dialog-nav-btn svg {
