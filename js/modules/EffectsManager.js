@@ -721,8 +721,9 @@ export function playEagleSweepEffect(onComplete) {
   // Create a group for the sweep
   const sweepGroup = document.createElementNS(svgNS, "g");
   sweepGroup.style.pointerEvents = "none";
-  sweepGroup.style.mixBlendMode = "screen"; 
-  // Filter removed to prevent rendering issues on mobile (Line browser)
+  // Use normal blend mode with opacity for better mobile compatibility
+  sweepGroup.style.mixBlendMode = "normal"; 
+  sweepGroup.style.opacity = "0.8";
 
   
   // Define the gradient

@@ -292,12 +292,13 @@ main::before {
   cursor: pointer;
   stroke: rgba(255, 255, 255, 0.4);
   stroke-width: 3;
-  filter: url(#eagle3D);
+  /* Use CSS drop-shadow stack for better mobile compatibility than SVG filters */
+  filter: drop-shadow(0 15px 10px rgba(0,0,0,0.4)) drop-shadow(0 0 1px rgba(255,255,255,0.3));
   transition: filter 0.3s ease;
 }
 
 .wall .eagle-shape:hover {
-  filter: url(#eagle3D) brightness(1.1);
+  filter: drop-shadow(0 15px 15px rgba(0,0,0,0.5)) drop-shadow(0 0 2px rgba(255,255,255,0.5)) brightness(1.1);
 }
 
 
@@ -982,8 +983,9 @@ main::before {
   transform: translateY(-50%) scale(1.1);
 }
 
-.dialog-nav-btn:active {
+.dialog-nav-btn.is-pressed {
   transform: translateY(-50%) scale(0.95);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .dialog-nav-btn.prev {
@@ -1055,25 +1057,32 @@ main::before {
   padding: clamp(1.8rem, 3vw, 2.6rem);
   overflow: visible;
   touch-action: pan-y;
+  margin: auto; /* Ensure centering */
+  inset: 0; /* Ensure centering in top layer */
+  max-height: 100dvh; /* Prevent overflow on small screens */
 }
 
 .note-dialog::backdrop {
   background: radial-gradient(circle at center, rgba(16, 20, 24, 0.5) 0%, rgba(0, 0, 0, 0.85) 100%);
   opacity: 0;
+  transition: opacity 0.6s cubic-bezier(0.2, 0.8, 0.2, 1), backdrop-filter 0.6s ease;
   backdrop-filter: blur(0);
 }
 
 .note-dialog[open]::backdrop {
-  /* Animation handled by .backdrop-active class to prevent instant flash */
+  /* Base state for open dialog before active class */
   opacity: 0;
 }
 
 .note-dialog.backdrop-active::backdrop {
-  animation: backdrop-in 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  opacity: 1;
+  backdrop-filter: blur(6px);
 }
 
 .note-dialog.closing::backdrop {
-  animation: backdrop-out 0.35s ease-out forwards;
+  opacity: 0;
+  backdrop-filter: blur(0);
+  transition: opacity 0.35s ease-out, backdrop-filter 0.35s ease-out;
 }
 
 .note-dialog.measuring::backdrop {

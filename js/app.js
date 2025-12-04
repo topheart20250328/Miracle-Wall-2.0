@@ -1063,7 +1063,11 @@ function focusDialog(originNode, options = {}) {
 
     // 1. Open invisibly to measure layout
     try {
+      // Disable transition to prevent layout thrashing during measurement
+      noteDialog.style.transition = "none";
       openModal(false);
+      // Force reflow to ensure browser has calculated layout
+      void noteDialog.offsetWidth;
     } catch (e) {
       console.warn("Failed to open modal for measurement", e);
     }
@@ -1092,6 +1096,8 @@ function focusDialog(originNode, options = {}) {
         ZoomController.setInteractionLocked(false);
         
         // 3. Make visible and play flip
+        // Restore transition
+        noteDialog.style.transition = "";
         noteDialog.style.opacity = "1";
         noteDialog.style.pointerEvents = "auto";
         noteDialog.classList.remove("measuring");
@@ -1106,6 +1112,7 @@ function focusDialog(originNode, options = {}) {
         StickerManager.cleanupZoomOverlay();
         try {
           // Ensure it's visible if animation failed
+          noteDialog.style.transition = "";
           noteDialog.style.opacity = "";
           noteDialog.style.pointerEvents = "";
           noteDialog.classList.remove("measuring");

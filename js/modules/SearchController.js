@@ -24,9 +24,11 @@ export function initSearchController(elements, callbacks) {
   // Dialog navigation buttons
   if (state.elements.dialogPrevBtn) {
     state.elements.dialogPrevBtn.addEventListener("click", () => navigateDialog(-1));
+    setupButtonPressEffect(state.elements.dialogPrevBtn);
   }
   if (state.elements.dialogNextBtn) {
     state.elements.dialogNextBtn.addEventListener("click", () => navigateDialog(1));
+    setupButtonPressEffect(state.elements.dialogNextBtn);
   }
   
   // Ensure nav is hidden initially
@@ -41,6 +43,29 @@ export function initSearchController(elements, callbacks) {
       }
     });
   }
+}
+
+function setupButtonPressEffect(btn) {
+  if (!btn) return;
+  
+  const addPress = () => btn.classList.add("is-pressed");
+  const removePress = () => btn.classList.remove("is-pressed");
+  
+  btn.addEventListener("touchstart", addPress, { passive: true });
+  btn.addEventListener("touchend", removePress);
+  btn.addEventListener("touchcancel", removePress);
+  
+  // If user moves finger off button or scrolls, cancel press
+  btn.addEventListener("touchmove", (e) => {
+    // Simple check: if moved significantly, cancel
+    // Or just cancel immediately on move if we want to be strict about "tap" vs "swipe"
+    removePress();
+  }, { passive: true });
+  
+  // Mouse fallback
+  btn.addEventListener("mousedown", addPress);
+  btn.addEventListener("mouseup", removePress);
+  btn.addEventListener("mouseleave", removePress);
 }
 
 function toggleSearch() {
