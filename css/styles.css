@@ -300,7 +300,7 @@ main::before {
   stroke-width: 28;
   stroke-linejoin: round;
   stroke-linecap: round;
-  mix-blend-mode: screen;
+  mix-blend-mode: normal;
   opacity: 0.52;
   animation: eagleGlowPulse 8.8s ease-in-out infinite;
   transform-origin: center;
@@ -358,6 +358,9 @@ main::before {
   transform-origin: center;
   pointer-events: none;
   transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+  backface-visibility: hidden;
+  will-change: transform;
+  isolation: isolate;
 }
 
 #wallSvg {
@@ -2257,7 +2260,8 @@ body.playback-mode .playback-overlay::after {
   opacity: 0;
   z-index: 2;
   pointer-events: none;
-  mix-blend-mode: screen; /* Changed from normal to screen to prevent full occlusion */
+  mix-blend-mode: normal; /* Reverted to normal for better mobile stability */
+  will-change: opacity;
 }
 
 .playback-flash.trigger-start {
@@ -2283,6 +2287,9 @@ body.playback-mode .playback-overlay::after {
 body.playback-mode .wall-wrapper {
   transition: transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
   transform: scale(0.92) translateY(-2%);
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 /* Ensure controls stay fixed relative to viewport */
