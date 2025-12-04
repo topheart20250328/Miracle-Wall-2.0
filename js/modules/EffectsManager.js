@@ -60,6 +60,137 @@ export function initEffectsManager(domElements, reducedMotion) {
   initResonanceCanvas();
 }
 
+export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
+  if (!elements.effectsLayer) {
+    if (onComplete) onComplete();
+    return;
+  }
+  
+  const svg = elements.effectsLayer.ownerSVGElement;
+  if (!svg) {
+    if (onComplete) onComplete();
+    return;
+  }
+
+  // 1. Determine Start Position (Top-Left SUPER FAR off-screen)
+  // Concentrated in the far top-left with slight jitter
+  const startScreenX = -window.innerWidth * 0.4 + (Math.random() * 100); 
+  const startScreenY = -window.innerHeight * 0.4 + (Math.random() * 100);
+
+  // Convert Start Screen coords to SVG coords
+  let pt = svg.createSVGPoint();
+  pt.x = startScreenX;
+  pt.y = startScreenY;
+  const ctm = svg.getScreenCTM();
+  if (ctm) {
+    pt = pt.matrixTransform(ctm.inverse());
+  }
+  const startX = pt.x;
+  const startY = pt.y;
+
+  // Calculate angle
+  const angle = Math.atan2(targetY - startY, targetX - startX) * 180 / Math.PI;
+  
+  // Create Wrapper Group (for position)
+  const wrapper = document.createElementNS(svgNS, "g");
+  wrapper.style.pointerEvents = "none";
+  wrapper.style.mixBlendMode = "screen";
+  elements.effectsLayer.appendChild(wrapper);
+
+  // Create Inner Group (for rotation)
+  const inner = document.createElementNS(svgNS, "g");
+  inner.setAttribute("transform", `rotate(${angle})`);
+  wrapper.appendChild(inner);
+
+  // Beam - Outer Glow (Solid Color, No Gradient)
+  const glowBeam = document.createElementNS(svgNS, "line");
+  glowBeam.setAttribute("x1", "-30"); // Short tail (30px)
+  glowBeam.setAttribute("y1", "0");
+  glowBeam.setAttribute("x2", "0");
+  glowBeam.setAttribute("y2", "0");
+  glowBeam.setAttribute("stroke", "#ffffff");
+  glowBeam.setAttribute("stroke-width", "16"); // Wide glow
+  glowBeam.setAttribute("stroke-opacity", "0.2"); // Faint glow
+  glowBeam.setAttribute("stroke-linecap", "round");
+
+  // Beam - Core (Solid Color, No Gradient)
+  const coreBeam = document.createElementNS(svgNS, "line");
+  coreBeam.setAttribute("x1", "-30"); // Match length
+  coreBeam.setAttribute("y1", "0");
+  coreBeam.setAttribute("x2", "0");
+  coreBeam.setAttribute("y2", "0");
+  coreBeam.setAttribute("stroke", "#ffffff");
+  coreBeam.setAttribute("stroke-width", "4"); // Sharp core
+  coreBeam.setAttribute("stroke-opacity", "0.8"); // Bright core
+  coreBeam.setAttribute("stroke-linecap", "round");
+  
+  // Tip (Small glowing point)
+  const tip = document.createElementNS(svgNS, "circle");
+  tip.setAttribute("cx", "0");
+  tip.setAttribute("cy", "0");
+  tip.setAttribute("r", "4");
+  tip.setAttribute("fill", "#ffffff");
+  tip.setAttribute("opacity", "1"); 
+
+  inner.appendChild(glowBeam);
+  inner.appendChild(coreBeam);
+  inner.appendChild(tip);
+
+  if (window.anime) {
+    window.anime({
+      targets: wrapper,
+      translateX: [startX, targetX],
+      translateY: [startY, targetY],
+      easing: 'easeInQuad', // Accelerate into target
+      duration: 750, 
+      complete: () => {
+        if (wrapper.isConnected) wrapper.remove();
+        if (onComplete) onComplete();
+      }
+    });
+  } else {
+    if (wrapper.isConnected) wrapper.remove();
+    if (onComplete) onComplete();
+  }
+}
+
+function ensureProjectileBeamGradient(svg) {
+  let defs = svg.querySelector("defs");
+  if (!defs) {
+    defs = document.createElementNS(svgNS, "defs");
+    svg.insertBefore(defs, svg.firstChild);
+  }
+  // New ID to avoid conflicts with old cached gradients
+  const id = "projectileBeamGradient";
+  if (document.getElementById(id)) return;
+  
+  const grad = document.createElementNS(svgNS, "linearGradient");
+  grad.id = id;
+  grad.setAttribute("x1", "0%");
+  grad.setAttribute("y1", "0%");
+  grad.setAttribute("x2", "100%");
+  grad.setAttribute("y2", "0%"); 
+  
+  const stop1 = document.createElementNS(svgNS, "stop");
+  stop1.setAttribute("offset", "0%");
+  stop1.setAttribute("stop-color", "#ffffff");
+  stop1.setAttribute("stop-opacity", "0");
+  
+  const stop2 = document.createElementNS(svgNS, "stop");
+  stop2.setAttribute("offset", "100%");
+  stop2.setAttribute("stop-color", "#ffffff");
+  stop2.setAttribute("stop-opacity", "1");
+  
+  grad.appendChild(stop1);
+  grad.appendChild(stop2);
+  defs.appendChild(grad);
+}
+
+// Deprecated but kept to avoid breaking if called elsewhere (though internal)
+function ensureProjectileGradient(svg) {
+  ensureProjectileBeamGradient(svg);
+}
+
 export function playPlacementPreviewEffect(x, y) {
   if (!elements.effectsLayer) {
     return;
@@ -478,6 +609,103 @@ export function playRevealBurst(x, y) {
   }
 }
 
+export function stopFocusHalo() {
+  if (!elements.effectsLayer) return;
+  const existing = elements.effectsLayer.querySelectorAll(".effect-focus-halo");
+  existing.forEach(el => el.remove());
+}
+
+export function playFocusHalo(x, y) {
+  if (!elements.effectsLayer) return;
+  
+  // Clear previous focus halos to prevent stacking
+  stopFocusHalo();
+
+  ensureRevealGradient();
+
+  // Performance check
+  if (elements.effectsLayer.childElementCount > 60) return;
+
+  const group = document.createElementNS(svgNS, "g");
+  group.classList.add("effect-focus-halo");
+  group.style.pointerEvents = "none";
+  group.style.mixBlendMode = "screen";
+  
+  // 1. Strong white core glow (using reveal gradient for soft edges)
+  const glow = document.createElementNS(svgNS, "circle");
+  glow.setAttribute("cx", x.toFixed(2));
+  glow.setAttribute("cy", y.toFixed(2));
+  glow.setAttribute("r", "0");
+  glow.setAttribute("fill", "url(#revealGlowGradient)");
+  glow.setAttribute("opacity", "0.9");
+  
+  // 2. Sharp white ring
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.setAttribute("cx", x.toFixed(2));
+  ring.setAttribute("cy", y.toFixed(2));
+  ring.setAttribute("r", (STICKER_DIAMETER * 0.8).toFixed(2));
+  ring.setAttribute("fill", "none");
+  ring.setAttribute("stroke", "#ffffff");
+  ring.setAttribute("stroke-width", "4");
+  ring.setAttribute("opacity", "0");
+
+  // 3. Secondary outer ripple
+  const ripple = document.createElementNS(svgNS, "circle");
+  ripple.setAttribute("cx", x.toFixed(2));
+  ripple.setAttribute("cy", y.toFixed(2));
+  ripple.setAttribute("r", (STICKER_DIAMETER * 1.2).toFixed(2));
+  ripple.setAttribute("fill", "none");
+  ripple.setAttribute("stroke", "#ffffff");
+  ripple.setAttribute("stroke-width", "2");
+  ripple.setAttribute("opacity", "0");
+
+  group.appendChild(glow);
+  group.appendChild(ring);
+  group.appendChild(ripple);
+  elements.effectsLayer.appendChild(group);
+
+  if (window.anime) {
+    const timeline = window.anime.timeline({
+      easing: "easeOutExpo",
+      loop: 4,
+      complete: () => {
+        if (group.isConnected) group.remove();
+      }
+    });
+    
+    timeline
+      .add({
+        targets: glow,
+        r: [0, STICKER_DIAMETER * 3], // Expand large
+        opacity: [0.9, 0],
+        duration: 1400
+      }, 0)
+      .add({
+        targets: ring,
+        r: [STICKER_DIAMETER * 0.8, STICKER_DIAMETER * 2.2],
+        strokeWidth: [4, 0],
+        opacity: [1, 0],
+        duration: 1000,
+        easing: "easeOutQuad"
+      }, 0)
+      .add({
+        targets: ripple,
+        r: [STICKER_DIAMETER * 1.2, STICKER_DIAMETER * 3.5],
+        strokeWidth: [2, 0],
+        opacity: [0.6, 0],
+        duration: 1200,
+        delay: 100,
+        easing: "easeOutQuad"
+      }, 0)
+      .add({
+        duration: 800 // Add pause between loops
+      });
+      
+  } else {
+    setTimeout(() => { if (group.isConnected) group.remove(); }, 1400 * 4);
+  }
+}
+
 export function playEagleSweepEffect(onComplete) {
   if (!elements.effectsLayer) {
     if (onComplete) onComplete();
@@ -763,6 +991,19 @@ const shimmerState = {
 
 export function setShimmerPaused(paused) {
   shimmerState.paused = paused;
+  if (paused) {
+    // Clear any active shimmers immediately
+    const activeNodes = document.querySelectorAll('.sticker-node.shimmering');
+    activeNodes.forEach(node => node.classList.remove('shimmering'));
+    
+    if (elements.effectsLayer) {
+      const sparkles = elements.effectsLayer.querySelectorAll('.shimmer-sparkle');
+      sparkles.forEach(sparkle => {
+        const group = sparkle.closest('g');
+        if (group) group.remove();
+      });
+    }
+  }
 }
 
 export function initShimmerSystem(stickersMap, state) {

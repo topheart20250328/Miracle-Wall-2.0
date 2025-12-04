@@ -1143,9 +1143,12 @@ main::before {
   opacity: 1;
 }
 
-.flip-card-inner[data-state="front"] .flip-face.back,
-.flip-card-inner[data-state="transition"] .flip-face.back {
+.flip-card-inner[data-state="front"] .flip-face.back {
   opacity: 0;
+}
+
+.flip-card-inner[data-state="transition"] .flip-face.back {
+  opacity: 1;
 }
 
 .flip-card-inner[data-state="back"] {
@@ -1841,6 +1844,10 @@ body.playback-mode .marquee-layer {
   pointer-events: none;
 }
 
+body.playback-mode .marquee-text {
+  pointer-events: none !important;
+}
+
 /* Search Bar Overlay */
 .search-bar {
   position: fixed;
@@ -1982,18 +1989,18 @@ body.playback-mode .marquee-layer {
 
 /* Search Highlight Effects */
 body.search-active .sticker-node {
-  transition: opacity 0.4s ease, filter 0.4s ease;
+  transition: opacity 0.2s ease, filter 0.2s ease;
 }
 
 body.search-active .sticker-node.search-dimmed {
-  opacity: 0.15;
-  filter: grayscale(0.8) blur(1px);
+  opacity: 0.1;
+  filter: grayscale(1);
   pointer-events: none;
 }
 
 body.search-active .sticker-node.search-highlight {
   opacity: 1;
-  filter: drop-shadow(0 0 15px rgba(255, 255, 255, 0.9)) brightness(1.2);
+  filter: brightness(1.2);
   z-index: 100;
 }
 
@@ -2388,5 +2395,16 @@ html.hide-online-status #onlineCountBtn {
     padding: 0.35rem 0.8rem;
     font-size: 0.8rem;
   }
+}
+
+
+@keyframes shake-attention {
+  0%, 100% { transform: scale(1); }
+  10%, 30%, 50%, 70%, 90% { transform: scale(1.1) rotate(-3deg); }
+  20%, 40%, 60%, 80% { transform: scale(1.1) rotate(3deg); }
+}
+
+.palette-sticker.shake-attention {
+  animation: shake-attention 0.6s ease-in-out;
 }
 

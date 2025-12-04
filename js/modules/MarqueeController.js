@@ -11,7 +11,7 @@ const MARQUEE_RECENT_COUNT = 5;
 const MARQUEE_RECENT_WEIGHT = 3;
 const MARQUEE_SPEED_PX_PER_SEC = 60;
 const MARQUEE_MIN_DURATION_MS = 20000;
-const MARQUEE_MAX_DURATION_MS = 180000;
+const MARQUEE_MAX_DURATION_MS = 600000;
 const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)";
 const MOBILE_VISIBLE_MARQUEE_INDICES = new Set([0, 1, 4, 5]);
 const MOBILE_SEED_BURST_COUNT = 2;
@@ -220,6 +220,7 @@ function restartMarqueeAnimation(line) {
   }
   line.classList.remove("is-active");
   void track.offsetWidth;
+  updateMarqueeDuration(line, track);
   requestAnimationFrame(() => line.classList.add("is-active"));
 }
 
@@ -297,7 +298,6 @@ function applyMarqueeText(line, item) {
     if (span) {
       span.textContent = displayText;
     }
-    updateMarqueeDuration(line, track);
   }
   line.dataset.message = normalized;
   line.dataset.stickerId = id; // Store ID for click handler

@@ -127,6 +127,8 @@ const state = {
   isSubmitting: false,
   recentIndex: 0,
   dragRafId: null,
+  isAnimatingReturn: false,
+  isTransitioning: false,
 };
 const reviewSettings = {
   requireMarqueeApproval: true,
@@ -196,8 +198,18 @@ function init() {
     effectsLayer, ambientLayer, stickersLayer
   }, mediaPrefersReducedMotion);
   MarqueeController.initMarqueeController(marqueeLayer, marqueeLines, (stickerId) => {
+    if (state.isTransitioning) return;
     if (stickerId) {
-      StickerManager.handleStickerActivation(stickerId);
+      const sticker = state.stickers.get(stickerId);
+      if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+        const isMobile = window.innerWidth <= 640;
+        const targetZoom = isMobile ? 10 : 5;
+        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, () => {
+          StickerManager.handleStickerActivation(stickerId);
+        }, { duration: 500, easing: 'easeOutCubic' });
+      } else {
+        StickerManager.handleStickerActivation(stickerId);
+      }
     }
   });
   SearchController.initSearchController({
@@ -215,12 +227,46 @@ function init() {
     getStickers: () => state.stickers,
     getDeviceId: () => state.deviceId,
     onFocusSticker: (sticker) => {
+      if (state.isTransitioning) return;
       if (sticker && sticker.id) {
         StickerManager.handleStickerActivation(sticker.id);
       }
     },
     onNavigateSticker: (sticker) => {
-      handleStickerNavigation(sticker);
+      // Only navigate content if dialog is open
+      if (noteDialog && noteDialog.open) {
+        handleStickerNavigation(sticker);
+      }
+    },
+    onPanToSticker: (sticker, onComplete, playEffect = true) => {
+      if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+        const isMobile = window.innerWidth <= 640;
+        const targetZoom = isMobile ? 10 : 5;
+        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, () => {
+          if (playEffect) {
+            EffectsManager.playFocusHalo(sticker.x, sticker.y);
+          }
+          if (onComplete) onComplete();
+        }, { duration: 500, easing: 'easeOutCubic' });
+      } else if (onComplete) {
+        onComplete();
+      }
+    },
+    onSearchOpen: () => {
+      EffectsManager.setShimmerPaused(true);
+    },
+    onSearchClose: () => {
+      // Stop any active focus halo
+      EffectsManager.stopFocusHalo();
+      
+      // Only resume shimmer if we are NOT entering playback mode
+      // (PlaybackController closes search when starting, which would otherwise resume shimmer)
+      if (!document.body.classList.contains("playback-mode")) {
+        EffectsManager.setShimmerPaused(false);
+      }
+    },
+    resetStickerScale: (node) => {
+      StickerManager.resetStickerScale(node);
     }
   });
 
@@ -474,6 +520,16 @@ function handleStickerNavigation(sticker) {
   const record = state.stickers.get(sticker.id);
   if (!record) return;
 
+  // Restore previous sticker visibility if it exists
+  if (state.pending && state.pending.node && state.pending.id !== record.id) {
+    StickerManager.setStickerInFlight(state.pending.node, false);
+  }
+
+  // Hide new sticker (it's now "in" the dialog)
+  if (record.node) {
+    StickerManager.setStickerInFlight(record.node, true);
+  }
+
   state.pending = {
     id: record.id,
     x: record.x,
@@ -550,6 +606,7 @@ function updateDialogContent(record, lockReason) {
 }
 
 function handleEagleClick(event) {
+  if (state.isTransitioning) return;
   const stickerNode = event.target.closest(".sticker-node");
   if (stickerNode) {
     const stickerId = stickerNode.dataset.id;
@@ -572,8 +629,14 @@ function handleEagleClick(event) {
     if (document.body.classList.contains("playback-mode")) {
       return;
     }
-    if (now - state.lastClickWarning > 1400) {
-      showToast("點擊下方貼紙放置", "info");
+    if (now - state.lastClickWarning > 600) {
+      // Animate the palette sticker to draw attention instead of showing a toast
+      if (paletteSticker) {
+        paletteSticker.classList.remove("shake-attention");
+        // Force reflow to restart animation
+        void paletteSticker.offsetWidth;
+        paletteSticker.classList.add("shake-attention");
+      }
       state.lastClickWarning = now;
     }
     return;
@@ -958,11 +1021,19 @@ function focusDialog(originNode, options = {}) {
     }
     requestAnimationFrame(() => playFlipReveal());
   };
-  if (canAnimate && originNode) {
+  if (canAnimate && originNode && originNode.isConnected) {
+    state.isTransitioning = true;
+    ZoomController.setInteractionLocked(true);
     StickerManager.setStickerInFlight(originNode, true);
     StickerManager.animateStickerZoom(originNode, { sourceRect: paletteRect ?? undefined })
-      .then(openModal)
+      .then(() => {
+        state.isTransitioning = false;
+        ZoomController.setInteractionLocked(false);
+        openModal();
+      })
       .catch((error) => {
+        state.isTransitioning = false;
+        ZoomController.setInteractionLocked(false);
         console.error("Sticker zoom animation failed", error);
         StickerManager.setStickerInFlight(originNode, false);
         StickerManager.cleanupZoomOverlay();
@@ -989,7 +1060,9 @@ async function handleDialogClose() {
   setNoteLocked(false);
   updateDeleteButton();
   const result = noteDialog.returnValue || "";
-  if (pendingSnapshot && pendingSnapshot.node) {
+  
+  // Only animate if we have a snapshot AND we are not already animating (via closeDialogWithResult)
+  if (pendingSnapshot && pendingSnapshot.node && !state.isAnimatingReturn) {
     try {
       await StickerManager.animateStickerReturn(pendingSnapshot, result);
     } catch (error) {
@@ -998,7 +1071,11 @@ async function handleDialogClose() {
     }
   }
   resetFlipCard();
-  StickerManager.cleanupZoomOverlay();
+  
+  // Only cleanup overlay if NOT animating
+  if (!state.isAnimatingReturn) {
+    StickerManager.cleanupZoomOverlay();
+  }
   SearchController.onDialogClosed();
 }
 
@@ -1103,11 +1180,13 @@ async function handleDeleteSticker() {
 }
 
 function handleCancelAction() {
+  if (state.isTransitioning || state.flipAnimation) return;
   void closeDialogWithResult("cancelled");
 }
 
 function handleDialogCancel(event) {
   event.preventDefault();
+  if (state.isTransitioning || state.flipAnimation) return;
   void closeDialogWithResult("cancelled");
 }
 
@@ -1147,25 +1226,54 @@ function handlePlacementConflict(pending) {
 }
 
 async function closeDialogWithResult(result) {
-  if (state.closing) {
+  if (state.closing || state.isTransitioning) {
     return;
   }
   state.closing = true;
+  state.isTransitioning = true;
+  ZoomController.setInteractionLocked(true);
   noteDialog.classList.add("closing");
   try {
+    // 1. Flip Back
     await playFlipReturn().catch((error) => {
       console.error("Flip return animation failed", error);
     });
+
+    // 2. Start Return Animation (Create Overlay) BEFORE closing dialog
+    const pendingSnapshot = state.pending;
+    let returnAnimPromise = null;
+    
+    if (pendingSnapshot && pendingSnapshot.node) {
+        // Create overlay immediately to cover the gap
+        returnAnimPromise = StickerManager.animateStickerReturn(pendingSnapshot, result);
+        state.isAnimatingReturn = true; // Flag to protect animation from handleDialogClose cleanup
+    }
+
+    // 3. Close Dialog (Hide original card)
     if (noteDialog.open) {
       try {
+        // Clear pending so handleDialogClose doesn't try to animate again
+        state.pending = null;
         noteDialog.close(result);
       } catch (error) {
         console.error("Failed to close note dialog", error);
       }
     }
+
+    // 4. Wait for animation to finish
+    if (returnAnimPromise) {
+        await returnAnimPromise;
+    }
+
   } finally {
     noteDialog.classList.remove("closing");
     state.closing = false;
+    state.isAnimatingReturn = false;
+    state.isTransitioning = false;
+    ZoomController.setInteractionLocked(false);
+    
+    // Final cleanup just in case
+    StickerManager.cleanupZoomOverlay();
   }
 }
 

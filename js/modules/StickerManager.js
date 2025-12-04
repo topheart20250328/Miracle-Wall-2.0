@@ -35,6 +35,19 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
   setupStickerDelegation();
 }
 
+export function resetStickerScale(node) {
+  if (!node || !window.anime) return;
+  
+  window.anime.remove(node);
+  window.anime({
+    targets: node,
+    scale: 1,
+    rotate: 0,
+    duration: 300,
+    easing: "easeOutQuad",
+  });
+}
+
 function setupStickerDelegation() {
   if (!elements.stickersLayer) return;
 
@@ -42,7 +55,15 @@ function setupStickerDelegation() {
     const group = e.target.closest(".sticker-node");
     if (group) {
       if (group.contains(e.relatedTarget)) return;
-      if (!group.classList.contains("pending") && !globalState.drag && !globalState.pending) {
+      
+      // Check for interactive states: not pending, not dragging, not in-flight, not dimmed
+      if (
+        !group.classList.contains("pending") && 
+        !globalState.drag && 
+        !globalState.pending &&
+        !group.classList.contains("in-flight") &&
+        !group.classList.contains("search-dimmed")
+      ) {
         if (window.anime) {
           window.anime.remove(group);
           window.anime({
@@ -62,16 +83,7 @@ function setupStickerDelegation() {
     if (group) {
       if (group.contains(e.relatedTarget)) return;
       if (!group.classList.contains("pending") && !globalState.drag && !globalState.pending) {
-        if (window.anime) {
-          window.anime.remove(group);
-          window.anime({
-            targets: group,
-            scale: 1,
-            rotate: 0,
-            duration: 300,
-            easing: "easeOutQuad",
-          });
-        }
+        resetStickerScale(group);
       }
     }
   });
@@ -462,16 +474,9 @@ export function finalizeReturnWithoutAnimation(node, returnToPalette) {
     setStickerInFlight(node, false);
     
     // Reset any lingering hover/zoom effects
-    if (window.anime) {
-      window.anime.remove(node);
-      window.anime({
-        targets: node,
-        scale: 1,
-        rotate: 0,
-        duration: 300,
-        easing: "easeOutQuad",
-      });
-    } else {
+    resetStickerScale(node);
+    
+    if (!window.anime) {
       // Fallback if anime is not available
       node.style.transform = "";
     }
@@ -610,6 +615,11 @@ export function setStickerInFlight(node, inFlight) {
     return;
   }
   node.classList.toggle("in-flight", Boolean(inFlight));
+  
+  // If entering in-flight mode, ensure scale is reset so it doesn't reappear scaled up
+  if (inFlight) {
+    resetStickerScale(node);
+  }
 }
 
 export async function saveSticker(pending, message) {

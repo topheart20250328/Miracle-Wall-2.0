@@ -35,6 +35,18 @@ let elements = {
 let requiresStickerForceRedraw = false;
 let resetAnimation = null;
 let interactionElement = null;
+let interactionLocked = false;
+
+export function setInteractionLocked(locked) {
+  interactionLocked = Boolean(locked);
+  if (interactionLocked) {
+    // Cancel any active interaction
+    panState.pointerId = null;
+    panState.moved = false;
+    panState.pointers.clear();
+    panState.pinchStartDistance = 0;
+  }
+}
 
 export function initZoomController(domElements, forceRedraw) {
   elements = { ...elements, ...domElements };
@@ -85,8 +97,98 @@ export function clientToSvg(clientX, clientY, viewBox) {
   return { x: svgX, y: svgY };
 }
 
+export function panToPoint(svgX, svgY, viewBox, minScale = null, onComplete = null, options = {}) {
+  if (!elements.wallSvg || !viewBox) return;
+  
+  // Calculate center of viewBox
+  const centerX = viewBox.x + viewBox.width / 2;
+  const centerY = viewBox.y + viewBox.height / 2;
+  
+  // Calculate delta in SVG units
+  const deltaX = svgX - centerX;
+  const deltaY = svgY - centerY;
+  
+  // Calculate scale factor (pixels per SVG unit)
+  const rect = elements.wallSvg.getBoundingClientRect();
+  const currentScale = zoomState.scale;
+
+  // Determine target scale
+  let targetScale = currentScale;
+  if (minScale !== null && targetScale < minScale) {
+    targetScale = minScale;
+  }
+  
+  // The rendered width/height at scale 1 (approximate)
+  const baseWidth = rect.width / currentScale;
+  const baseHeight = rect.height / currentScale;
+  
+  // Determine the actual rendering scale (handling preserveAspectRatio mismatch)
+  // If the element aspect ratio doesn't match viewBox, the content is letterboxed.
+  // We need the scale factor of the content, not the container.
+  const elementRatio = baseWidth / baseHeight;
+  const viewBoxRatio = viewBox.width / viewBox.height;
+  
+  let pixelsPerUnit;
+  // Allow a small epsilon for floating point comparison
+  if (elementRatio > viewBoxRatio + 0.001) {
+      // Element is wider than content (constrained by height)
+      pixelsPerUnit = baseHeight / viewBox.height;
+  } else {
+      // Element is taller or equal (constrained by width)
+      pixelsPerUnit = baseWidth / viewBox.width;
+  }
+  
+  // Calculate required offset to center the point
+  // We move the element by -delta * scale * zoomScale
+  const targetOffsetX = -deltaX * pixelsPerUnit * targetScale;
+  const targetOffsetY = -deltaY * pixelsPerUnit * targetScale;
+  
+  // Animate to it
+  if (window.anime) {
+      if (resetAnimation) resetAnimation.pause();
+      
+      const targets = { 
+          offsetX: viewportState.offsetX, 
+          offsetY: viewportState.offsetY,
+          scale: zoomState.scale
+      };
+
+      resetAnimation = window.anime({
+          targets: targets,
+          offsetX: targetOffsetX,
+          offsetY: targetOffsetY,
+          scale: targetScale,
+          duration: options.duration || 600,
+          easing: options.easing || 'easeOutExpo',
+          update: () => {
+              viewportState.offsetX = targets.offsetX;
+              viewportState.offsetY = targets.offsetY;
+              zoomState.scale = targets.scale;
+              applyZoomTransform(true);
+              updateZoomIndicator();
+          },
+          complete: () => {
+              resetAnimation = null;
+              viewportState.offsetX = targetOffsetX;
+              viewportState.offsetY = targetOffsetY;
+              zoomState.scale = targetScale;
+              applyZoomTransform(true);
+              updateZoomIndicator();
+              if (onComplete) onComplete();
+          }
+      });
+  } else {
+      viewportState.offsetX = targetOffsetX;
+      viewportState.offsetY = targetOffsetY;
+      zoomState.scale = targetScale;
+      applyZoomTransform();
+      updateZoomIndicator();
+      if (onComplete) onComplete();
+  }
+}
+
 function handleStageWheel(event) {
-  if (!elements.wallStage) {
+  if (!elements.wallStage || interactionLocked) {
     return;
   }
   if (resetAnimation) {
@@ -104,7 +206,7 @@ function handleStageWheel(event) {
 }
 
 function handleStagePointerDown(event) {
-  if (!isZoomTarget(event)) {
+  if (!isZoomTarget(event) || interactionLocked) {
     return;
   }
   if (resetAnimation) {
@@ -133,6 +235,7 @@ function handleStagePointerDown(event) {
 }
 
 function handleStagePointerMove(event) {
+  if (interactionLocked) return;
   if (panState.pointers.has(event.pointerId)) {
     panState.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (panState.pointers.size === 2) {

@@ -82,17 +82,27 @@ function openSearch() {
   // Initial filter (empty or previous value)
   handleInput();
 
+  if (state.callbacks.onSearchOpen) {
+    state.callbacks.onSearchOpen();
+  }
+
   // Add click listener to close search when clicking outside
   setTimeout(() => {
     document.addEventListener("click", handleOutsideClick);
+    document.addEventListener("pointerdown", handleMouseDown);
   }, 100);
 }
 
 export function closeSearch() {
   state.isActive = false;
 
+  if (state.callbacks.onSearchClose) {
+    state.callbacks.onSearchClose();
+  }
+
   // Remove click listener
   document.removeEventListener("click", handleOutsideClick);
+  document.removeEventListener("pointerdown", handleMouseDown);
 
   // Fix for mobile keyboard layout issues (especially iOS/LINE)
   if (state.elements.input) {
@@ -133,6 +143,10 @@ export function closeSearch() {
       s.node.style.removeProperty("opacity");
       s.node.style.removeProperty("filter");
       s.node.style.removeProperty("z-index");
+      
+      if (state.callbacks.resetStickerScale) {
+        state.callbacks.resetStickerScale(s.node);
+      }
     }
   });
   
@@ -173,6 +187,9 @@ function handleInput() {
     stickersMap.forEach(s => {
       if (s.node) {
         s.node.classList.remove("search-dimmed", "search-highlight");
+        if (state.callbacks.resetStickerScale) {
+          state.callbacks.resetStickerScale(s.node);
+        }
       }
     });
     return;
@@ -191,6 +208,15 @@ function handleQuickFilter(type, btn) {
     state.elements.input.value = ""; // Clear text input
   }
   
+  // Check if already active (Toggle off)
+  if (btn.classList.contains("active")) {
+    btn.classList.remove("active");
+    // Reset to show all (or empty if that's the default state when no filter)
+    // handleInput with empty string resets everything
+    handleInput();
+    return;
+  }
+
   // Update active state
   if (state.elements.searchQuickFilters) {
     const btns = state.elements.searchQuickFilters.querySelectorAll(".quick-filter-btn");
@@ -206,13 +232,11 @@ function handleQuickFilter(type, btn) {
     case "latest":
       matched = allStickers
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) // Newest first
-        .slice(0, 5);
+        .slice(0, 3);
       break;
-    case "mine":
-      const myDeviceId = state.callbacks.getDeviceId ? state.callbacks.getDeviceId() : null;
-      if (myDeviceId) {
-        matched = allStickers.filter(s => s.deviceId === myDeviceId);
-      }
+    case "earliest":
+      matched = allStickers
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at)); // Oldest first
       break;
     case "month":
       const now = new Date();
@@ -244,12 +268,25 @@ function handleQuickFilter(type, btn) {
       stickersMap.forEach(s => {
         if (s.node) {
           s.node.classList.remove("search-dimmed", "search-highlight");
+          if (state.callbacks.resetStickerScale) {
+            state.callbacks.resetStickerScale(s.node);
+          }
         }
       });
       
       // 3. Auto-open first
-      if (matched.length > 0 && state.callbacks.onFocusSticker) {
-        state.callbacks.onFocusSticker(matched[0]);
+      if (matched.length > 0) {
+        const target = matched[0];
+        if (state.callbacks.onPanToSticker) {
+          // Pan first, then open
+          state.callbacks.onPanToSticker(target, () => {
+             if (state.callbacks.onFocusSticker) {
+               state.callbacks.onFocusSticker(target);
+             }
+          }, false);
+        } else if (state.callbacks.onFocusSticker) {
+           state.callbacks.onFocusSticker(target);
+        }
       }
       return; // Exit before calling highlightStickers
   }
@@ -263,52 +300,6 @@ function highlightStickers(matched) {
   
   const stickersMap = state.callbacks.getStickers ? state.callbacks.getStickers() : new Map();
 
-  // Update Visuals
-  stickersMap.forEach(s => {
-    if (!s.node) return;
-    
-    // If no matches (and input is empty/cleared), show all normally (remove classes)
-    // But if matched is empty array passed explicitly (e.g. no results found), we should dim all?
-    // Actually handleInput passes [] when query is empty.
-    // If query is empty, we want to remove all effects.
-    
-    // Check if we are in "reset" mode (empty query, no filter)
-    // We can infer this if matched is empty AND input is empty AND no filter active?
-    // Simpler: if matched is empty, check if we should show "0 results" or "reset".
-    // For now, if matched is empty, we assume reset if called from handleInput with empty query.
-    // But handleQuickFilter might return empty (e.g. no my messages).
-    
-    // Let's rely on the caller. handleInput calls highlightStickers([]) when empty.
-    // But handleQuickFilter might call it with [] if no results.
-    // We need a way to distinguish "clear" vs "no results".
-    // Let's assume if matched is empty, we dim everything (no results), UNLESS it's a clear action.
-    // Actually, handleInput logic was: if query.length === 0 -> remove classes.
-    // So let's handle that inside handleInput/handleQuickFilter logic or pass a flag.
-    
-    // Revised approach:
-    // If matched is empty, we need to know if it's "no results found" or "show all".
-    // Let's check if search is active.
-  });
-
-  // Wait, the previous logic in handleInput for empty query was:
-  /*
-  if (query.length === 0) {
-    state.matchedStickers = [];
-    state.currentIndex = -1;
-    updateCountDisplay();
-    hideDialogNav();
-    stickersMap.forEach(s => ... remove classes ...);
-    return;
-  }
-  */
-  
-  // So highlightStickers should assume "filtering is active, here are the matches".
-  // If matches is empty, it means 0 results found -> dim all.
-  // The "reset" case should be handled separately or by passing null?
-  
-  // Let's handle the "reset" case in handleInput before calling highlightStickers.
-  // So if highlightStickers is called, it implies we want to highlight these specific stickers.
-  
   const hasMatches = matched.length > 0;
   
   stickersMap.forEach(s => {
@@ -319,6 +310,10 @@ function highlightStickers(matched) {
       if (isMatch) {
         s.node.classList.add("search-highlight");
         s.node.classList.remove("search-dimmed");
+        // Bring to front to ensure visibility
+        if (s.node.parentNode && s.node.parentNode.lastElementChild !== s.node) {
+          s.node.parentNode.appendChild(s.node);
+        }
       } else {
         s.node.classList.add("search-dimmed");
         s.node.classList.remove("search-highlight");
@@ -330,11 +325,37 @@ function highlightStickers(matched) {
     }
   });
 
+  // Pan to newest match
+  if (hasMatches && state.callbacks.onPanToSticker) {
+    // Default: Pan to newest match
+    let targetSticker = matched.reduce((prev, curr) => {
+      const t1 = new Date(prev.created_at).getTime();
+      const t2 = new Date(curr.created_at).getTime();
+      return t1 > t2 ? prev : curr;
+    });
+
+    // Special case for "latest" filter (top 3): Pan to the OLDEST of the 3 (which is the 3rd newest)
+    // We can detect if this is the "latest" filter by checking if matched length is <= 3 and sorted by date desc?
+    // Or better, check the active filter button
+    if (state.elements.searchQuickFilters) {
+      const activeBtn = state.elements.searchQuickFilters.querySelector(".quick-filter-btn.active");
+      if (activeBtn) {
+        if (activeBtn.dataset.filter === "latest") {
+          // For "latest", matched is already sorted Newest -> Oldest (from handleQuickFilter)
+          // We want the last one (oldest of the 3)
+          targetSticker = matched[matched.length - 1];
+        } else if (activeBtn.dataset.filter === "earliest") {
+          // For "earliest", matched is sorted Oldest -> Newest.
+          // We want the first one (the absolute oldest).
+          targetSticker = matched[0];
+        }
+      }
+    }
+
+    state.callbacks.onPanToSticker(targetSticker);
+  }
+
   updateCountDisplay();
-  
-  // If we have matches, maybe auto-focus the first one?
-  // Or just let user navigate.
-  // Previous logic didn't auto-focus.
 }
 
 function updateCountDisplay() {
@@ -401,10 +422,15 @@ function navigateDialog(direction) {
   const target = state.matchedStickers[state.currentIndex];
   updateDialogCounter();
   
-  if (target && state.callbacks.onNavigateSticker) {
-    state.callbacks.onNavigateSticker(target);
-  } else if (target && state.callbacks.onFocusSticker) {
-    state.callbacks.onFocusSticker(target);
+  if (target) {
+    if (state.callbacks.onPanToSticker) {
+      state.callbacks.onPanToSticker(target);
+    }
+    if (state.callbacks.onNavigateSticker) {
+      state.callbacks.onNavigateSticker(target);
+    } else if (state.callbacks.onFocusSticker) {
+      state.callbacks.onFocusSticker(target);
+    }
   }
 }
 
@@ -430,8 +456,21 @@ function hideDialogNav() {
   if (state.elements.dialogSearchCounter) state.elements.dialogSearchCounter.hidden = true;
 }
 
+let dragStartPos = { x: 0, y: 0 };
+
+function handleMouseDown(event) {
+  dragStartPos = { x: event.clientX, y: event.clientY };
+}
+
 function handleOutsideClick(event) {
   if (!state.isActive) return;
+
+  // Check if it was a drag operation (distance > 10px)
+  const dx = event.clientX - dragStartPos.x;
+  const dy = event.clientY - dragStartPos.y;
+  if (Math.hypot(dx, dy) > 10) {
+    return;
+  }
 
   const searchBar = state.elements.searchBar;
   const searchBtn = state.elements.searchBtn;
@@ -453,20 +492,24 @@ function handleOutsideClick(event) {
 
   // Define what constitutes "background" (clicking these closes search)
   // Everything else (stickers, eagle, UI controls) keeps search open
+  // If click is on a sticker, do nothing (let sticker handler work)
+  if (target.closest('.sticker-node')) {
+    return;
+  }
+
+  // If click is inside wallSvg (the map), it should close search
+  // UNLESS it was a sticker (handled above)
+  // So if we are here, and it's inside wallSvg, it's background (eagle, empty space)
+  if (target.closest('#wallSvg') || target.closest('#wallWrapper') || target.closest('#wallStage')) {
+    closeSearch();
+    return;
+  }
+
   const isBackground = 
     target === document.body ||
     target === document.documentElement ||
     target.tagName === 'MAIN' ||
-    target.classList.contains('wall-section') ||
-    target.id === 'wallStage' ||
-    target.id === 'wallWrapper' ||
-    target.id === 'wallSvg' ||
-    target.id === 'stickersLayer' ||
-    target.id === 'effectsLayer' ||
-    target.id === 'ambientLayer' ||
-    target.id === 'dragOverlay' ||
-    target.id === 'marqueeLayer' ||
-    target.id === 'playbackOverlay';
+    target.classList.contains('wall-section');
 
   if (isBackground) {
     closeSearch();

@@ -1,5 +1,6 @@
 
 import * as Utils from "./Utils.js";
+import * as EffectsManager from "./EffectsManager.js";
 
 const PLAYBACK_SPEED_MS = 100; // Time between stickers (adjustable)
 const MIN_PLAYBACK_DURATION_MS = 5000; // Minimum total duration
@@ -298,23 +299,57 @@ function playbackLoop(timestamp) {
         // Finished
         state.isFinished = true;
         state.animationFrame = null;
-        
-        // Trigger completion callback (UI Reveal)
-        // Now happens immediately when stickers finish
-        if (state.callbacks.onPlaybackComplete) {
-          state.callbacks.onPlaybackComplete();
-        } else {
-          finalizePlaybackUI();
-        }
-        
         return; 
       }
 
       const sticker = state.sortedStickers[state.currentIndex];
-      revealSticker(sticker);
-      updateDateDisplay(sticker.created_at);
+      const isLast = state.currentIndex === state.sortedStickers.length - 1;
+      
+      // Calculate start position for projectile (Date Display)
+      let startX = 0;
+      let startY = window.innerHeight;
+      if (state.elements.dateContainer) {
+        const rect = state.elements.dateContainer.getBoundingClientRect();
+        startX = rect.left + rect.width / 2;
+        startY = rect.top + rect.height / 2;
+      }
+
+      // Fire projectile
+      if (sticker.node && sticker.node.dataset.cx && sticker.node.dataset.cy) {
+         const targetX = parseFloat(sticker.node.dataset.cx);
+         const targetY = parseFloat(sticker.node.dataset.cy);
+         
+         // Capture the count for this sticker to show AFTER it lands
+         const countToShow = state.currentIndex + 1;
+
+         EffectsManager.playProjectile(startX, startY, targetX, targetY, () => {
+            revealSticker(sticker);
+            updateDateDisplay(sticker.created_at);
+            updateCounterDisplay(countToShow, state.sortedStickers.length);
+
+            if (isLast) {
+              if (state.callbacks.onPlaybackComplete) {
+                state.callbacks.onPlaybackComplete();
+              } else {
+                finalizePlaybackUI();
+              }
+            }
+         });
+      } else {
+         revealSticker(sticker);
+         updateDateDisplay(sticker.created_at);
+         updateCounterDisplay(state.currentIndex + 1, state.sortedStickers.length);
+
+         if (isLast) {
+            if (state.callbacks.onPlaybackComplete) {
+              state.callbacks.onPlaybackComplete();
+            } else {
+              finalizePlaybackUI();
+            }
+         }
+      }
+
       state.currentIndex++;
-      updateCounterDisplay(state.currentIndex, state.sortedStickers.length);
     }
     
     // Update fire intensity based on current progress
