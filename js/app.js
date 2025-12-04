@@ -568,7 +568,7 @@ function handleStickerNavigation(sticker, direction = 1) {
 
   // Direction 1 (Next): Flip Left (180 -> 90 -> 180)
   // Direction -1 (Prev): Flip Right (180 -> 270 -> 180)
-  const midAngle = direction === 1 ? 90 : 270;
+  const midAngle = direction === 1 ? "90deg" : "270deg";
 
   timeline
     .add({ 
@@ -580,7 +580,7 @@ function handleStickerNavigation(sticker, direction = 1) {
       }
     })
     .add({ 
-      rotateY: 180, 
+      rotateY: "180deg", 
       duration: 350, 
       easing: "easeOutCubic" 
     });
@@ -1238,6 +1238,15 @@ async function closeDialogWithResult(result) {
   state.isTransitioning = true;
   ZoomController.setInteractionLocked(true);
   noteDialog.classList.add("closing");
+
+  // Hide navigation buttons immediately before animation
+  const prevBtn = document.getElementById("dialogPrevBtn");
+  const nextBtn = document.getElementById("dialogNextBtn");
+  if (prevBtn) prevBtn.hidden = true;
+  if (nextBtn) nextBtn.hidden = true;
+  const counter = document.getElementById("dialogSearchCounter");
+  if (counter) counter.hidden = true;
+
   try {
     // 1. Flip Back
     await playFlipReturn().catch((error) => {
@@ -1629,8 +1638,8 @@ function playFlipReveal() {
     duration: 520,
   });
   timeline
-    .add({ rotateY: 90, duration: 220 })
-    .add({ rotateY: 180, duration: 240, easing: "easeOutCubic" });
+    .add({ rotateY: "90deg", duration: 220 })
+    .add({ rotateY: "180deg", duration: 240, easing: "easeOutCubic" });
   state.flipAnimation = timeline;
   if (timeline.finished && typeof timeline.finished.then === "function") {
     timeline.finished
@@ -1707,8 +1716,8 @@ function playFlipReturn() {
     };
 
     timeline
-      .add({ rotateY: 90, duration: 150 })
-      .add({ rotateY: 0, duration: 190, easing: "easeOutCubic" });
+      .add({ rotateY: "90deg", duration: 150 })
+      .add({ rotateY: "0deg", duration: 190, easing: "easeOutCubic" });
 
     if (timeline.finished && typeof timeline.finished.then === "function") {
       timeline.finished
@@ -1847,28 +1856,46 @@ function initDialogSwipe() {
   if (!noteDialog) return;
 
   noteDialog.addEventListener("touchstart", (e) => {
-    if (e.changedTouches.length > 0) {
-      touchStartX = e.changedTouches[0].screenX;
-      touchStartY = e.changedTouches[0].screenY;
+    if (e.touches.length > 0) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
     }
-  }, { passive: true });
+  }, { passive: false });
+
+  // Prevent native gestures (like swipe back) if user is swiping horizontally
+  noteDialog.addEventListener("touchmove", (e) => {
+    if (e.touches.length > 0) {
+      const touchCurrentX = e.touches[0].clientX;
+      const touchCurrentY = e.touches[0].clientY;
+      const diffX = touchCurrentX - touchStartX;
+      const diffY = touchCurrentY - touchStartY;
+
+      // If horizontal swipe is dominant, prevent default to stop browser navigation
+      if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 10) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+      }
+    }
+  }, { passive: false });
 
   noteDialog.addEventListener("touchend", (e) => {
     if (e.changedTouches.length > 0) {
-      const touchEndX = e.changedTouches[0].screenX;
-      const touchEndY = e.changedTouches[0].screenY;
+      const touchEndX = e.changedTouches[0].clientX;
+      const touchEndY = e.changedTouches[0].clientY;
       handleDialogSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
     }
-  }, { passive: true });
+  }, { passive: false });
 }
 
 function handleDialogSwipe(startX, startY, endX, endY) {
   const diffX = endX - startX;
   const diffY = endY - startY;
   const minSwipeDistance = 50;
-  const maxVerticalDistance = 60;
+  // Allow a bit more vertical variance, but ensure horizontal is dominant
+  const maxVerticalRatio = 0.8; 
 
-  if (Math.abs(diffX) > minSwipeDistance && Math.abs(diffY) < maxVerticalDistance) {
+  if (Math.abs(diffX) > minSwipeDistance && Math.abs(diffY) < Math.abs(diffX) * maxVerticalRatio) {
     if (diffX > 0) {
       // Swipe Right -> Previous
       const prevBtn = document.getElementById("dialogPrevBtn");

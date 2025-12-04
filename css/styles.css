@@ -469,7 +469,7 @@ main::before {
 }
 
 .sticker-node.in-flight {
-  opacity: 0;
+  opacity: 0 !important;
   pointer-events: none;
 }
 
@@ -993,18 +993,36 @@ main::before {
 
 @media (max-width: 640px) {
   .dialog-nav-btn {
-    width: 2.5rem;
-    height: 2.5rem;
-    background: rgba(0, 0, 0, 0.4); /* Darker bg for better visibility on mobile */
-    backdrop-filter: blur(4px);
+    width: 3.2rem;
+    height: 3.2rem;
+    background: rgba(20, 20, 24, 0.85); /* Darker, more solid background */
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(244, 192, 96, 0.3); /* Subtle accent border */
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    color: var(--accent);
+  }
+  
+  /* Increase touch target size without affecting visuals */
+  .dialog-nav-btn::after {
+    content: "";
+    position: absolute;
+    inset: -1.2rem;
+    border-radius: 50%;
+    z-index: -1;
   }
   
   .dialog-nav-btn.prev {
-    left: 0.5rem;
+    left: 0.2rem;
   }
   
   .dialog-nav-btn.next {
-    right: 0.5rem;
+    right: 0.2rem;
+  }
+  
+  .dialog-nav-btn svg {
+    width: 28px;
+    height: 28px;
+    stroke-width: 2.5;
   }
 }
 
@@ -1082,6 +1100,7 @@ main::before {
   aspect-ratio: 1 / 1;
   position: relative;
   perspective: 1600px;
+  -webkit-perspective: 1600px;
 }
 
 .flip-card-inner {
@@ -1089,6 +1108,7 @@ main::before {
   width: 100%;
   height: 100%;
   transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
   transform-origin: center;
 }
 
@@ -1097,6 +1117,7 @@ main::before {
   inset: 0;
   border-radius: 50%;
   backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1892,6 +1913,8 @@ body.playback-mode .marquee-text {
 .search-icon {
   color: rgba(255, 255, 255, 0.5);
   font-size: 0.9rem;
+  display: flex;
+  align-items: center;
 }
 
 #searchInput {
@@ -2383,10 +2406,11 @@ html.hide-online-status #onlineCountBtn {
 }
 
 .quick-filter-btn.active {
-  background: rgba(244, 192, 96, 0.25);
-  border-color: rgba(244, 192, 96, 0.8);
-  color: #ffd700;
-  box-shadow: 0 0 12px rgba(244, 192, 96, 0.15);
+  background: #f4c060;
+  border-color: #f4c060;
+  color: #101418;
+  font-weight: 600;
+  box-shadow: 0 0 16px rgba(244, 192, 96, 0.4);
 }
 
 @media (max-width: 640px) {
