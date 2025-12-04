@@ -977,15 +977,17 @@ main::before {
   display: none !important;
 }
 
-.dialog-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-  transform: translateY(-50%) scale(1.1);
+@media (hover: hover) {
+  .dialog-nav-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    transform: translateY(-50%) scale(1.1);
+  }
 }
 
-.dialog-nav-btn.is-pressed {
+.dialog-nav-btn:active {
   transform: translateY(-50%) scale(0.95);
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.15); /* Subtle feedback for touch */
 }
 
 .dialog-nav-btn.prev {
@@ -1057,9 +1059,6 @@ main::before {
   padding: clamp(1.8rem, 3vw, 2.6rem);
   overflow: visible;
   touch-action: pan-y;
-  margin: auto; /* Ensure centering */
-  inset: 0; /* Ensure centering in top layer */
-  max-height: 100dvh; /* Prevent overflow on small screens */
 }
 
 .note-dialog::backdrop {

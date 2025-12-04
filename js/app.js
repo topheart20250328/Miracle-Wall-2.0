@@ -1063,41 +1063,36 @@ function focusDialog(originNode, options = {}) {
 
     // 1. Open invisibly to measure layout
     try {
-      // Disable transition to prevent layout thrashing during measurement
-      noteDialog.style.transition = "none";
       openModal(false);
-      // Force reflow to ensure browser has calculated layout
-      void noteDialog.offsetWidth;
     } catch (e) {
       console.warn("Failed to open modal for measurement", e);
     }
 
-    // 2. Measure the actual card position
-    let targetRect = null;
-    const card = document.querySelector(".flip-card");
-    if (card) {
-      const rect = card.getBoundingClientRect();
-      if (rect.width && rect.height) {
-        targetRect = {
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height
-        };
+    // 2. Measure the actual card position with a slight delay to ensure layout stability
+    requestAnimationFrame(() => {
+      let targetRect = null;
+      const card = document.querySelector(".flip-card");
+      if (card) {
+        const rect = card.getBoundingClientRect();
+        if (rect.width && rect.height) {
+          targetRect = {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height
+          };
+        }
       }
-    }
 
-    StickerManager.animateStickerZoom(originNode, { 
-      sourceRect: paletteRect ?? undefined,
-      targetRect: targetRect 
-    })
+      StickerManager.animateStickerZoom(originNode, { 
+        sourceRect: paletteRect ?? undefined,
+        targetRect: targetRect 
+      })
       .then(() => {
         state.isTransitioning = false;
         ZoomController.setInteractionLocked(false);
         
         // 3. Make visible and play flip
-        // Restore transition
-        noteDialog.style.transition = "";
         noteDialog.style.opacity = "1";
         noteDialog.style.pointerEvents = "auto";
         noteDialog.classList.remove("measuring");
@@ -1112,7 +1107,6 @@ function focusDialog(originNode, options = {}) {
         StickerManager.cleanupZoomOverlay();
         try {
           // Ensure it's visible if animation failed
-          noteDialog.style.transition = "";
           noteDialog.style.opacity = "";
           noteDialog.style.pointerEvents = "";
           noteDialog.classList.remove("measuring");
@@ -1130,6 +1124,7 @@ function focusDialog(originNode, options = {}) {
           console.error("Failed to open note dialog", openError);
         }
       });
+    });
   } else {
     if (originNode) {
       StickerManager.setStickerInFlight(originNode, true);
