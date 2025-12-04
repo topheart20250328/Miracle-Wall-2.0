@@ -722,8 +722,8 @@ export function playEagleSweepEffect(onComplete) {
   const sweepGroup = document.createElementNS(svgNS, "g");
   sweepGroup.style.pointerEvents = "none";
   sweepGroup.style.mixBlendMode = "screen"; 
-  // Softer filter
-  sweepGroup.style.filter = "drop-shadow(0 0 4px rgba(255,255,255,0.6))";
+  // Filter removed to prevent rendering issues on mobile (Line browser)
+
   
   // Define the gradient
   const gradientId = `eagleSweepGradient-${Date.now()}`;

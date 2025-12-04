@@ -170,6 +170,7 @@ function init() {
       handleCancelAction();
     }
   });
+  initDialogSwipe();
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
   jumpToRecentBtn?.addEventListener("click", handleJumpToRecent);
   document.addEventListener("keydown", handleGlobalKeyDown);
@@ -232,10 +233,10 @@ function init() {
         StickerManager.handleStickerActivation(sticker.id);
       }
     },
-    onNavigateSticker: (sticker) => {
+    onNavigateSticker: (sticker, direction) => {
       // Only navigate content if dialog is open
       if (noteDialog && noteDialog.open) {
-        handleStickerNavigation(sticker);
+        handleStickerNavigation(sticker, direction);
       }
     },
     onPanToSticker: (sticker, onComplete, playEffect = true) => {
@@ -513,7 +514,7 @@ function handleJumpToRecent() {
   }
 }
 
-function handleStickerNavigation(sticker) {
+function handleStickerNavigation(sticker, direction = 1) {
   if (!sticker || !sticker.id) return;
   
   // 1. Update state.pending
@@ -565,9 +566,13 @@ function handleStickerNavigation(sticker) {
   });
   state.flipAnimation = timeline;
 
+  // Direction 1 (Next): Flip Left (180 -> 90 -> 180)
+  // Direction -1 (Prev): Flip Right (180 -> 270 -> 180)
+  const midAngle = direction === 1 ? 90 : 270;
+
   timeline
     .add({ 
-      rotateY: 90, 
+      rotateY: midAngle, 
       duration: 250,
       complete: () => {
         // Swap content while hidden
@@ -1835,6 +1840,50 @@ function updateDialogSubtitle(isLocked, reason = null) {
   dialogSubtitle.hidden = !SUBTITLE_TEXT;
 }
 
+function initDialogSwipe() {
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  if (!noteDialog) return;
+
+  noteDialog.addEventListener("touchstart", (e) => {
+    if (e.changedTouches.length > 0) {
+      touchStartX = e.changedTouches[0].screenX;
+      touchStartY = e.changedTouches[0].screenY;
+    }
+  }, { passive: true });
+
+  noteDialog.addEventListener("touchend", (e) => {
+    if (e.changedTouches.length > 0) {
+      const touchEndX = e.changedTouches[0].screenX;
+      const touchEndY = e.changedTouches[0].screenY;
+      handleDialogSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+    }
+  }, { passive: true });
+}
+
+function handleDialogSwipe(startX, startY, endX, endY) {
+  const diffX = endX - startX;
+  const diffY = endY - startY;
+  const minSwipeDistance = 50;
+  const maxVerticalDistance = 60;
+
+  if (Math.abs(diffX) > minSwipeDistance && Math.abs(diffY) < maxVerticalDistance) {
+    if (diffX > 0) {
+      // Swipe Right -> Previous
+      const prevBtn = document.getElementById("dialogPrevBtn");
+      if (prevBtn && !prevBtn.hidden && prevBtn.offsetParent !== null) {
+        prevBtn.click();
+      }
+    } else {
+      // Swipe Left -> Next
+      const nextBtn = document.getElementById("dialogNextBtn");
+      if (nextBtn && !nextBtn.hidden && nextBtn.offsetParent !== null) {
+        nextBtn.click();
+      }
+    }
+  }
+}
 
 
 

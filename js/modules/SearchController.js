@@ -427,7 +427,7 @@ function navigateDialog(direction) {
       state.callbacks.onPanToSticker(target);
     }
     if (state.callbacks.onNavigateSticker) {
-      state.callbacks.onNavigateSticker(target);
+      state.callbacks.onNavigateSticker(target, direction);
     } else if (state.callbacks.onFocusSticker) {
       state.callbacks.onFocusSticker(target);
     }

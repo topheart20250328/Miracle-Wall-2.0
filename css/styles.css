@@ -1033,6 +1033,7 @@ main::before {
   box-shadow: none;
   padding: clamp(1.8rem, 3vw, 2.6rem);
   overflow: visible;
+  touch-action: pan-y;
 }
 
 .note-dialog::backdrop {
@@ -1230,6 +1231,8 @@ main::before {
   resize: none;
   text-align: center;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior: contain;
 }
 
 #noteInput:focus,
@@ -2406,5 +2409,56 @@ html.hide-online-status #onlineCountBtn {
 
 .palette-sticker.shake-attention {
   animation: shake-attention 0.6s ease-in-out;
+}
+
+
+/* Mobile Optimization for Keyboard/Landscape */
+@media (max-height: 660px) {
+  .note-dialog {
+    max-height: 100dvh;
+    overflow-y: auto;
+    padding: 1rem;
+    overscroll-behavior: contain;
+  }
+
+  #noteForm {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+    min-height: auto;
+    padding: 0.5rem 0 2rem 0;
+    gap: 0.8rem;
+  }
+
+  .dialog-header {
+    position: static;
+    transform: none;
+    margin-bottom: 0.5rem;
+  }
+
+  .flip-card {
+    width: clamp(240px, 50vh, 320px);
+    flex-shrink: 0;
+  }
+
+  .form-error,
+  .note-timestamp,
+  .note-lock-notice {
+    position: static;
+    transform: none;
+    margin: 0.2rem 0;
+  }
+
+  .dialog-actions {
+    position: static;
+    transform: none;
+    margin-top: 0.5rem;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  #noteInput {
+    min-height: 140px;
+  }
 }
 
