@@ -1068,26 +1068,25 @@ function focusDialog(originNode, options = {}) {
       console.warn("Failed to open modal for measurement", e);
     }
 
-    // 2. Measure the actual card position with a slight delay to ensure layout stability
-    requestAnimationFrame(() => {
-      let targetRect = null;
-      const card = document.querySelector(".flip-card");
-      if (card) {
-        const rect = card.getBoundingClientRect();
-        if (rect.width && rect.height) {
-          targetRect = {
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            height: rect.height
-          };
-        }
+    // 2. Measure the actual card position
+    let targetRect = null;
+    const card = document.querySelector(".flip-card");
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      if (rect.width && rect.height) {
+        targetRect = {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height
+        };
       }
+    }
 
-      StickerManager.animateStickerZoom(originNode, { 
-        sourceRect: paletteRect ?? undefined,
-        targetRect: targetRect 
-      })
+    StickerManager.animateStickerZoom(originNode, { 
+      sourceRect: paletteRect ?? undefined,
+      targetRect: targetRect 
+    })
       .then(() => {
         state.isTransitioning = false;
         ZoomController.setInteractionLocked(false);
@@ -1124,7 +1123,6 @@ function focusDialog(originNode, options = {}) {
           console.error("Failed to open note dialog", openError);
         }
       });
-    });
   } else {
     if (originNode) {
       StickerManager.setStickerInFlight(originNode, true);
