@@ -407,7 +407,7 @@ export function onDialogClosed() {
   }
 }
 
-function navigateDialog(direction) {
+export function navigateDialog(direction) {
   if (state.matchedStickers.length <= 1) return;
 
   state.currentIndex += direction;

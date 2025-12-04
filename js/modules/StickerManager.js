@@ -265,8 +265,21 @@ export function animateStickerZoom(originNode, options = {}) {
   }
 
   const targetSize = computeZoomTargetSize();
-  const targetLeft = (window.innerWidth - targetSize) / 2;
-  const targetTop = (window.innerHeight - targetSize) / 2;
+  
+  let targetLeft, targetTop, targetWidth, targetHeight;
+  
+  if (options.targetRect) {
+    targetLeft = options.targetRect.left;
+    targetTop = options.targetRect.top;
+    targetWidth = options.targetRect.width;
+    targetHeight = options.targetRect.height;
+  } else {
+    targetLeft = (window.innerWidth - targetSize) / 2;
+    targetTop = (window.innerHeight - targetSize) / 2;
+    targetWidth = targetSize;
+    targetHeight = targetSize;
+  }
+
   const isMobile = window.innerWidth <= 640;
 
   return new Promise((resolve) => {
@@ -311,8 +324,8 @@ export function animateStickerZoom(originNode, options = {}) {
       .add({
         left: targetLeft,
         top: targetTop,
-        width: targetSize,
-        height: targetSize,
+        width: targetWidth,
+        height: targetHeight,
         duration: 480,
         round: 2,
         complete: finishResolve,

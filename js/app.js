@@ -316,6 +316,11 @@ function init() {
       EffectsManager.setShimmerPaused(isPlaying);
       if (isPlaying) {
         SearchController.closeSearch();
+      } else {
+        if (state.sweepInterval) {
+          clearInterval(state.sweepInterval);
+          state.sweepInterval = null;
+        }
       }
     },
     onStickerReveal: (sticker) => {
@@ -325,6 +330,12 @@ function init() {
     },
     onPlaybackNearEnd: () => {
       EffectsManager.playEagleSweepEffect();
+      
+      // Repeat sweep effect every 8 seconds
+      if (state.sweepInterval) clearInterval(state.sweepInterval);
+      state.sweepInterval = setInterval(() => {
+        EffectsManager.playEagleSweepEffect();
+      }, 8000);
     },
     onPlaybackComplete: () => {
       PlaybackController.finalizePlaybackUI();
@@ -1008,11 +1019,25 @@ function focusDialog(originNode, options = {}) {
   const { usePaletteSource = false } = options;
   const paletteRect = usePaletteSource ? StickerManager.getPaletteTargetRect() : null;
   const canAnimate = Boolean((paletteRect || originNode) && window.anime && typeof window.anime.timeline === "function");
-  const openModal = () => {
+  
+  const openModal = (visible = true) => {
     if (document.body) {
       document.body.classList.add("dialog-open");
     }
     try {
+      // Ensure opacity is reset if making visible
+      if (visible) {
+        noteDialog.style.opacity = "";
+        noteDialog.style.pointerEvents = "";
+        noteDialog.classList.remove("measuring");
+        noteDialog.classList.add("backdrop-active");
+      } else {
+        noteDialog.style.opacity = "0";
+        noteDialog.style.pointerEvents = "none";
+        noteDialog.classList.add("measuring");
+        noteDialog.classList.remove("backdrop-active");
+      }
+
       if (typeof noteDialog.showModal === "function") {
         if (!noteDialog.open) {
           noteDialog.showModal();
@@ -1024,17 +1049,54 @@ function focusDialog(originNode, options = {}) {
       document.body?.classList.remove("dialog-open");
       throw error;
     }
-    requestAnimationFrame(() => playFlipReveal());
+    
+    // Only play flip reveal if visible, otherwise wait
+    if (visible) {
+      requestAnimationFrame(() => playFlipReveal());
+    }
   };
+
   if (canAnimate && originNode && originNode.isConnected) {
     state.isTransitioning = true;
     ZoomController.setInteractionLocked(true);
     StickerManager.setStickerInFlight(originNode, true);
-    StickerManager.animateStickerZoom(originNode, { sourceRect: paletteRect ?? undefined })
+
+    // 1. Open invisibly to measure layout
+    try {
+      openModal(false);
+    } catch (e) {
+      console.warn("Failed to open modal for measurement", e);
+    }
+
+    // 2. Measure the actual card position
+    let targetRect = null;
+    const card = document.querySelector(".flip-card");
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      if (rect.width && rect.height) {
+        targetRect = {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height
+        };
+      }
+    }
+
+    StickerManager.animateStickerZoom(originNode, { 
+      sourceRect: paletteRect ?? undefined,
+      targetRect: targetRect 
+    })
       .then(() => {
         state.isTransitioning = false;
         ZoomController.setInteractionLocked(false);
-        openModal();
+        
+        // 3. Make visible and play flip
+        noteDialog.style.opacity = "1";
+        noteDialog.style.pointerEvents = "auto";
+        noteDialog.classList.remove("measuring");
+        noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
+        requestAnimationFrame(() => playFlipReveal());
       })
       .catch((error) => {
         state.isTransitioning = false;
@@ -1043,7 +1105,20 @@ function focusDialog(originNode, options = {}) {
         StickerManager.setStickerInFlight(originNode, false);
         StickerManager.cleanupZoomOverlay();
         try {
-          openModal();
+          // Ensure it's visible if animation failed
+          noteDialog.style.opacity = "";
+          noteDialog.style.pointerEvents = "";
+          noteDialog.classList.remove("measuring");
+          noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
+          if (!noteDialog.open) openModal(true);
+          else {
+             // If already open but hidden
+             noteDialog.style.opacity = "1";
+             noteDialog.style.pointerEvents = "auto";
+             noteDialog.classList.remove("measuring");
+             noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
+             requestAnimationFrame(() => playFlipReveal());
+          }
         } catch (openError) {
           console.error("Failed to open note dialog", openError);
         }
@@ -1052,7 +1127,7 @@ function focusDialog(originNode, options = {}) {
     if (originNode) {
       StickerManager.setStickerInFlight(originNode, true);
     }
-    openModal();
+    openModal(true);
   }
 }
 
@@ -1238,6 +1313,7 @@ async function closeDialogWithResult(result) {
   state.isTransitioning = true;
   ZoomController.setInteractionLocked(true);
   noteDialog.classList.add("closing");
+  noteDialog.classList.remove("backdrop-active"); // Ensure fade-in class is removed so fade-out takes over
 
   // Hide navigation buttons immediately before animation
   const prevBtn = document.getElementById("dialogPrevBtn");
@@ -1898,16 +1974,10 @@ function handleDialogSwipe(startX, startY, endX, endY) {
   if (Math.abs(diffX) > minSwipeDistance && Math.abs(diffY) < Math.abs(diffX) * maxVerticalRatio) {
     if (diffX > 0) {
       // Swipe Right -> Previous
-      const prevBtn = document.getElementById("dialogPrevBtn");
-      if (prevBtn && !prevBtn.hidden && prevBtn.offsetParent !== null) {
-        prevBtn.click();
-      }
+      SearchController.navigateDialog(-1);
     } else {
       // Swipe Left -> Next
-      const nextBtn = document.getElementById("dialogNextBtn");
-      if (nextBtn && !nextBtn.hidden && nextBtn.offsetParent !== null) {
-        nextBtn.click();
-      }
+      SearchController.navigateDialog(1);
     }
   }
 }
