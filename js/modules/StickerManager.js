@@ -346,132 +346,82 @@ export function animateStickerZoom(originNode, options = {}) {
   });
 }
 
-export function animateStickerReturn(pendingSnapshot, result) {
-  if (result === "deleted" || pendingSnapshot?.deleted) {
-    if (pendingSnapshot?.node?.isConnected) {
-      pendingSnapshot.node.remove();
-    }
-    return Promise.resolve();
-  }
-  const node = pendingSnapshot?.node;
+export function animateStickerReturn(pending, result, startRectOverride = null) {
+  const node = pending.node;
   if (!node) {
     return Promise.resolve();
   }
-  const returnToPalette = Boolean(pendingSnapshot.isNew && result !== "saved");
-  const shouldPlayImpact = !returnToPalette && result === "saved";
-  const hasAnime = Boolean(window.anime && typeof window.anime.timeline === "function");
-  if (!hasAnime) {
-    finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      callbacks.playPlacementImpactEffect(node);
+  
+  // If we have a startRectOverride (from closeDialogWithResult), use it
+  // Otherwise try to measure the card again
+  let startRect = startRectOverride;
+  if (!startRect) {
+    const card = document.querySelector(".flip-card");
+    if (card) {
+      const rect = card.getBoundingClientRect();
+      if (rect.width && rect.height) {
+        startRect = {
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height
+        };
+      }
     }
-    return Promise.resolve();
   }
 
-  const centerRect = computeCenterRect();
-  const isMobile = window.innerWidth <= 640;
-  const targetRaw = returnToPalette ? getPaletteTargetRect() : node.getBoundingClientRect();
-  if (!centerRect || !targetRaw || !targetRaw.width || !targetRaw.height) {
-    finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      callbacks.playPlacementImpactEffect(node);
-    }
-    return Promise.resolve();
+  // If still no rect, fallback to computed center
+  if (!startRect) {
+    startRect = computeCenterRect();
   }
 
-  cleanupZoomOverlay();
+  const returnToPalette = pending.isNew && result !== "saved";
+  let targetRect;
+  if (returnToPalette) {
+    targetRect = getPaletteTargetRect();
+  } else {
+    const rect = node.getBoundingClientRect();
+    targetRect = {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+    };
+  }
+  if (!targetRect) {
+    finalizeReturnWithoutAnimation(node, returnToPalette);
+    return Promise.resolve();
+  }
+  
+  // Create overlay at the EXACT position where the dialog card currently is
   const overlay = createStickerOverlay({
-    left: centerRect.left,
-    top: centerRect.top,
-    width: centerRect.width,
-    height: centerRect.height,
+    left: startRect.left,
+    top: startRect.top,
+    width: startRect.width,
+    height: startRect.height,
     opacity: 1,
   });
+
   if (!overlay) {
     finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      callbacks.playPlacementImpactEffect(node);
-    }
-    return Promise.resolve();
-  }
-
-  const targetRect = normalizeTargetRect(targetRaw, returnToPalette);
-  if (!targetRect) {
-    overlay.remove();
-    finalizeReturnWithoutAnimation(node, returnToPalette);
-    if (shouldPlayImpact) {
-      callbacks.playPlacementImpactEffect(node);
-    }
     return Promise.resolve();
   }
 
   return new Promise((resolve) => {
-    let finished = false;
-    let timelineRef = null;
-
-    const finalize = () => {
-      if (finished) {
-        return;
-      }
-      finished = true;
-      if (globalState.zoomAnimation === timelineRef && timelineRef && typeof timelineRef.pause === "function") {
-        timelineRef.pause();
-      }
-      if (globalState.zoomAnimation === timelineRef) {
-        globalState.zoomAnimation = null;
-      }
-      if (globalState.zoomOverlay === overlay) {
-        globalState.zoomOverlay = null;
-      }
-      overlay.remove();
-      finalizeReturnWithoutAnimation(node, returnToPalette);
-      if (shouldPlayImpact) {
-        callbacks.playPlacementImpactEffect(node);
-      }
-      if (globalState.zoomResolve === finalizeAndResolve) {
-        globalState.zoomResolve = null;
-      }
-      resolve();
-    };
-
-    const finalizeAndResolve = () => finalize();
-
-    globalState.zoomResolve = finalizeAndResolve;
-    timelineRef = window.anime.timeline({
+    window.anime({
       targets: overlay,
-      easing: "easeInOutCubic",
+      left: targetRect.left,
+      top: targetRect.top,
+      width: targetRect.width,
+      height: targetRect.height,
+      easing: "cubicBezier(0.2, 0, 0.2, 1)",
+      duration: 500,
+      complete: () => {
+        overlay.remove();
+        finalizeReturnWithoutAnimation(node, returnToPalette);
+        resolve();
+      }
     });
-    globalState.zoomAnimation = timelineRef;
-
-    timelineRef
-      .add({
-        left: targetRect.left,
-        top: targetRect.top,
-        width: targetRect.width,
-        height: targetRect.height,
-        duration: 420,
-        round: 2,
-        complete: () => {
-          // Show the original sticker BEFORE fading out the overlay
-          // This prevents the "flash" of empty space
-          if (!returnToPalette && node) {
-            setStickerInFlight(node, false);
-          }
-        }
-      })
-      .add({
-        opacity: 0,
-        duration: 200, // Slightly longer fade out for smoothness
-        easing: "easeOutQuad",
-        // No delay needed if we show the sticker at the start of this phase
-        complete: finalizeAndResolve,
-      });
-
-    if (timelineRef.finished && typeof timelineRef.finished.then === "function") {
-      timelineRef.finished.catch(finalize);
-    } else {
-      setTimeout(finalize, 640);
-    }
   });
 }
 
@@ -496,7 +446,7 @@ export function finalizeReturnWithoutAnimation(node, returnToPalette) {
   }
 }
 
-function computeZoomTargetSize() {
+export function computeZoomTargetSize() {
   const width = window.innerWidth || 0;
   const height = window.innerHeight || 0;
   const viewportMin = Math.min(width, height);

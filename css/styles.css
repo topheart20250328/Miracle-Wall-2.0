@@ -292,13 +292,22 @@ main::before {
   cursor: pointer;
   stroke: rgba(255, 255, 255, 0.4);
   stroke-width: 3;
-  /* Use CSS drop-shadow stack for better mobile compatibility than SVG filters */
-  filter: drop-shadow(0 15px 10px rgba(0,0,0,0.4)) drop-shadow(0 0 1px rgba(255,255,255,0.3));
   transition: filter 0.3s ease;
 }
 
+.wall .eagle-shape-group {
+  /* Apply drop-shadow to the group to prevent double shadows on overlapping paths */
+  filter: drop-shadow(0 15px 10px rgba(0,0,0,0.4)) drop-shadow(0 0 1px rgba(255,255,255,0.3));
+}
+
 .wall .eagle-shape:hover {
-  filter: drop-shadow(0 15px 15px rgba(0,0,0,0.5)) drop-shadow(0 0 2px rgba(255,255,255,0.5)) brightness(1.1);
+  /* Brightness on hover */
+  filter: brightness(1.1);
+}
+
+.wall .eagle-shape-group:hover {
+  /* Enhance shadow on group hover */
+  filter: drop-shadow(0 15px 15px rgba(0,0,0,0.5)) drop-shadow(0 0 2px rgba(255,255,255,0.5));
 }
 
 

@@ -1083,6 +1083,14 @@ function focusDialog(originNode, options = {}) {
       }
     }
 
+    // Fallback if measurement failed (e.g. display:none or layout not ready)
+    if (!targetRect || targetRect.width === 0) {
+      const size = StickerManager.computeZoomTargetSize();
+      const left = (window.innerWidth - size) / 2;
+      const top = (window.innerHeight - size) / 2;
+      targetRect = { left, top, width: size, height: size };
+    }
+
     StickerManager.animateStickerZoom(originNode, { 
       sourceRect: paletteRect ?? undefined,
       targetRect: targetRect 
@@ -1334,8 +1342,23 @@ async function closeDialogWithResult(result) {
     let returnAnimPromise = null;
     
     if (pendingSnapshot && pendingSnapshot.node) {
+        // Recalculate current card position to ensure accuracy after keyboard/scroll shifts
+        const card = document.querySelector(".flip-card");
+        let currentCardRect = null;
+        if (card) {
+          const rect = card.getBoundingClientRect();
+          if (rect.width && rect.height) {
+            currentCardRect = {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height
+            };
+          }
+        }
+
         // Create overlay immediately to cover the gap
-        returnAnimPromise = StickerManager.animateStickerReturn(pendingSnapshot, result);
+        returnAnimPromise = StickerManager.animateStickerReturn(pendingSnapshot, result, currentCardRect);
         state.isAnimatingReturn = true; // Flag to protect animation from handleDialogClose cleanup
     }
 
