@@ -1068,74 +1068,74 @@ function focusDialog(originNode, options = {}) {
       console.warn("Failed to open modal for measurement", e);
     }
 
-    // Force layout update to ensure getBoundingClientRect works
-    if (noteDialog) {
-      void noteDialog.offsetHeight;
-    }
-
-    // 2. Measure the actual card position
-    let targetRect = null;
-    const card = document.querySelector(".flip-card");
-    if (card) {
-      const rect = card.getBoundingClientRect();
-      if (rect.width && rect.height) {
-        targetRect = {
-          left: rect.left,
-          top: rect.top,
-          width: rect.width,
-          height: rect.height
-        };
-      }
-    }
-
-    // Fallback if measurement failed (e.g. display:none or layout not ready)
-    if (!targetRect || targetRect.width === 0) {
-      const size = StickerManager.computeZoomTargetSize();
-      const left = (window.innerWidth - size) / 2;
-      const top = (window.innerHeight - size) / 2;
-      targetRect = { left, top, width: size, height: size };
-    }
-
-    StickerManager.animateStickerZoom(originNode, { 
-      sourceRect: paletteRect ?? undefined,
-      targetRect: targetRect 
-    })
-      .then(() => {
-        state.isTransitioning = false;
-        ZoomController.setInteractionLocked(false);
-        
-        // 3. Make visible and play flip
-        noteDialog.style.opacity = "1";
-        noteDialog.style.pointerEvents = "auto";
-        noteDialog.classList.remove("measuring");
-        noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
-        requestAnimationFrame(() => playFlipReveal());
-      })
-      .catch((error) => {
-        state.isTransitioning = false;
-        ZoomController.setInteractionLocked(false);
-        console.error("Sticker zoom animation failed", error);
-        StickerManager.setStickerInFlight(originNode, false);
-        StickerManager.cleanupZoomOverlay();
-        try {
-          // Ensure it's visible if animation failed
-          noteDialog.style.opacity = "";
-          noteDialog.style.pointerEvents = "";
-          noteDialog.classList.remove("measuring");
-          noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
-          if (!noteDialog.open) openModal(true);
-          else {
-             // If already open but hidden
-             noteDialog.style.opacity = "1";
-             noteDialog.style.pointerEvents = "auto";
-             noteDialog.classList.remove("measuring");
-             noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
-             requestAnimationFrame(() => playFlipReveal());
+    // Use double RAF to ensure layout is stable before measuring
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // 2. Measure the actual card position
+        let targetRect = null;
+        const card = document.querySelector(".flip-card");
+        if (card) {
+          const rect = card.getBoundingClientRect();
+          if (rect.width && rect.height) {
+            targetRect = {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height
+            };
           }
-        } catch (openError) {
-          console.error("Failed to open note dialog", openError);
         }
+
+        // Fallback if measurement failed (e.g. display:none or layout not ready)
+        if (!targetRect || targetRect.width === 0) {
+          const size = StickerManager.computeZoomTargetSize();
+          const left = (window.innerWidth - size) / 2;
+          const top = (window.innerHeight - size) / 2;
+          targetRect = { left, top, width: size, height: size };
+        }
+
+        StickerManager.animateStickerZoom(originNode, { 
+          sourceRect: paletteRect ?? undefined,
+          targetRect: targetRect 
+        })
+          .then(() => {
+            state.isTransitioning = false;
+            ZoomController.setInteractionLocked(false);
+            
+            // 3. Make visible and play flip
+            noteDialog.style.opacity = "1";
+            noteDialog.style.pointerEvents = "auto";
+            noteDialog.classList.remove("measuring");
+            noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
+            requestAnimationFrame(() => playFlipReveal());
+          })
+          .catch((error) => {
+            state.isTransitioning = false;
+            ZoomController.setInteractionLocked(false);
+            console.error("Sticker zoom animation failed", error);
+            StickerManager.setStickerInFlight(originNode, false);
+            StickerManager.cleanupZoomOverlay();
+            try {
+              // Ensure it's visible if animation failed
+              noteDialog.style.opacity = "";
+              noteDialog.style.pointerEvents = "";
+              noteDialog.classList.remove("measuring");
+              noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
+              if (!noteDialog.open) openModal(true);
+              else {
+                 // If already open but hidden
+                 noteDialog.style.opacity = "1";
+                 noteDialog.style.pointerEvents = "auto";
+                 noteDialog.classList.remove("measuring");
+                 noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
+                 requestAnimationFrame(() => playFlipReveal());
+              }
+            } catch (openError) {
+              console.error("Failed to open note dialog", openError);
+            }
+          });
       });
+    });
   } else {
     if (originNode) {
       StickerManager.setStickerInFlight(originNode, true);
@@ -1349,10 +1349,6 @@ async function closeDialogWithResult(result) {
     if (pendingSnapshot && pendingSnapshot.node) {
         // Recalculate current card position to ensure accuracy after keyboard/scroll shifts
         const card = document.querySelector(".flip-card");
-        
-        // Force layout update to ensure accurate measurement
-        if (card) void card.offsetHeight;
-
         let currentCardRect = null;
         if (card) {
           const rect = card.getBoundingClientRect();

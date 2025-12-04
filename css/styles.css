@@ -300,13 +300,6 @@ main::before {
   filter: drop-shadow(0 15px 10px rgba(0,0,0,0.4)) drop-shadow(0 0 1px rgba(255,255,255,0.3));
 }
 
-@media (max-width: 640px) {
-  .wall .eagle-shape-group {
-    /* Simpler shadow for mobile to avoid rendering artifacts/double vision */
-    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));
-  }
-}
-
 .wall .eagle-shape:hover {
   /* Brightness on hover */
   filter: brightness(1.1);
@@ -346,6 +339,20 @@ main::before {
     animation: none;
     transform: none;
     opacity: 0.5;
+  }
+}
+
+@media (max-width: 640px) {
+  /* Simplify Eagle 3D for mobile to prevent double-layer artifacts in Line App */
+  .wall .eagle-shape-group {
+    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+  }
+  
+  .wall .eagle-glow {
+    /* Reduce glow intensity and blur radius for better mobile compositing */
+    filter: blur(15px);
+    opacity: 0.4;
+    mix-blend-mode: normal; /* Fallback from screen to normal to prevent compositing issues */
   }
 }
 
@@ -971,7 +978,7 @@ main::before {
 /* Dialog Navigation Buttons */
 .dialog-nav-btn {
   position: absolute;
-  top: 40%;
+  top: 50%;
   transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1020,6 +1027,11 @@ main::before {
     border: 1px solid rgba(244, 192, 96, 0.3); /* Subtle accent border */
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     color: var(--accent);
+    /* Move buttons to screen edges using fixed positioning */
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 100; /* Ensure above dialog content */
   }
   
   /* Increase touch target size without affecting visuals */
@@ -1032,11 +1044,13 @@ main::before {
   }
   
   .dialog-nav-btn.prev {
-    left: -1.2rem;
+    left: 0.8rem;
+    right: auto;
   }
   
   .dialog-nav-btn.next {
-    right: -1.2rem;
+    right: 0.8rem;
+    left: auto;
   }
   
   .dialog-nav-btn svg {
