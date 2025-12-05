@@ -159,8 +159,15 @@ function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
   wallSvg.addEventListener("click", handleEagleClick);
   wallSvg.addEventListener("keydown", handleWallKeydown);
-  paletteSticker?.addEventListener("pointerdown", handlePalettePointerDown);
-  paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
+  if (paletteSticker) {
+    paletteSticker.addEventListener("pointerdown", handlePalettePointerDown);
+    paletteSticker.addEventListener("keydown", handlePaletteKeydown);
+    // Prevent double-tap zoom on iOS
+    paletteSticker.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  }
   noteForm.addEventListener("submit", handleFormSubmit);
   cancelModalBtn.addEventListener("click", handleCancelAction);
   noteDialog.addEventListener("cancel", handleDialogCancel);
@@ -1771,14 +1778,21 @@ function playFlipReveal() {
 
 function finalizeFlipReveal() {
   if (!flipCardInner) {
-    noteInput.focus({ preventScroll: true });
+    // Only auto-focus on desktop to prevent keyboard popping up on mobile
+    if (window.innerWidth > 640) {
+      noteInput.focus({ preventScroll: true });
+    }
     return;
   }
   flipCardInner.dataset.state = "back";
   flipCardInner.style.transform = "rotateY(180deg)";
   flipFront?.setAttribute("aria-hidden", "true");
   flipBack?.setAttribute("aria-hidden", "false");
-  requestAnimationFrame(() => noteInput.focus({ preventScroll: true }));
+  
+  // Only auto-focus on desktop to prevent keyboard popping up on mobile
+  if (window.innerWidth > 640) {
+    requestAnimationFrame(() => noteInput.focus({ preventScroll: true }));
+  }
 }
 
 function playFlipReturn() {

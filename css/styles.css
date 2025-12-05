@@ -532,6 +532,10 @@ main::before {
   backdrop-filter: none;
   z-index: 1400;
   transition: opacity 0.8s ease;
+  /* Prevent double-tap zoom on iOS */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .zoom-controls {
@@ -552,6 +556,10 @@ main::before {
   max-width: 92vw;
   flex-wrap: nowrap;
   pointer-events: auto;
+  /* Prevent double-tap zoom on iOS */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .zoom-controls button {
@@ -1193,7 +1201,8 @@ main::before {
 
 .flip-face.front {
   background: transparent;
-  box-shadow: 0 28px 48px rgba(0, 0, 0, 0.35);
+  /* Remove shadow to prevent clipping artifacts on mobile */
+  box-shadow: none;
   border: none;
   padding: 0;
   color: #3b2c16;
@@ -1206,6 +1215,19 @@ main::before {
   border: 12px solid #333232;
   padding: clamp(1.2rem, 3.8vmin, 2.2rem);
   transform: rotateY(180deg);
+}
+
+@media (max-width: 640px) {
+  .flip-face.front,
+  .flip-face.back {
+    /* Remove external shadows on mobile to prevent clipping */
+    box-shadow: none;
+  }
+  
+  .flip-face.back {
+    /* Keep internal shadow for depth, but remove external drop shadow */
+    box-shadow: inset 0 18px 32px rgba(255, 255, 255, 0.1);
+  }
 }
 
 .flip-body {
