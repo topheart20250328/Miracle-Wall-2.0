@@ -434,7 +434,21 @@ export function finalizeReturnWithoutAnimation(node, returnToPalette) {
       node.remove();
     }
   } else {
+    // Temporarily disable transition to prevent opacity flash (fade-in) when removing .in-flight
+    const originalTransition = node.style.transition;
+    node.style.transition = "none";
+    
     setStickerInFlight(node, false);
+    
+    // Force reflow to ensure the opacity change happens instantly without transition
+    void node.offsetWidth;
+    
+    // Restore transition
+    if (originalTransition) {
+      node.style.transition = originalTransition;
+    } else {
+      node.style.removeProperty("transition");
+    }
     
     // Reset any lingering hover/zoom effects
     resetStickerScale(node);
