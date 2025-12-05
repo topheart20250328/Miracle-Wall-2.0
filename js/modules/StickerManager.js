@@ -417,22 +417,14 @@ export function animateStickerReturn(pending, result, startRectOverride = null) 
       easing: "cubicBezier(0.2, 0, 0.2, 1)",
       duration: 500,
       complete: () => {
-        // Prevent flash by disabling transition on the node before showing it
-        // This stops the opacity from fading in (which causes a momentary gap/flash)
-        if (node) {
-          node.style.transition = "none";
-        }
-
+        // Restore original sticker visibility first to prevent flicker
         finalizeReturnWithoutAnimation(node, returnToPalette);
-        overlay.remove();
         
-        // Restore transition after a brief moment
-        if (node) {
-          requestAnimationFrame(() => {
-            node.style.transition = "";
-          });
-        }
-        resolve();
+        // Remove overlay after a brief delay to ensure the original is rendered
+        requestAnimationFrame(() => {
+          overlay.remove();
+          resolve();
+        });
       }
     });
   });
