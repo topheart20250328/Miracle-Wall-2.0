@@ -1026,16 +1026,16 @@ main::before {
   .dialog-nav-btn {
     width: 3.2rem;
     height: 3.2rem;
-    background: rgba(20, 20, 24, 0.85); /* Darker, more solid background */
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(244, 192, 96, 0.3); /* Subtle accent border */
+    background: rgba(20, 20, 24, 0.95); /* Solid background for performance */
+    backdrop-filter: none; /* Remove blur for performance */
+    border: 1px solid rgba(244, 192, 96, 0.3);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     color: var(--accent);
     /* Move buttons to screen edges using fixed positioning */
     position: fixed;
     top: 50%;
     transform: translateY(-50%);
-    z-index: 100; /* Ensure above dialog content */
+    z-index: 2000; /* High z-index to ensure visibility */
   }
   
   /* Increase touch target size without affecting visuals */
@@ -1048,12 +1048,12 @@ main::before {
   }
   
   .dialog-nav-btn.prev {
-    left: 0.8rem;
+    left: max(0.5rem, env(safe-area-inset-left));
     right: auto;
   }
   
   .dialog-nav-btn.next {
-    right: 0.8rem;
+    right: max(0.5rem, env(safe-area-inset-right));
     left: auto;
   }
   
@@ -1107,6 +1107,15 @@ main::before {
 .note-dialog.backdrop-active::backdrop {
   opacity: 1;
   backdrop-filter: blur(6px);
+}
+
+@media (max-width: 640px) {
+  .note-dialog.backdrop-active::backdrop {
+    /* Disable backdrop-filter on mobile for performance */
+    backdrop-filter: none;
+    /* Use a darker solid overlay instead */
+    background: rgba(0, 0, 0, 0.85);
+  }
 }
 
 .note-dialog.closing::backdrop {
@@ -1294,6 +1303,19 @@ main::before {
   left: 50%;
   transform: translateX(-50%);
   white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .dialog-search-counter {
+    position: fixed;
+    bottom: max(2rem, env(safe-area-inset-bottom));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2001;
+    background: rgba(20, 20, 24, 0.95);
+    border-color: rgba(244, 192, 96, 0.5);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  }
 }
 
 #noteInput {
