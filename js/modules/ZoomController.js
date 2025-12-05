@@ -280,6 +280,8 @@ function handleStagePointerUp(event) {
     releasePointer(event.pointerId);
     panState.pointerId = null;
     panState.moved = false;
+    // Force redraw once when interaction ends to ensure crisp rendering
+    invalidateStickerRendering();
   }
   if (panState.pointers.has(event.pointerId)) {
     panState.pointers.delete(event.pointerId);
@@ -288,6 +290,7 @@ function handleStagePointerUp(event) {
       if (panState.pointers.size === 1) {
         panState.pointerId = null;
         panState.moved = false;
+        invalidateStickerRendering();
       }
     }
   }
@@ -385,31 +388,22 @@ function setZoomScale(nextScale, anchorEvent) {
   updateZoomIndicator();
 }
 
-let transformRafId = null;
-
 function applyZoomTransform(skipInvalidation = false) {
   if (!elements.wallSvg) {
     return;
   }
-  
-  if (transformRafId) {
-    return; // Already scheduled
+  elements.wallSvg.style.transformOrigin = "center";
+  elements.wallSvg.style.transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
+  if (!skipInvalidation) {
+    invalidateStickerRendering();
   }
-
-  transformRafId = requestAnimationFrame(() => {
-    elements.wallSvg.style.transformOrigin = "center";
-    elements.wallSvg.style.transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
-    if (!skipInvalidation) {
-      invalidateStickerRendering();
-    }
-    transformRafId = null;
-  });
 }
 
 function applyPanDelta(deltaX, deltaY) {
   viewportState.offsetX = panState.startOffsetX + deltaX;
   viewportState.offsetY = panState.startOffsetY + deltaY;
-  applyZoomTransform();
+  // Skip invalidation during drag for performance
+  applyZoomTransform(true);
 }
 
 function invalidateStickerRendering() {

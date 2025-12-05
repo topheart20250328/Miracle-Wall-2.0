@@ -54,19 +54,9 @@ export function initEffectsManager(domElements, reducedMotion) {
   }
 
   initAmbientGlow();
-  
-  // Performance Optimization: Disable heavy pixel-manipulation fire effects on mobile
-  // These effects use putImageData() every frame which kills mobile CPU/GPU
-  const isMobile = window.innerWidth < 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  
-  if (!isMobile) {
-    initFireEffect();
-    initBottomFire();
-    initHolyFire();
-  } else {
-    console.log("Mobile device detected: Disabling heavy fire effects for performance.");
-  }
-
+  initFireEffect();
+  initBottomFire();
+  initHolyFire();
   initResonanceCanvas();
 }
 
@@ -1324,16 +1314,6 @@ export function getResonanceHeat() {
 }
 
 export function playResonanceEffect(remoteHeat = null) {
-  // Ensure canvas dimensions are set
-  if (resonanceState.width === 0 || resonanceState.height === 0) {
-    resonanceState.width = window.innerWidth;
-    resonanceState.height = window.innerHeight;
-    if (resonanceState.canvas) {
-      resonanceState.canvas.width = resonanceState.width;
-      resonanceState.canvas.height = resonanceState.height;
-    }
-  }
-
   // Sync: If remote heat is higher, catch up immediately
   if (remoteHeat !== null && typeof remoteHeat === "number") {
     if (remoteHeat > resonanceState.heat) {
@@ -1347,20 +1327,23 @@ export function playResonanceEffect(remoteHeat = null) {
   // Performance Protection:
   // If too many particles, reduce emission or skip
   const currentParticles = resonanceState.particles.length;
-  if (currentParticles > 300) return; // Hard cap reduced for mobile safety
+  if (currentParticles > 500) return; // Hard cap
   
   // Add particles
   // Always spawn 1 particle per click to avoid clutter
   let count = 1;
   
+  // Throttle count if heavy load
+  if (currentParticles > 300) count = Math.max(1, Math.floor(count / 2));
+
   for (let i = 0; i < count; i++) {
     // Size increases slightly with heat
     const baseSize = 10 + (resonanceState.heat / 20); 
     const size = baseSize + Math.random() * 10;
     
     const x = (5 + Math.random() * 90) * resonanceState.width / 100;
-    // Start slightly higher to be immediately visible
-    const y = resonanceState.height - 10; 
+    // Start visible on screen
+    const y = resonanceState.height - 20;
     
     // Gradual Color Transition with Jitter
     // Uses LOCAL heat state, so high-heat users see high-heat colors even from low-heat users
@@ -1372,7 +1355,7 @@ export function playResonanceEffect(remoteHeat = null) {
       size,
       color,
       vx: (Math.random() - 0.5) * 1.0,
-      vy: -(3 + Math.random() * 2 + (resonanceState.heat / 20)), // Faster upward speed
+      vy: -(2 + Math.random() * 2 + (resonanceState.heat / 25)), 
       life: 1,
       decay: 0.005 + Math.random() * 0.01
     });
@@ -1603,9 +1586,12 @@ function initBottomFire() {
   // Create canvas for the doom fire effect
   const canvas = document.createElement("canvas");
   canvas.id = "bottomFireCanvas";
-  // Low resolution for performance and "blur" effect
-  const w = 160;
-  const h = 100;
+  
+  // Performance: Use lower resolution on mobile
+  const isMobile = window.innerWidth < 768;
+  const w = isMobile ? 80 : 160; // Half resolution on mobile
+  const h = isMobile ? 50 : 100;
+  
   canvas.width = w;
   canvas.height = h;
   
@@ -1658,8 +1644,12 @@ function initHolyFire() {
   
   const canvas = document.createElement("canvas");
   canvas.id = "holyFireCanvas";
-  const w = 160;
-  const h = 100;
+  
+  // Performance: Use lower resolution on mobile
+  const isMobile = window.innerWidth < 768;
+  const w = isMobile ? 80 : 160;
+  const h = isMobile ? 50 : 100;
+  
   canvas.width = w;
   canvas.height = h;
   
