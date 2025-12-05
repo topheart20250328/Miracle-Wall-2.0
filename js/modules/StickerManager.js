@@ -417,8 +417,21 @@ export function animateStickerReturn(pending, result, startRectOverride = null) 
       easing: "cubicBezier(0.2, 0, 0.2, 1)",
       duration: 500,
       complete: () => {
-        overlay.remove();
+        // Prevent flash by disabling transition on the node before showing it
+        // This stops the opacity from fading in (which causes a momentary gap/flash)
+        if (node) {
+          node.style.transition = "none";
+        }
+
         finalizeReturnWithoutAnimation(node, returnToPalette);
+        overlay.remove();
+        
+        // Restore transition after a brief moment
+        if (node) {
+          requestAnimationFrame(() => {
+            node.style.transition = "";
+          });
+        }
         resolve();
       }
     });
@@ -434,21 +447,7 @@ export function finalizeReturnWithoutAnimation(node, returnToPalette) {
       node.remove();
     }
   } else {
-    // Temporarily disable transition to prevent opacity flash (fade-in) when removing .in-flight
-    const originalTransition = node.style.transition;
-    node.style.transition = "none";
-    
     setStickerInFlight(node, false);
-    
-    // Force reflow to ensure the opacity change happens instantly without transition
-    void node.offsetWidth;
-    
-    // Restore transition
-    if (originalTransition) {
-      node.style.transition = originalTransition;
-    } else {
-      node.style.removeProperty("transition");
-    }
     
     // Reset any lingering hover/zoom effects
     resetStickerScale(node);
