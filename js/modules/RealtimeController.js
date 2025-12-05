@@ -67,8 +67,17 @@ export async function setPresenceState(isEnabled) {
   }
 }
 
+let lastTriggerTime = 0;
+const TRIGGER_THROTTLE_MS = 100; // Max 10 messages per second
+
 export async function triggerResonance() {
   if (!channel) return;
+  
+  const now = Date.now();
+  if (now - lastTriggerTime < TRIGGER_THROTTLE_MS) {
+    return;
+  }
+  lastTriggerTime = now;
   
   // Get current local heat to share with others
   const currentHeat = callbacks.getHeat ? callbacks.getHeat() : 0;
