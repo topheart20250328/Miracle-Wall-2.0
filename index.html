@@ -223,6 +223,15 @@
       <div id="loadingSpinner" class="loading-spinner" role="status" aria-label="載入中">
         <div class="spinner-ring"></div>
       </div>
+      
+      <!-- Search Navigation Arrows (Moved outside dialog to prevent clipping) -->
+      <button type="button" id="dialogPrevBtn" class="dialog-nav-btn prev" hidden aria-label="上一則搜尋結果">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <button type="button" id="dialogNextBtn" class="dialog-nav-btn next" hidden aria-label="下一則搜尋結果">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <div id="dialogSearchCounter" class="dialog-search-counter" hidden></div>
     </section>
   </main>
 
@@ -231,16 +240,7 @@
       <header class="dialog-header">
         <h2 id="dialogTitle">神蹟留言</h2>
         <span class="dialog-subtitle" id="dialogSubtitle">（最多 800 字，留言於一日後鎖定）</span>
-        <div id="dialogSearchCounter" class="dialog-search-counter" hidden></div>
       </header>
-      
-      <!-- Search Navigation Arrows (Only visible when searching) -->
-      <button type="button" id="dialogPrevBtn" class="dialog-nav-btn prev" hidden aria-label="上一則搜尋結果">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M15 18l-6-6 6-6"/></svg>
-      </button>
-      <button type="button" id="dialogNextBtn" class="dialog-nav-btn next" hidden aria-label="下一則搜尋結果">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 18l6-6-6-6"/></svg>
-      </button>
 
       <div class="flip-card">
         <div class="flip-card-inner" id="flipCardInner" data-state="front">

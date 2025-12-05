@@ -159,15 +159,8 @@ function init() {
   state.deviceId = initialDeviceId ?? ensureDeviceId();
   wallSvg.addEventListener("click", handleEagleClick);
   wallSvg.addEventListener("keydown", handleWallKeydown);
-  if (paletteSticker) {
-    paletteSticker.addEventListener("pointerdown", handlePalettePointerDown);
-    paletteSticker.addEventListener("keydown", handlePaletteKeydown);
-    // Prevent double-tap zoom on iOS
-    paletteSticker.addEventListener("dblclick", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-  }
+  paletteSticker?.addEventListener("pointerdown", handlePalettePointerDown);
+  paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
   noteForm.addEventListener("submit", handleFormSubmit);
   cancelModalBtn.addEventListener("click", handleCancelAction);
   noteDialog.addEventListener("cancel", handleDialogCancel);
@@ -382,41 +375,12 @@ function init() {
     // Highlight palette sticker on load
     const palette = document.querySelector(".drag-palette");
     if (palette) {
-      // Prevent double-tap zoom on palette
-      let lastTap = 0;
-      palette.addEventListener('touchend', function (e) {
-        const currentTime = new Date().getTime();
-        const tapLength = currentTime - lastTap;
-        if (tapLength < 500 && tapLength > 0) {
-          e.preventDefault();
-        }
-        lastTap = currentTime;
-      });
-
       setTimeout(() => {
         palette.classList.add("palette-highlight");
         setTimeout(() => {
           palette.classList.remove("palette-highlight");
         }, 6000); // Highlight for 6 seconds
       }, 1000); // Start after 1 second
-    }
-
-    // Prevent double-tap zoom on zoom controls
-    const zoomControls = document.querySelector(".zoom-controls");
-    if (zoomControls) {
-      let lastTap = 0;
-      zoomControls.addEventListener('touchend', function (e) {
-        // Allow rapid tapping on the heart button
-        if (e.target.closest('#onlineCountBtn')) {
-          return;
-        }
-        const currentTime = new Date().getTime();
-        const tapLength = currentTime - lastTap;
-        if (tapLength < 500 && tapLength > 0) {
-          e.preventDefault();
-        }
-        lastTap = currentTime;
-      });
     }
   });
 }
@@ -1759,7 +1723,7 @@ function resetFlipCard() {
 
 function playFlipReveal() {
   if (!flipCardInner) {
-    // noteInput.focus({ preventScroll: true });
+    noteInput.focus({ preventScroll: true });
     return;
   }
   flipCardInner.dataset.state = "transition";
@@ -1807,21 +1771,14 @@ function playFlipReveal() {
 
 function finalizeFlipReveal() {
   if (!flipCardInner) {
-    // Only auto-focus on desktop to prevent keyboard popping up on mobile
-    // if (window.innerWidth > 640) {
-    //   noteInput.focus({ preventScroll: true });
-    // }
+    noteInput.focus({ preventScroll: true });
     return;
   }
   flipCardInner.dataset.state = "back";
   flipCardInner.style.transform = "rotateY(180deg)";
   flipFront?.setAttribute("aria-hidden", "true");
   flipBack?.setAttribute("aria-hidden", "false");
-  
-  // Only auto-focus on desktop to prevent keyboard popping up on mobile
-  // if (window.innerWidth > 640) {
-  //   requestAnimationFrame(() => noteInput.focus({ preventScroll: true }));
-  // }
+  requestAnimationFrame(() => noteInput.focus({ preventScroll: true }));
 }
 
 function playFlipReturn() {

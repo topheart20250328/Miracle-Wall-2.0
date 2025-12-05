@@ -1325,11 +1325,9 @@ export function playResonanceEffect(remoteHeat = null) {
   resonanceState.heat = Math.min(HEAT_CONFIG.maxHeat, resonanceState.heat + HEAT_CONFIG.gain);
   
   // Performance Protection:
-  // If too many particles, remove oldest to make room
+  // If too many particles, reduce emission or skip
   const currentParticles = resonanceState.particles.length;
-  if (currentParticles > 500) {
-    resonanceState.particles.shift();
-  }
+  if (currentParticles > 500) return; // Hard cap
   
   // Add particles
   // Always spawn 1 particle per click to avoid clutter
@@ -1453,9 +1451,7 @@ function startResonanceLoop() {
     const dt = (time - resonanceState.lastTime) / 1000;
     resonanceState.lastTime = time;
     
-    // if (dt > 0.1) return; // Skip large jumps
-    // Fix: Clamp dt instead of skipping to prevent visual stutter
-    const safeDt = Math.min(dt, 0.1);
+    if (dt > 0.1) return; // Skip large jumps
     
     // 1. Decay Heat
     // Dynamic Difficulty:
@@ -1467,7 +1463,7 @@ function startResonanceLoop() {
     );
 
     if (resonanceState.heat > 0) {
-      resonanceState.heat = Math.max(0, resonanceState.heat - (currentDecay * safeDt));
+      resonanceState.heat = Math.max(0, resonanceState.heat - (currentDecay * dt));
     }
     
     // Sync Holy Fire intensity
