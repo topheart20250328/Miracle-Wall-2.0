@@ -157,6 +157,10 @@ export function closeSearch() {
   }
 
   hideDialogNav();
+  
+  // CRITICAL: Reset navigation state completely
+  state.currentIndex = -1;
+  state.matchedStickers = [];
 }
 
 function clearSearch() {
@@ -404,6 +408,13 @@ export function onDialogClosed() {
       // Reset search state (assuming input is empty, which it should be for quick filters)
       handleInput(); 
     }
+  }
+
+  // CRITICAL: If we are NOT in active search mode (e.g. user closed search but dialog was open),
+  // ensure we clean up any lingering state that might allow navigation.
+  if (!state.isActive) {
+    state.currentIndex = -1;
+    state.matchedStickers = [];
   }
 }
 

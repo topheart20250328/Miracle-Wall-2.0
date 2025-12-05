@@ -345,14 +345,18 @@ main::before {
 @media (max-width: 640px) {
   /* Simplify Eagle 3D for mobile to prevent double-layer artifacts in Line App */
   .wall .eagle-shape-group {
-    filter: drop-shadow(0 4px 8px rgba(0,0,0,0.5));
+    /* Remove drop-shadow on group to prevent double rendering with stroke */
+    filter: none;
+  }
+  
+  .wall .eagle-shape {
+    /* Apply a single, simple shadow directly to the shape */
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4));
   }
   
   .wall .eagle-glow {
-    /* Reduce glow intensity and blur radius for better mobile compositing */
-    filter: blur(15px);
-    opacity: 0.4;
-    mix-blend-mode: normal; /* Fallback from screen to normal to prevent compositing issues */
+    /* Hide the glow layer completely on mobile to prevent "double layer" look */
+    display: none;
   }
 }
 
@@ -1284,6 +1288,12 @@ main::before {
   border-radius: 999px;
   display: inline-block;
   border: 1px solid rgba(244, 192, 96, 0.3);
+  /* Fix layout shift: Position absolute so it doesn't push content down */
+  position: absolute;
+  bottom: -2rem; /* Position below the subtitle */
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 #noteInput {
