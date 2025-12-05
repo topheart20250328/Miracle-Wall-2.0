@@ -1342,8 +1342,7 @@ export function playResonanceEffect(remoteHeat = null) {
     const size = baseSize + Math.random() * 10;
     
     const x = (5 + Math.random() * 90) * resonanceState.width / 100;
-    // Start visible on screen
-    const y = resonanceState.height - 20;
+    const y = resonanceState.height + 40;
     
     // Gradual Color Transition with Jitter
     // Uses LOCAL heat state, so high-heat users see high-heat colors even from low-heat users
@@ -1586,12 +1585,9 @@ function initBottomFire() {
   // Create canvas for the doom fire effect
   const canvas = document.createElement("canvas");
   canvas.id = "bottomFireCanvas";
-  
-  // Performance: Use lower resolution on mobile
-  const isMobile = window.innerWidth < 768;
-  const w = isMobile ? 80 : 160; // Half resolution on mobile
-  const h = isMobile ? 50 : 100;
-  
+  // Low resolution for performance and "blur" effect
+  const w = 160;
+  const h = 100;
   canvas.width = w;
   canvas.height = h;
   
@@ -1644,12 +1640,8 @@ function initHolyFire() {
   
   const canvas = document.createElement("canvas");
   canvas.id = "holyFireCanvas";
-  
-  // Performance: Use lower resolution on mobile
-  const isMobile = window.innerWidth < 768;
-  const w = isMobile ? 80 : 160;
-  const h = isMobile ? 50 : 100;
-  
+  const w = 160;
+  const h = 100;
   canvas.width = w;
   canvas.height = h;
   

@@ -406,6 +406,10 @@ function init() {
     if (zoomControls) {
       let lastTap = 0;
       zoomControls.addEventListener('touchend', function (e) {
+        // Allow rapid tapping on the heart button
+        if (e.target.closest('#onlineCountBtn')) {
+          return;
+        }
         const currentTime = new Date().getTime();
         const tapLength = currentTime - lastTap;
         if (tapLength < 500 && tapLength > 0) {

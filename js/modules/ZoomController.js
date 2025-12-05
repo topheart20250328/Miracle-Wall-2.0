@@ -280,8 +280,6 @@ function handleStagePointerUp(event) {
     releasePointer(event.pointerId);
     panState.pointerId = null;
     panState.moved = false;
-    // Force redraw once when interaction ends to ensure crisp rendering
-    invalidateStickerRendering();
   }
   if (panState.pointers.has(event.pointerId)) {
     panState.pointers.delete(event.pointerId);
@@ -290,7 +288,6 @@ function handleStagePointerUp(event) {
       if (panState.pointers.size === 1) {
         panState.pointerId = null;
         panState.moved = false;
-        invalidateStickerRendering();
       }
     }
   }
@@ -402,8 +399,7 @@ function applyZoomTransform(skipInvalidation = false) {
 function applyPanDelta(deltaX, deltaY) {
   viewportState.offsetX = panState.startOffsetX + deltaX;
   viewportState.offsetY = panState.startOffsetY + deltaY;
-  // Skip invalidation during drag for performance
-  applyZoomTransform(true);
+  applyZoomTransform();
 }
 
 function invalidateStickerRendering() {
