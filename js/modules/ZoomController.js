@@ -385,15 +385,25 @@ function setZoomScale(nextScale, anchorEvent) {
   updateZoomIndicator();
 }
 
+let transformRafId = null;
+
 function applyZoomTransform(skipInvalidation = false) {
   if (!elements.wallSvg) {
     return;
   }
-  elements.wallSvg.style.transformOrigin = "center";
-  elements.wallSvg.style.transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
-  if (!skipInvalidation) {
-    invalidateStickerRendering();
+  
+  if (transformRafId) {
+    return; // Already scheduled
   }
+
+  transformRafId = requestAnimationFrame(() => {
+    elements.wallSvg.style.transformOrigin = "center";
+    elements.wallSvg.style.transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
+    if (!skipInvalidation) {
+      invalidateStickerRendering();
+    }
+    transformRafId = null;
+  });
 }
 
 function applyPanDelta(deltaX, deltaY) {
