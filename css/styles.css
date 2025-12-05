@@ -548,6 +548,9 @@ main::before {
   padding: 0.45rem 0.95rem;
   border-radius: 999px;
   background: rgba(12, 12, 16, 0.62);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
   box-shadow: 0 18px 34px rgba(5, 5, 8, 0.5);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
