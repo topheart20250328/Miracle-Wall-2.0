@@ -1,4 +1,6 @@
 
+import * as Utils from "./Utils.js";
+
 const state = {
   isActive: false,
   matchedStickers: [], // Array of sticker objects

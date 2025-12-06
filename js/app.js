@@ -66,7 +66,7 @@ const dialogSubtitle = document.getElementById("dialogSubtitle");
 const flipCardInner = document.getElementById("flipCardInner");
 const flipFront = document.getElementById("flipFront");
 const flipBack = document.getElementById("flipBack");
-const saveButton = noteForm.querySelector('button[type="submit"]');
+const saveButton = noteForm ? noteForm.querySelector('button[type="submit"]') : null;
 const deleteStickerBtn = document.getElementById("deleteStickerBtn");
 const mediaPrefersReducedMotion = typeof window !== "undefined" && typeof window.matchMedia === "function"
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -86,7 +86,7 @@ try {
   console.warn("Timestamp formatter unavailable", error);
 }
 
-const liveViewBox = wallSvg.viewBox.baseVal;
+const liveViewBox = wallSvg ? wallSvg.viewBox.baseVal : { x: 0, y: 0, width: 3500, height: 1779.31 };
 const viewBox = {
   x: liveViewBox.x,
   y: liveViewBox.y,
@@ -146,7 +146,13 @@ if (onlineCountBtn) {
   onlineCountBtn.style.display = initialOnlineStatus ? "" : "none";
 }
 
-init().catch((err) => console.error(err));
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    init().catch((err) => console.error("Init failed:", err));
+  });
+} else {
+  init().catch((err) => console.error("Init failed:", err));
+}
 initSettingsDialog();
 
 if (typeof window !== "undefined") {

@@ -1,9 +1,9 @@
 
 import { supabase, isSupabaseConfigured } from "../supabase-config.js";
-
-const svgNS = "http://www.w3.org/2000/svg";
 import * as Utils from "./Utils.js";
 import * as SearchController from "./SearchController.js";
+
+const svgNS = "http://www.w3.org/2000/svg";
 
 const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;

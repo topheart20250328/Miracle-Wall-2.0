@@ -981,7 +981,7 @@ main::before {
 
 /* Dialog Navigation Buttons */
 .dialog-nav-btn {
-  position: absolute;
+  position: fixed;
   top: 50%;
   transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.1);
@@ -995,7 +995,7 @@ main::before {
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s ease;
-  z-index: 10;
+  z-index: 2000;
   padding: 0;
 }
 
@@ -1015,11 +1015,20 @@ main::before {
 }
 
 .dialog-nav-btn.prev {
-  left: clamp(-4rem, -10vw, -1.5rem);
+  left: calc(50% - 340px);
 }
 
 .dialog-nav-btn.next {
-  right: clamp(-4rem, -10vw, -1.5rem);
+  right: calc(50% - 340px);
+}
+
+@media (max-width: 768px) {
+  .dialog-nav-btn.prev {
+    left: 1rem;
+  }
+  .dialog-nav-btn.next {
+    right: 1rem;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1036,6 +1045,8 @@ main::before {
     top: 50%;
     transform: translateY(-50%);
     z-index: 2000; /* Ensure above dialog content */
+    /* Ensure buttons are clickable even if they overlap the card */
+    pointer-events: auto;
   }
   
   /* Increase touch target size without affecting visuals */
