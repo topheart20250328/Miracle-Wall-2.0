@@ -54,8 +54,14 @@ export function initEffectsManager(domElements, reducedMotion) {
   }
 
   initAmbientGlow();
+  
+  // Ensure main creates a stacking context for z-index layers
+  const main = document.querySelector("main");
+  if (main) main.style.isolation = "isolate";
+
   initFireEffect();
   initBottomFire();
+  initCelebrationMist(); // New effect
   initHolyFire();
   initResonanceCanvas();
 }
@@ -1138,6 +1144,11 @@ export function initFireEffect() {
 
   if (spawnPoints.length === 0) return;
 
+  // Calculate center of mass for outward dispersion
+  let totalX = 0, totalY = 0;
+  spawnPoints.forEach(p => { totalX += p.x; totalY += p.y; });
+  const center = { x: totalX / spawnPoints.length, y: totalY / spawnPoints.length };
+
   // Create a dedicated group for fire if not exists
   let fireGroup = document.getElementById("fireGroup");
   if (!fireGroup) {
@@ -1162,21 +1173,28 @@ export function initFireEffect() {
     
     // Calculate spawn rate based on intensity
     const intensity = fireState.intensity;
+
+    // If intensity is effectively zero, don't spawn particles, just check again later
+    if (intensity <= 0.01) {
+      setTimeout(spawnFireParticle, 500);
+      return;
+    }
     
     // Performance throttling for mobile:
-    // Reduce frequency (higher delay), but we will increase particle size to compensate
-    let delayBase = isMobile ? 180 : 120;
-    let delayMin = isMobile ? 60 : 30;
+    // To support longer particle life without killing performance, we MUST reduce spawn rate.
+    // We increase delays and reduce batch sizes to keep total concurrent nodes stable.
+    let delayBase = isMobile ? 350 : 200; // Slower spawn loop
+    let delayMin = isMobile ? 150 : 60;
     
     // Spawn delay: decreases as intensity increases
     const delay = delayBase - (intensity * (delayBase - delayMin));
     
-    // Batch size: fewer particles on mobile
-    let maxBatch = isMobile ? 2 : 5;
+    // Batch size: Reduced to compensate for longer life
+    let maxBatch = isMobile ? 2 : 3; 
     const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
 
     for (let i = 0; i < batchSize; i++) {
-      createFireParticle(spawnPoints, fireGroup, intensity, isMobile);
+      createFireParticle(spawnPoints, center, fireGroup, intensity, isMobile);
     }
 
     setTimeout(spawnFireParticle, delay);
@@ -1185,7 +1203,7 @@ export function initFireEffect() {
   spawnFireParticle();
 }
 
-function createFireParticle(spawnPoints, container, intensity, isMobile) {
+function createFireParticle(spawnPoints, center, container, intensity, isMobile) {
   try {
     // Pick a random pre-calculated point
     const point = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
@@ -1221,10 +1239,32 @@ function createFireParticle(spawnPoints, container, intensity, isMobile) {
 
     container.appendChild(particle);
 
-    // 3. Motion: "Raging" = Faster, higher, more turbulent
-    const duration = 600 + Math.random() * 800; // Faster life (0.6s - 1.4s)
-    const travelY = -80 - (intensity * 180) - (Math.random() * 60); // Higher reach
-    const travelX = (Math.random() - 0.5) * (50 + intensity * 50); // Wider spread
+    // 3. Motion: Outward dispersion with Upward Bias
+    // Extended duration as requested (2.5s - 4.5s)
+    // We can afford this because we reduced the spawn rate in the loop
+    const duration = 2500 + Math.random() * 2000; 
+    
+    // Calculate vector from center
+    const dx = startX - center.x;
+    const dy = startY - center.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    let dirX = dx / dist;
+    let dirY = dy / dist;
+
+    // Add strong upward bias to simulate heat rising
+    // This ensures top particles float UP instead of just OUT
+    dirY -= 0.8; 
+
+    // Re-normalize to maintain consistent slow speed
+    const newDist = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+    dirX /= newDist;
+    dirY /= newDist;
+
+    // Speed magnitude (Reduced slightly to match longer duration)
+    const speed = 15 + (intensity * 25) + (Math.random() * 10);
+    
+    const travelX = dirX * speed;
+    const travelY = dirY * speed;
 
     // 4. Animation: "Puff" effect (Grow then Shrink)
     window.anime({
@@ -1258,9 +1298,9 @@ export function updateFireIntensity(stickersMap) {
 }
 
 export function setFireIntensity(count) {
-  // 0 to 520 stickers maps to 0.2 to 1 intensity
-  const maxStickers = 520;
-  const minIntensity = 0.2;
+  // 0 to 700 stickers maps to 0 to 1 intensity
+  const maxStickers = 700;
+  const minIntensity = 0.0; // Changed to 0 so 0 stickers = no fire
   const progress = Math.min(count / maxStickers, 1);
   
   fireState.intensity = minIntensity + (progress * (1 - minIntensity));
@@ -1462,8 +1502,14 @@ function startResonanceLoop() {
       resonanceState.onlineCount * HEAT_CONFIG.decayPerPerson
     );
 
-    if (resonanceState.heat > 0) {
-      resonanceState.heat = Math.max(0, resonanceState.heat - (currentDecay * dt));
+    // Default minimum heat: 1.2% (Very weak fire always present)
+    const minHeat = 1.2;
+
+    if (resonanceState.heat > minHeat) {
+      resonanceState.heat = Math.max(minHeat, resonanceState.heat - (currentDecay * dt));
+    } else if (resonanceState.heat < minHeat) {
+      // Slowly recover to minHeat if below (e.g. on init)
+      resonanceState.heat = Math.min(minHeat, resonanceState.heat + (dt * 2));
     }
     
     // Sync Holy Fire intensity
@@ -1599,7 +1645,7 @@ function initBottomFire() {
     width: "100%",
     height: "40vh", // Increased height for smoother fade
     pointerEvents: "none",
-    zIndex: "0",
+    zIndex: "-1", // Behind everything (Mist is 0, Wall is 1)
     opacity: "0.5", // Reduced opacity for better blending
     mixBlendMode: "screen",
     filter: "blur(12px)", // Increased blur
@@ -1811,9 +1857,10 @@ function startBottomFireLoop() {
     lastTime = time - (delta % interval);
 
     // 1. Update Fire Source (Bottom Row) based on intensity
-    const intensity = bottomFireState.intensity || 0.2;
+    const intensity = bottomFireState.intensity; 
     // User wants constant "max" color/source, so we use a fixed high value for source generation
-    const sourceIntensity = 0.85; 
+    // But if intensity is 0, we turn off the source
+    const sourceIntensity = intensity > 0.01 ? 0.85 : 0; 
     
     for (let x = 0; x < width; x++) {
       const index = (height - 1) * width + x;
@@ -1883,5 +1930,163 @@ function startBottomFireLoop() {
   };
   
   update(0);
+}
+
+const celebrationState = {
+  canvas: null,
+  ctx: null,
+  particles: [],
+  width: 0,
+  height: 0,
+  lastTime: 0
+};
+
+function initCelebrationMist() {
+  if (mediaPrefersReducedMotion?.matches) return;
+
+  const canvas = document.createElement("canvas");
+  canvas.id = "celebrationMistCanvas";
+  canvas.style.position = "fixed";
+  canvas.style.inset = "0";
+  canvas.style.pointerEvents = "none";
+  canvas.style.zIndex = "0"; // Above Fire (-1), Below Wall (1)
+  canvas.style.mixBlendMode = "screen";
+  canvas.style.opacity = "0.8";
+  
+  // Append to main to layer correctly
+  const main = document.querySelector("main");
+  if (main) {
+    main.appendChild(canvas);
+  } else {
+    document.body.appendChild(canvas);
+  }
+
+  celebrationState.canvas = canvas;
+  celebrationState.ctx = canvas.getContext("2d");
+
+  const resize = () => {
+    celebrationState.width = window.innerWidth;
+    celebrationState.height = window.innerHeight;
+    canvas.width = celebrationState.width;
+    canvas.height = celebrationState.height;
+  };
+  
+  window.addEventListener("resize", resize);
+  resize();
+  
+  startCelebrationLoop();
+}
+
+function startCelebrationLoop() {
+  const loop = (time) => {
+    requestAnimationFrame(loop);
+    if (document.hidden) return;
+
+    const dt = (time - celebrationState.lastTime) / 1000;
+    celebrationState.lastTime = time;
+    if (dt > 0.1) return;
+
+    const ctx = celebrationState.ctx;
+    const { width, height, particles } = celebrationState;
+    
+    // Clear with fade effect for trails? No, just clear for mist
+    ctx.clearRect(0, 0, width, height);
+
+    // 1. Spawn Particles based on intensity
+    // Only active if intensity is high (> 0.5)
+    const intensity = fireState.intensity;
+    
+    // Initialize timer if needed
+    if (celebrationState.spawnTimer === undefined) celebrationState.spawnTimer = 0;
+    celebrationState.spawnTimer += dt;
+
+    if (intensity > 0.5) {
+      // Continuous flow: Use timer instead of random chance to avoid gaps
+      // Target: ~1 particle/sec at max intensity (Interval 1.0s) - Very slow and calm
+      const baseInterval = 1.0; 
+      const spawnRate = (intensity - 0.5) * 2; // 0 to 1
+      const currentInterval = baseInterval / Math.max(0.1, spawnRate);
+      
+      if (celebrationState.spawnTimer > currentInterval) {
+        celebrationState.spawnTimer = 0; // Reset timer
+        // Spawn a "Mist Burst"
+        // Position: Random in top 70% of screen (Wider area)
+        const x = Math.random() * width;
+        const y = Math.random() * (height * 0.7); 
+        
+        // Varied Colors: More Gold/White focus for brightness
+        const hue = 30 + Math.random() * 25; // 30-55
+        const sat = 80 + Math.random() * 20; // Vibrant
+        const light = 70 + Math.random() * 30; // Bright
+        
+        const mainColor = `hsla(${hue}, ${sat}%, ${light}%,`;
+        const coreColor = `hsla(${hue}, ${sat}%, 95%,`; // Almost white core
+        
+        particles.push({
+          x, y,
+          size: 0, // Start small
+          maxSize: 100 + Math.random() * 150, // Much Larger & Grand (100px - 250px)
+          life: 0,
+          maxLife: 6 + Math.random() * 4, // Very slow turnover (6-10s)
+          mainColor,
+          coreColor,
+          vx: (Math.random() - 0.5) * 6, // Very slow drift
+          vy: -5 - Math.random() * 10 // Very slow upward float
+        });
+      }
+    }
+
+    // 2. Update & Render
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.life += dt;
+      
+      if (p.life >= p.maxLife) {
+        particles.splice(i, 1);
+        continue;
+      }
+
+      // Move
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      
+      // Grow
+      const progress = p.life / p.maxLife;
+      // Ease out size: Fast grow, slow finish
+      const sizeProgress = 1 - Math.pow(1 - progress, 3);
+      const currentSize = p.maxSize * sizeProgress;
+      
+      // Fade: Smoother fade in to avoid "pop"
+      let alpha = 0;
+      const fadeInDuration = 0.25; // Longer fade in (25% of life)
+      
+      if (progress < fadeInDuration) {
+        // Ease in alpha: starts very transparent
+        const t = progress / fadeInDuration;
+        alpha = t * t; 
+      } else {
+        alpha = 1 - ((progress - fadeInDuration) / (1 - fadeInDuration));
+      }
+      // Balanced opacity: Visible but not harsh
+      alpha *= 0.75; 
+
+      // Draw Soft Orb with Richer Gradient
+      const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, currentSize);
+      // Core (Bright)
+      gradient.addColorStop(0, p.coreColor + alpha + ")");
+      // Body (Soft orb structure)
+      gradient.addColorStop(0.25, p.mainColor + (alpha * 0.8) + ")");
+      // Glow (Atmospheric falloff)
+      gradient.addColorStop(0.6, p.mainColor + (alpha * 0.2) + ")");
+      // Edge (Transparent)
+      gradient.addColorStop(1, p.mainColor + "0)"); 
+      
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, currentSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  };
+  requestAnimationFrame(loop);
 }
 

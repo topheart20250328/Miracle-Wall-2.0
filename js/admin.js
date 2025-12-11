@@ -858,31 +858,59 @@ async function persistReviewSettings(values) {
   }
 }
 
-function handleExportEntries() {
+async function handleExportEntries() {
   if (!state.authorized) {
     showToast("請先登入管理後再匯出。", "danger");
     return;
   }
-  if (!state.entries.length) {
-    showToast("目前沒有留言可匯出。", "info");
-    return;
+  
+  const originalLabel = exportBtn.textContent;
+  exportBtn.disabled = true;
+  exportBtn.textContent = "匯出中…";
+
+  try {
+    let query = supabaseClient
+      .from("wall_sticker_entries")
+      .select("id, note, x_norm, y_norm, created_at, updated_at, is_approved")
+      .order("created_at", { ascending: true });
+
+    if (state.searchTerm) {
+      query = query.ilike('note', `%${state.searchTerm}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+
+    if (!data || !data.length) {
+      showToast("目前沒有留言可匯出。", "info");
+      return;
+    }
+
+    const lines = data.map((entry, index) => {
+      const note = (entry.note ?? "").replace(/\r?\n/g, "\n");
+      const coordsText = formatCoordinateLine(entry);
+      return `#${index + 1}\nID：${entry.id}\n${coordsText}\n留言：${note}`;
+    });
+
+    const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `miracle-wall-entries-${new Date().toISOString().slice(0, 10)}.txt`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    showToast("已匯出留言。", "success");
+  } catch (error) {
+    console.error("Export failed", error);
+    showToast("匯出失敗，請稍後再試。", "danger");
+  } finally {
+    exportBtn.disabled = false;
+    exportBtn.textContent = originalLabel;
   }
-  const lines = state.entries.map((entry, index) => {
-    const note = (entry.note ?? "").replace(/\r?\n/g, "\n");
-    const coordsText = formatCoordinateLine(entry);
-    return `#${index + 1}\nID：${entry.id}\n${coordsText}\n留言：${note}`;
-  });
-  const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `miracle-wall-entries-${new Date().toISOString().slice(0, 10)}.txt`;
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
-  showToast("已匯出留言。", "success");
 }
 
 function handleSearchInput(event) {
@@ -891,50 +919,76 @@ function handleSearchInput(event) {
   loadStickers(1);
 }
 
-function handleExportCsv() {
+async function handleExportCsv() {
   if (!state.authorized) {
     showToast("請先登入管理後再匯出。", "danger");
     return;
   }
-  if (!state.entries.length) {
-    showToast("目前沒有留言可匯出。", "info");
-    return;
-  }
   
-  // BOM for Excel to recognize UTF-8
-  const BOM = "\uFEFF";
-  const headers = ["編號", "ID", "留言內容", "X座標", "Y座標", "建立時間", "更新時間", "審核狀態"];
+  const originalLabel = exportCsvBtn.textContent;
+  exportCsvBtn.disabled = true;
+  exportCsvBtn.textContent = "匯出中…";
+
+  try {
+    let query = supabaseClient
+      .from("wall_sticker_entries")
+      .select("id, note, x_norm, y_norm, created_at, updated_at, is_approved")
+      .order("created_at", { ascending: true });
+
+    if (state.searchTerm) {
+      query = query.ilike('note', `%${state.searchTerm}%`);
+    }
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+
+    if (!data || !data.length) {
+      showToast("目前沒有留言可匯出。", "info");
+      return;
+    }
   
-  const rows = state.entries.map((entry, index) => {
-    const note = (entry.note ?? "").replace(/"/g, '""'); // Escape quotes
-    const status = entry.is_approved ? "已通過" : "審核中";
-    const created = formatDate(entry.created_at);
-    const updated = entry.updated_at ? formatDate(entry.updated_at) : "";
+    // BOM for Excel to recognize UTF-8
+    const BOM = "\uFEFF";
+    const headers = ["編號", "ID", "留言內容", "X座標", "Y座標", "建立時間", "更新時間", "審核狀態"];
     
-    return [
-      state.entries.length - index,
-      entry.id,
-      `"${note}"`,
-      entry.x_norm,
-      entry.y_norm,
-      created,
-      updated,
-      status
-    ].join(",");
-  });
-  
-  const csvContent = BOM + headers.join(",") + "\n" + rows.join("\n");
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `miracle-wall-export-${new Date().toISOString().slice(0, 10)}.csv`;
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
-  showToast("已匯出 CSV。", "success");
+    const rows = data.map((entry, index) => {
+      const note = (entry.note ?? "").replace(/"/g, '""'); // Escape quotes
+      const status = entry.is_approved ? "已通過" : "審核中";
+      const created = formatDate(entry.created_at);
+      const updated = entry.updated_at ? formatDate(entry.updated_at) : "";
+      
+      return [
+        index + 1,
+        entry.id,
+        `"${note}"`,
+        entry.x_norm,
+        entry.y_norm,
+        created,
+        updated,
+        status
+      ].join(",");
+    });
+    
+    const csvContent = BOM + headers.join(",") + "\n" + rows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `miracle-wall-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+    showToast("已匯出 CSV。", "success");
+  } catch (error) {
+    console.error("Export failed", error);
+    showToast("匯出失敗，請稍後再試。", "danger");
+  } finally {
+    exportCsvBtn.disabled = false;
+    exportCsvBtn.textContent = originalLabel;
+  }
 }
 
 async function verifyPassword(password) {
