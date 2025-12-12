@@ -192,18 +192,11 @@ function init() {
       document.documentElement.style.overflow = 'hidden';
       
       // Explicitly clear any inline styles that might have been set during read mode
-      noteDialog.style.removeProperty('width');
-      noteDialog.style.removeProperty('height');
-      noteDialog.style.removeProperty('margin');
-      noteDialog.style.removeProperty('padding');
-      noteDialog.style.removeProperty('top');
-      noteDialog.style.removeProperty('left');
+      noteDialog.style.cssText = ''; // Clear ALL inline styles
       noteDialog.style.overflow = 'visible'; // Force visible overflow immediately
       
       // Aggressively reset #noteForm to prevent layout sticking
-      noteForm.style.height = 'auto';
-      noteForm.style.minHeight = ''; // Allow CSS to take over
-      noteForm.style.padding = ''; // Clear padding
+      noteForm.style.cssText = ''; // Clear ALL inline styles
       noteForm.style.transition = 'none'; // Disable transition to prevent interpolation glitches
       
       // Force a reflow to ensure layout recalculation
@@ -213,7 +206,6 @@ function init() {
       // Increased delay to ensure LINE browser UI has settled
       setTimeout(() => {
         noteForm.style.transition = '';
-        noteForm.style.height = '';
         // Clean up forced overflow styles to let CSS take over
         document.body.style.overflow = '';
         document.documentElement.style.overflow = '';

@@ -1159,7 +1159,7 @@ main::before {
   justify-content: center;
   padding: clamp(5.5rem, 15vmin, 7.5rem) 0;
   transition: padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), min-height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  min-height: clamp(540px, 78vmin, 700px);
+  min-height: clamp(500px, 70vmin, 700px);
 }
 
 .flip-card {
@@ -1362,7 +1362,7 @@ main::before {
 
 .dialog-actions {
   position: absolute;
-  bottom: clamp(1.3rem, 4vmin, 2.2rem);
+  bottom: calc(clamp(1.3rem, 4vmin, 2.2rem) + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
@@ -1427,7 +1427,7 @@ main::before {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: clamp(4.8rem, 8.2vmin, 6.2rem);
+  bottom: calc(clamp(4.8rem, 8.2vmin, 6.2rem) + env(safe-area-inset-bottom));
   margin: 0;
   font-size: 0.82rem;
   letter-spacing: 0.05em;
