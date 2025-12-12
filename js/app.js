@@ -190,8 +190,19 @@ function init() {
       noteDialog.style.removeProperty('top');
       noteDialog.style.removeProperty('left');
       
+      // Aggressively reset #noteForm to prevent layout sticking
+      noteForm.style.height = 'auto';
+      noteForm.style.minHeight = ''; // Allow CSS to take over
+      noteForm.style.transition = 'none'; // Disable transition to prevent interpolation glitches
+      
       // Force a reflow to ensure layout recalculation
       void document.body.offsetHeight;
+      
+      // Restore transitions after a brief delay to allow layout to settle
+      requestAnimationFrame(() => {
+        noteForm.style.transition = '';
+        noteForm.style.height = '';
+      });
     }
     return isReadMode;
   };
