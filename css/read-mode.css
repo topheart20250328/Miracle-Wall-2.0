@@ -7,23 +7,28 @@ body.read-mode-active {
   height: 100%;
   position: fixed; /* Force lock on iOS/Line */
   width: 100%;
+  top: 0;
+  left: 0;
 }
 
-/* Add smooth transition for the dialog container itself */
+/* Remove transition for container dimensions to prevent layout glitches during exit */
 .note-dialog {
-  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), padding 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.5s ease;
+  transition: background-color 0.5s ease;
 }
 
 .note-dialog.read-mode {
   /* Force full screen to ensure layout fits viewport */
-  width: 100dvw !important;
-  height: 100dvh !important;
+  width: 100% !important;
+  height: 100% !important;
   max-width: none !important;
   max-height: none !important;
   margin: 0 !important;
   border-radius: 0 !important;
   padding: 0 !important;
   overflow: hidden; /* Manage overflow internally */
+  top: 0 !important;
+  left: 0 !important;
+  transform: none !important;
 }
 
 .note-dialog.read-mode #noteForm {
@@ -102,9 +107,21 @@ body.read-mode-active {
   left: 0;
   right: 0;
   margin: auto;
-  width: 100%;
+  /* Constrain width to avoid overlapping with nav buttons */
+  /* Nav buttons are ~3rem wide + 1.5rem margin = 4.5rem each side */
+  /* Adding extra buffer -> 6rem each side -> 12rem total reduction */
+  width: calc(100% - 12rem);
+  max-width: 200px; /* Keep buttons compact */
   z-index: 10;
   transform: none; /* Reset transform from styles.css to fix centering */
+  justify-content: center;
+}
+
+.note-dialog.read-mode .dialog-actions button {
+  /* Make buttons slightly more compact in read mode */
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+  backdrop-filter: blur(4px);
 }
 
 /* Hide elements that might overlap or aren't needed in read mode */
@@ -119,7 +136,33 @@ body.read-mode-active {
   opacity: 1;
   pointer-events: auto;
   z-index: 20;
-  /* Keep default fixed positioning (centered vertically) */
+  /* Move to bottom corners to avoid overlapping text */
+  top: auto;
+  bottom: calc(2rem + env(safe-area-inset-bottom));
+  transform: none;
+  
+  /* Unify style with Ghost buttons */
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(4px);
+  width: 2.8rem;
+  height: 2.8rem;
+}
+
+.note-dialog.read-mode .dialog-nav-btn:active {
+  transform: scale(0.92);
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.note-dialog.read-mode .dialog-nav-btn.prev {
+  left: 1.5rem;
+  right: auto;
+}
+
+.note-dialog.read-mode .dialog-nav-btn.next {
+  right: 1.5rem;
+  left: auto;
 }
 
 .note-dialog.read-mode .dialog-search-counter {

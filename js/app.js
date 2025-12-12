@@ -179,6 +179,17 @@ function init() {
       noteInput.scrollTop = 0;
       // Force reset scroll and layout on exit to prevent LINE browser glitches
       window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      
+      // Explicitly clear any inline styles that might have been set during read mode
+      noteDialog.style.removeProperty('width');
+      noteDialog.style.removeProperty('height');
+      noteDialog.style.removeProperty('margin');
+      noteDialog.style.removeProperty('padding');
+      noteDialog.style.removeProperty('top');
+      noteDialog.style.removeProperty('left');
+      
       // Force a reflow to ensure layout recalculation
       void document.body.offsetHeight;
     }
