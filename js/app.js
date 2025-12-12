@@ -174,6 +174,10 @@ function init() {
     if (noteInput.classList.contains("locked")) {
       const isReadMode = noteDialog.classList.toggle("read-mode");
       document.body.classList.toggle("read-mode-active", isReadMode);
+      
+      if (!isReadMode) {
+        noteInput.scrollTop = 0;
+      }
     }
   });
 
@@ -185,6 +189,10 @@ function init() {
       e.stopPropagation(); // Prevent triggering other clicks
       const isReadMode = noteDialog.classList.toggle("read-mode");
       document.body.classList.toggle("read-mode-active", isReadMode);
+      
+      if (!isReadMode) {
+        noteInput.scrollTop = 0;
+      }
       
       // If expanding while editing, focus the input
       if (isReadMode && !noteInput.classList.contains("locked")) {

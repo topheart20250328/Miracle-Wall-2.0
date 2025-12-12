@@ -2284,6 +2284,12 @@ body.playback-mode .drag-palette {
   transition: opacity 0.3s ease;
 }
 
+body.search-active .drag-palette {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
 body.playback-mode .marquee-layer {
   opacity: 0;
   pointer-events: none;
@@ -2573,5 +2579,10 @@ html.hide-online-status #onlineCountBtn {
   #noteInput {
     min-height: 140px;
   }
+}
+
+/* Utility to ensure hidden attribute works even with flex/grid */
+[hidden] {
+  display: none !important;
 }
 
