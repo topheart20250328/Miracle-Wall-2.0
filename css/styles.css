@@ -1108,7 +1108,7 @@ main::before {
   color: var(--text-primary);
   box-shadow: none;
   overflow: hidden; /* Prevent scroll on the dialog itself */
-  touch-action: none; /* We handle touches in the form */
+  /* touch-action: none; REMOVED to ensure clicks work reliably */
   z-index: 1000; /* Ensure it's on top */
 }
 
@@ -1592,8 +1592,8 @@ body.placement-active #paletteSticker svg {
 
 @media (max-width: 640px) {
   #noteForm {
-    padding: clamp(4rem, 14vmin, 5.6rem) 0;
-    min-height: clamp(520px, 88vmin, 660px);
+    padding: 0;
+    min-height: auto;
   }
 
   .flip-card {
