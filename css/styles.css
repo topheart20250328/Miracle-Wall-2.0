@@ -1092,26 +1092,16 @@ main::before {
 
 
 .note-dialog {
-  /* Full screen overlay approach to fix LINE browser layout issues */
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-  margin: 0;
-  padding: 0;
-  
+  width: min(520px, 92vw);
+  max-height: 100dvh; /* Ensure dialog never exceeds viewport height */
   border: none;
-  border-radius: 0;
+  border-radius: 32px;
   background: transparent;
   color: var(--text-primary);
   box-shadow: none;
-  overflow: hidden; /* Prevent scroll on the dialog itself */
-  z-index: 1000; /* Ensure it's on top */
+  padding: 0; /* Remove padding from dialog, handle in form */
+  overflow: hidden; /* Clip content to border radius */
+  touch-action: pan-y;
 }
 
 .note-dialog::backdrop {
@@ -1166,13 +1156,14 @@ main::before {
   margin: 0;
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  /* Remove min-height and transition hacks */
+  /* Reduced padding and min-height to prevent overflow on small screens */
+  padding: clamp(4rem, 10vmin, 6rem) 0;
+  transition: padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), min-height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+  min-height: auto; /* Let content dictate height, but ensure it fits */
+  height: 100%; /* Fill the dialog */
+  box-sizing: border-box;
 }
 
 .flip-card {
@@ -1181,9 +1172,7 @@ main::before {
   position: relative;
   perspective: 1600px;
   -webkit-perspective: 1600px;
-  /* Only transition width. Height will follow aspect-ratio automatically. 
-     Transitioning height to 'auto' causes layout glitches (oval shape). */
-  transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: width 0.6s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .flip-card-inner {
@@ -1282,13 +1271,13 @@ main::before {
 
 .dialog-header {
   position: absolute;
-  top: calc(1.5rem + env(safe-area-inset-top));
+  top: clamp(1rem, 3vmin, 2rem);
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
   text-align: center;
-  z-index: 20;
+  z-index: 2;
   transition: top 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
 }
@@ -1378,7 +1367,7 @@ main::before {
 
 .dialog-actions {
   position: absolute;
-  bottom: calc(3.5rem + env(safe-area-inset-bottom)); /* Increased bottom spacing */
+  bottom: clamp(1rem, 3vmin, 1.5rem);
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
@@ -1388,16 +1377,16 @@ main::before {
   justify-content: center;
   align-items: center;
   gap: clamp(0.65rem, 2vmin, 0.95rem);
-  z-index: 20;
+  z-index: 2;
   transition: bottom 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  pointer-events: none; /* Allow clicks to pass through the container */
+  pointer-events: none;
 }
 
 .dialog-actions button {
   flex: 1 1 0;
   min-width: 0;
   max-width: 140px;
-  pointer-events: auto; /* Re-enable clicks on buttons */
+  pointer-events: auto;
 }
 .primary {
   padding: 0.5rem 1rem;
@@ -1429,7 +1418,7 @@ main::before {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(7rem + env(safe-area-inset-bottom));
+  bottom: clamp(5rem, 9vmin, 6.5rem);
   min-height: 1.2rem;
   margin: 0;
   color: var(--danger);
@@ -1438,7 +1427,7 @@ main::before {
   text-align: center;
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
-  z-index: 20;
+  z-index: 2;
   pointer-events: none;
 }
 
@@ -1446,7 +1435,7 @@ main::before {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  bottom: clamp(4rem, 7vmin, 5rem);
   margin: 0;
   font-size: 0.82rem;
   letter-spacing: 0.05em;
@@ -1454,7 +1443,7 @@ main::before {
   text-align: center;
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
-  z-index: 20;
+  z-index: 2;
   transition: bottom 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
 }
@@ -1596,8 +1585,8 @@ body.placement-active #paletteSticker svg {
 
 @media (max-width: 640px) {
   #noteForm {
-    padding: 0;
-    min-height: auto;
+    padding: clamp(4rem, 14vmin, 5.6rem) 0;
+    min-height: clamp(520px, 88vmin, 660px);
   }
 
   .flip-card {

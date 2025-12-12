@@ -193,7 +193,7 @@ function init() {
       
       // Explicitly clear any inline styles that might have been set during read mode
       noteDialog.style.cssText = ''; // Clear ALL inline styles
-      noteDialog.style.overflow = 'visible'; // Force visible overflow immediately
+      // noteDialog.style.overflow = 'visible'; // REMOVED: Let CSS handle overflow (hidden by default now)
       
       // Aggressively reset #noteForm to prevent layout sticking
       noteForm.style.cssText = ''; // Clear ALL inline styles
@@ -209,7 +209,7 @@ function init() {
         // Clean up forced overflow styles to let CSS take over
         document.body.style.overflow = '';
         document.documentElement.style.overflow = '';
-        noteDialog.style.overflow = '';
+        // noteDialog.style.overflow = ''; // REMOVED: Don't override CSS
       }, 100);
     }
     return isReadMode;
@@ -246,8 +246,7 @@ function init() {
     if (event.target.closest('.flip-card') || 
         event.target.closest('button') || 
         event.target.closest('input') || 
-        event.target.closest('textarea') ||
-        event.target.closest('.dialog-header')) {
+        event.target.closest('textarea')) {
       return;
     }
 

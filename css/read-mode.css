@@ -18,13 +18,13 @@ body.read-mode-active {
 
 /* Ensure overflow is visible when NOT in read mode to prevent shadow clipping */
 .note-dialog:not(.read-mode) {
-  overflow: hidden !important; /* Changed to hidden because we are now full screen overlay */
+  overflow: visible !important;
 }
 
 .note-dialog.read-mode {
   /* Force full screen to ensure layout fits viewport */
-  width: 100vw !important;
-  height: 100dvh !important;
+  width: 100% !important;
+  height: 100% !important;
   max-width: none !important;
   max-height: none !important;
   margin: 0 !important;
