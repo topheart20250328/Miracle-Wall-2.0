@@ -204,6 +204,19 @@ function init() {
       noteForm.style.padding = ''; // Clear padding
       noteForm.style.transition = 'none'; // Disable transition to prevent interpolation glitches
       
+      // Reset .flip-card to ensure it reverts to square aspect ratio
+      const flipCard = noteDialog.querySelector('.flip-card');
+      if (flipCard) {
+        flipCard.style.width = '';
+        flipCard.style.height = '';
+        flipCard.style.transition = 'none';
+        // Force reflow on flip-card
+        void flipCard.offsetHeight;
+        requestAnimationFrame(() => {
+          flipCard.style.transition = '';
+        });
+      }
+
       // Force a reflow to ensure layout recalculation
       void document.body.offsetHeight;
       

@@ -1093,7 +1093,6 @@ main::before {
 
 .note-dialog {
   width: min(520px, 92vw);
-  max-height: 100dvh;
   border: none;
   border-radius: 32px;
   background: transparent;
@@ -1156,16 +1155,18 @@ main::before {
   margin: 0;
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   /* Reduced padding and min-height to prevent overflow on small screens */
-  padding: clamp(1.5rem, 6vmin, 4rem) 0;
+  padding: clamp(3rem, 10vmin, 6rem) 0;
   transition: padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), min-height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  min-height: min(540px, 60vh);
+  min-height: min(540px, 70vh);
 }
 
 .flip-card {
   width: clamp(320px, 52vmin, 440px);
+  height: auto;
   aspect-ratio: 1 / 1;
   position: relative;
   perspective: 1600px;
