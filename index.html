@@ -33,6 +33,8 @@
     } catch (e) {}
   </script>
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/read-mode.css">
+  <link rel="stylesheet" href="css/expand-btn.css">
 </head>
 <body>
   <main>
@@ -248,6 +250,11 @@
             <img src="svg/Top Heart Mark.svg" alt="Top Heart Mark" class="flip-sticker" draggable="false" loading="lazy" decoding="async">
           </section>
           <section class="flip-face back" id="flipBack" aria-hidden="true">
+            <button type="button" id="expandBtn" class="expand-btn" aria-label="切換閱讀模式" title="放大/縮小">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+              </svg>
+            </button>
             <div class="flip-body">
               <textarea id="noteInput" name="note" rows="6" maxlength="800" required placeholder="輸入你的感動或見證&#10;&#10;『記得署名喔』" aria-label="留言內容"></textarea>
             </div>

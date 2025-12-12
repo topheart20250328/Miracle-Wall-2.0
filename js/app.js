@@ -168,11 +168,40 @@ function init() {
   paletteSticker?.addEventListener("pointerdown", handlePalettePointerDown);
   paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
   noteForm.addEventListener("submit", handleFormSubmit);
+  
+  // Toggle read mode on input click ONLY if locked (viewing mode)
+  noteInput.addEventListener("click", () => {
+    if (noteInput.classList.contains("locked")) {
+      noteDialog.classList.toggle("read-mode");
+    }
+  });
+
+  // Toggle read mode via expand button (works for both editing and viewing)
+  const expandBtn = document.getElementById("expandBtn");
+  if (expandBtn) {
+    expandBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // Prevent triggering other clicks
+      noteDialog.classList.toggle("read-mode");
+      
+      // If expanding while editing, focus the input
+      if (noteDialog.classList.contains("read-mode") && !noteInput.classList.contains("locked")) {
+        noteInput.focus();
+      }
+    });
+  }
+
   cancelModalBtn.addEventListener("click", handleCancelAction);
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   noteDialog.addEventListener("click", (event) => {
     if (event.target === noteDialog) {
+      // Prevent closing if editing/creating (to avoid accidental data loss)
+      // Only allow closing on backdrop click if in "view only" mode
+      const isEditable = state.pending && (state.pending.isNew || !state.pending.locked);
+      if (isEditable) {
+        return;
+      }
       handleCancelAction();
     }
   });
@@ -1156,6 +1185,7 @@ async function handleDialogClose() {
   formError.textContent = "";
   setTimestampDisplay(null);
   document.body?.classList.remove("dialog-open");
+  noteDialog.classList.remove("read-mode");
   setNoteLocked(false);
   updateDeleteButton();
   const result = noteDialog.returnValue || "";
@@ -1892,6 +1922,18 @@ function setNoteLocked(locked, options = {}) {
   noteInput.readOnly = isLocked;
   noteInput.classList.toggle("locked", isLocked);
   noteInput.setAttribute("aria-readonly", isLocked ? "true" : "false");
+  if (isLocked) {
+    noteInput.title = "點擊放大閱讀";
+  } else {
+    noteInput.removeAttribute("title");
+  }
+
+  const expandBtn = document.getElementById("expandBtn");
+  if (expandBtn) {
+    expandBtn.hidden = isLocked;
+    expandBtn.style.display = isLocked ? "none" : "";
+  }
+
   if (saveButton) {
     saveButton.hidden = isLocked;
     saveButton.disabled = isLocked;

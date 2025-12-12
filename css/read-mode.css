@@ -1,0 +1,71 @@
+
+/* Read Mode - Expanded View for Long Text */
+.note-dialog.read-mode #noteForm {
+  /* Asymmetric padding to push content upwards */
+  /* Top: 2.5rem (clears header), Bottom: 14rem (clears actions & search counter) */
+  padding: 2.5rem 0 calc(14rem + env(safe-area-inset-bottom)) 0;
+  /* Remove height overrides to allow smooth transition based on content */
+}
+
+.note-dialog.read-mode .flip-card {
+  width: clamp(340px, 90vw, 600px);
+  aspect-ratio: auto;
+  /* Increased height to utilize available space */
+  height: clamp(400px, 65vh, 800px);
+  max-height: 70vh;
+  /* Scroll-like expansion animation - smoother curve */
+  transition: width 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.note-dialog.read-mode .flip-face {
+  border-radius: 12px;
+  /* Unfurling effect - synced with card expansion */
+  transition: border-radius 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.note-dialog.read-mode .flip-face.back {
+  padding: clamp(1rem, 2vmin, 1.5rem);
+  /* Adjust background for better readability if needed */
+}
+
+.note-dialog.read-mode .flip-body {
+  padding: 0;
+  border-radius: 0;
+  height: 100%;
+}
+
+.note-dialog.read-mode #noteInput {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  text-align: left;
+  padding: 0.8rem;
+  cursor: zoom-out;
+  border-radius: 12px;
+  height: 100%;
+  /* Ensure text is selectable and readable */
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.note-dialog.read-mode .dialog-header {
+  top: 0.8rem; /* Moved up to utilize top space */
+  width: 100%;
+  max-width: 100%;
+}
+
+.note-dialog.read-mode .dialog-actions {
+  bottom: calc(8rem + env(safe-area-inset-bottom)); /* Moved up significantly to clear search counter */
+  width: 100%;
+  max-width: 100%;
+}
+
+.note-dialog.read-mode .note-timestamp {
+  bottom: calc(11.5rem + env(safe-area-inset-bottom)); /* Moved up to clear actions */
+}
+
+/* Hint for expandability */
+#noteInput.locked {
+  cursor: zoom-in;
+}
+
+/* Adjust close button or actions if needed */

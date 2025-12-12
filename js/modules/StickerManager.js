@@ -373,6 +373,19 @@ export function animateStickerReturn(pending, result, startRectOverride = null) 
   // If still no rect, fallback to computed center
   if (!startRect) {
     startRect = computeCenterRect();
+  } else {
+    // Ensure the start rect is square to prevent oval shadows when returning from read-mode
+    // We use the computed standard size to ensure consistency
+    const standardSize = computeZoomTargetSize();
+    const centerX = startRect.left + startRect.width / 2;
+    const centerY = startRect.top + startRect.height / 2;
+    
+    startRect = {
+      left: centerX - standardSize / 2,
+      top: centerY - standardSize / 2,
+      width: standardSize,
+      height: standardSize
+    };
   }
 
   const returnToPalette = pending.isNew && result !== "saved";
