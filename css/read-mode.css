@@ -16,10 +16,9 @@ body.read-mode-active {
   transition: background-color 0.5s ease;
 }
 
-/* Ensure overflow is managed properly when NOT in read mode */
+/* Ensure overflow is visible when NOT in read mode to prevent shadow clipping */
 .note-dialog:not(.read-mode) {
-  overflow-y: auto !important;
-  max-height: 100dvh;
+  overflow: visible !important;
 }
 
 .note-dialog.read-mode {

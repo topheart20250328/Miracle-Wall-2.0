@@ -1155,14 +1155,12 @@ main::before {
   margin: 0;
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  padding: clamp(5.5rem, 15vmin, 7.5rem) 0;
+  /* Reduced padding and min-height to prevent overflow on small screens */
+  padding: clamp(3rem, 10vmin, 6rem) 0;
   transition: padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), min-height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* Reduced min-height to prevent overflow on small screens/LINE browser */
-  min-height: clamp(480px, 70vmin, 700px);
+  min-height: min(540px, 70vh);
 }
 
 .flip-card {
