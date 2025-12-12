@@ -179,38 +179,31 @@ function init() {
       // Blur input to close keyboard and reset viewport
       noteInput.blur();
       
+      // Reset scroll positions
       noteInput.scrollTop = 0;
-      noteDialog.scrollTop = 0; // Ensure dialog itself is scrolled to top
-      
-      // Force reset scroll and layout on exit to prevent LINE browser glitches
       window.scrollTo(0, 0);
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
       
-      // Force overflow hidden on body/html to prevent scrollbars temporarily
+      // Force overflow hidden temporarily to prevent scrollbars during transition
       document.body.style.overflow = 'hidden';
       document.documentElement.style.overflow = 'hidden';
       
-      // Explicitly clear any inline styles that might have been set during read mode
-      noteDialog.style.cssText = ''; // Clear ALL inline styles
-      noteDialog.style.overflow = 'visible'; // Force visible overflow immediately
-      
-      // Aggressively reset #noteForm to prevent layout sticking
-      noteForm.style.cssText = ''; // Clear ALL inline styles
-      noteForm.style.transition = 'none'; // Disable transition to prevent interpolation glitches
+      // Completely strip inline styles to ensure clean state
+      noteDialog.removeAttribute('style');
+      noteForm.removeAttribute('style');
       
       // Force a reflow to ensure layout recalculation
       void document.body.offsetHeight;
       
-      // Restore transitions after a brief delay to allow layout to settle
-      // Increased delay to ensure LINE browser UI has settled
+      // Restore overflow after a brief delay to allow layout to settle
+      // Using a longer delay (300ms) to account for mobile keyboard animation
       setTimeout(() => {
-        noteForm.style.transition = '';
-        // Clean up forced overflow styles to let CSS take over
         document.body.style.overflow = '';
         document.documentElement.style.overflow = '';
-        noteDialog.style.overflow = '';
-      }, 100);
+        // Ensure overflow is visible for shadows (redundant with CSS but safe)
+        noteDialog.style.overflow = 'visible';
+      }, 300);
     }
     return isReadMode;
   };
@@ -241,23 +234,16 @@ function init() {
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   noteDialog.addEventListener("click", (event) => {
-    // Robust "click outside" detection
-    // If the click originated from within the card, buttons, or inputs, ignore it.
-    if (event.target.closest('.flip-card') || 
-        event.target.closest('button') || 
-        event.target.closest('input') || 
-        event.target.closest('textarea') ||
-        event.target.closest('.dialog-header')) {
-      return;
+    // Allow closing when clicking on dialog backdrop OR the form container (padding area)
+    if (event.target === noteDialog || event.target === noteForm) {
+      // Prevent closing if editing/creating (to avoid accidental data loss)
+      // Only allow closing on backdrop click if in "view only" mode
+      const isEditable = state.pending && (state.pending.isNew || !state.pending.locked);
+      if (isEditable) {
+        return;
+      }
+      handleCancelAction();
     }
-
-    // Otherwise, treat it as a background click (backdrop or padding)
-    // Only allow closing if in "view only" mode
-    const isEditable = state.pending && (state.pending.isNew || !state.pending.locked);
-    if (isEditable) {
-      return;
-    }
-    handleCancelAction();
   });
   initDialogSwipe();
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
