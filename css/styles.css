@@ -1093,14 +1093,13 @@ main::before {
 
 .note-dialog {
   width: min(520px, 92vw);
-  max-height: 100dvh; /* Ensure dialog never exceeds viewport height */
   border: none;
   border-radius: 32px;
   background: transparent;
   color: var(--text-primary);
   box-shadow: none;
-  padding: 0; /* Remove padding from dialog, handle in form */
-  overflow: hidden; /* Clip content to border radius */
+  padding: clamp(1.8rem, 3vw, 2.6rem);
+  overflow: visible;
   touch-action: pan-y;
 }
 
@@ -1158,12 +1157,9 @@ main::before {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Reduced padding and min-height to prevent overflow on small screens */
-  padding: clamp(4rem, 10vmin, 6rem) 0;
+  padding: clamp(5.5rem, 15vmin, 7.5rem) 0;
   transition: padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), min-height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  min-height: auto; /* Let content dictate height, but ensure it fits */
-  height: 100%; /* Fill the dialog */
-  box-sizing: border-box;
+  min-height: clamp(500px, 70vmin, 700px);
 }
 
 .flip-card {
@@ -1270,14 +1266,14 @@ main::before {
 }
 
 .dialog-header {
-  position: absolute;
-  top: clamp(1rem, 3vmin, 2rem);
+  position: fixed;
+  top: calc(clamp(1.2rem, 3.8vmin, 2.6rem) + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
   text-align: center;
-  z-index: 2;
+  z-index: 20;
   transition: top 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
 }
@@ -1366,8 +1362,8 @@ main::before {
 
 
 .dialog-actions {
-  position: absolute;
-  bottom: clamp(1rem, 3vmin, 1.5rem);
+  position: fixed;
+  bottom: calc(clamp(1.3rem, 4vmin, 2.2rem) + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
@@ -1377,16 +1373,16 @@ main::before {
   justify-content: center;
   align-items: center;
   gap: clamp(0.65rem, 2vmin, 0.95rem);
-  z-index: 2;
+  z-index: 20;
   transition: bottom 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  pointer-events: none;
+  pointer-events: none; /* Allow clicks to pass through the container */
 }
 
 .dialog-actions button {
   flex: 1 1 0;
   min-width: 0;
   max-width: 140px;
-  pointer-events: auto;
+  pointer-events: auto; /* Re-enable clicks on buttons */
 }
 .primary {
   padding: 0.5rem 1rem;
@@ -1415,10 +1411,10 @@ main::before {
 }
 
 .form-error {
-  position: absolute;
+  position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: clamp(5rem, 9vmin, 6.5rem);
+  bottom: calc(clamp(6rem, 10vmin, 7.4rem) + env(safe-area-inset-bottom));
   min-height: 1.2rem;
   margin: 0;
   color: var(--danger);
@@ -1427,15 +1423,15 @@ main::before {
   text-align: center;
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
-  z-index: 2;
+  z-index: 20;
   pointer-events: none;
 }
 
 .note-timestamp {
-  position: absolute;
+  position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: clamp(4rem, 7vmin, 5rem);
+  bottom: calc(clamp(4.8rem, 8.2vmin, 6.2rem) + env(safe-area-inset-bottom));
   margin: 0;
   font-size: 0.82rem;
   letter-spacing: 0.05em;
@@ -1443,7 +1439,7 @@ main::before {
   text-align: center;
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
-  z-index: 2;
+  z-index: 20;
   transition: bottom 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
   pointer-events: none;
 }
