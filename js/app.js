@@ -217,13 +217,6 @@ function init() {
         noteDialog.style.overflow = '';
       });
     }
-      
-      // Restore transitions after a brief delay to allow layout to settle
-      requestAnimationFrame(() => {
-        noteForm.style.transition = '';
-        noteForm.style.height = '';
-      });
-    }
     return isReadMode;
   };
 
