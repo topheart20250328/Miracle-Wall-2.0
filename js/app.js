@@ -180,12 +180,14 @@ function init() {
       noteInput.blur();
       
       noteInput.scrollTop = 0;
+      noteDialog.scrollTop = 0; // Ensure dialog itself is scrolled to top
+      
       // Force reset scroll and layout on exit to prevent LINE browser glitches
       window.scrollTo(0, 0);
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
       
-      // Force overflow hidden on body/html to prevent scrollbars
+      // Force overflow hidden on body/html to prevent scrollbars temporarily
       document.body.style.overflow = 'hidden';
       document.documentElement.style.overflow = 'hidden';
       
@@ -196,7 +198,7 @@ function init() {
       noteDialog.style.removeProperty('padding');
       noteDialog.style.removeProperty('top');
       noteDialog.style.removeProperty('left');
-      noteDialog.style.overflow = 'visible'; // Force visible overflow
+      noteDialog.style.overflow = 'visible'; // Force visible overflow immediately
       
       // Aggressively reset #noteForm to prevent layout sticking
       noteForm.style.height = 'auto';
@@ -208,14 +210,15 @@ function init() {
       void document.body.offsetHeight;
       
       // Restore transitions after a brief delay to allow layout to settle
-      requestAnimationFrame(() => {
+      // Increased delay to ensure LINE browser UI has settled
+      setTimeout(() => {
         noteForm.style.transition = '';
         noteForm.style.height = '';
         // Clean up forced overflow styles to let CSS take over
         document.body.style.overflow = '';
         document.documentElement.style.overflow = '';
         noteDialog.style.overflow = '';
-      });
+      }, 100);
     }
     return isReadMode;
   };
