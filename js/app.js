@@ -210,10 +210,7 @@ function init() {
         document.body.style.overflow = '';
         document.documentElement.style.overflow = '';
         noteDialog.style.overflow = '';
-        
-        // Double check scroll position
-        window.scrollTo(0, 0);
-      }, 150);
+      }, 100);
     }
     return isReadMode;
   };
@@ -244,23 +241,23 @@ function init() {
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   noteDialog.addEventListener("click", (event) => {
-    // Robust click-outside detection
-    // Close if clicking on dialog/form directly, OR if clicking outside the card/actions
-    // This handles cases where layout might be slightly shifted or padding is clicked
-    const isInsideCard = event.target.closest('.flip-card');
-    const isInsideActions = event.target.closest('.dialog-actions');
-    const isInsideNav = event.target.closest('.dialog-nav-btn');
-    const isInsideHeader = event.target.closest('.dialog-header');
-    
-    if (!isInsideCard && !isInsideActions && !isInsideNav && !isInsideHeader) {
-      // Prevent closing if editing/creating (to avoid accidental data loss)
-      // Only allow closing on backdrop click if in "view only" mode
-      const isEditable = state.pending && (state.pending.isNew || !state.pending.locked);
-      if (isEditable) {
-        return;
-      }
-      handleCancelAction();
+    // Robust "click outside" detection
+    // If the click originated from within the card, buttons, or inputs, ignore it.
+    if (event.target.closest('.flip-card') || 
+        event.target.closest('button') || 
+        event.target.closest('input') || 
+        event.target.closest('textarea') ||
+        event.target.closest('.dialog-header')) {
+      return;
     }
+
+    // Otherwise, treat it as a background click (backdrop or padding)
+    // Only allow closing if in "view only" mode
+    const isEditable = state.pending && (state.pending.isNew || !state.pending.locked);
+    if (isEditable) {
+      return;
+    }
+    handleCancelAction();
   });
   initDialogSwipe();
   deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
