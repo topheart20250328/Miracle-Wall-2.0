@@ -169,90 +169,117 @@ function init() {
   paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
   noteForm.addEventListener("submit", handleFormSubmit);
   
-  // Helper to toggle read mode safely
-  const toggleReadMode = (forceState) => {
-    const isReadMode = noteDialog.classList.toggle("read-mode", forceState);
-    document.body.classList.toggle("read-mode-active", isReadMode);
-    document.documentElement.classList.toggle("read-mode-active", isReadMode);
+  // Read Mode Overlay Logic
+  const readModeOverlay = document.getElementById('readModeOverlay');
+  const readModeInput = document.getElementById('readModeInput');
+  const readModeContent = document.getElementById('readModeContent');
+  const closeReadModeBtn = document.getElementById('closeReadModeBtn');
+  const readModeContainer = readModeOverlay?.querySelector('.read-mode-container');
 
-    if (!isReadMode) {
-      // Blur input to close keyboard and reset viewport
-      noteInput.blur();
-      
-      noteInput.scrollTop = 0;
-      // Force reset scroll and layout on exit to prevent LINE browser glitches
-      window.scrollTo(0, 0);
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-      
-      // Force overflow hidden on body/html to prevent scrollbars
-      document.body.style.overflow = 'hidden';
-      document.documentElement.style.overflow = 'hidden';
-      
-      // Explicitly clear any inline styles that might have been set during read mode
-      noteDialog.style.removeProperty('width');
-      noteDialog.style.removeProperty('height');
-      noteDialog.style.removeProperty('margin');
-      noteDialog.style.removeProperty('padding');
-      noteDialog.style.removeProperty('top');
-      noteDialog.style.removeProperty('left');
-      noteDialog.style.overflow = 'visible'; // Force visible overflow
-      
-      // Aggressively reset #noteForm to prevent layout sticking
-      noteForm.style.height = 'auto';
-      noteForm.style.minHeight = ''; // Allow CSS to take over
-      noteForm.style.padding = ''; // Clear padding
-      noteForm.style.transition = 'none'; // Disable transition to prevent interpolation glitches
-      
-      // Reset .flip-card to ensure it reverts to square aspect ratio
-      const flipCard = noteDialog.querySelector('.flip-card');
-      if (flipCard) {
-        flipCard.style.width = '';
-        flipCard.style.height = '';
-        flipCard.style.transition = 'none';
-        // Force reflow on flip-card
-        void flipCard.offsetHeight;
-        requestAnimationFrame(() => {
-          flipCard.style.transition = '';
-        });
+  const openReadMode = (isViewMode) => {
+    if (!readModeOverlay || !readModeInput) return;
+
+    readModeOverlay.showModal();
+    document.body.style.overflow = 'hidden';
+
+    if (isViewMode) {
+      // View Mode: Show div, hide textarea
+      if (readModeContent) {
+        readModeContent.hidden = false;
+        // Wrap text in a container for proper centering with scroll
+        readModeContent.innerHTML = '';
+        const textWrapper = document.createElement('div');
+        textWrapper.className = 'read-mode-text-wrapper';
+        textWrapper.textContent = noteInput.value;
+        readModeContent.appendChild(textWrapper);
+        
+        readModeInput.hidden = true;
       }
-
-      // Force a reflow to ensure layout recalculation
-      void document.body.offsetHeight;
+      // Hide header in view mode to maximize space
+      const header = readModeOverlay.querySelector('.read-mode-header');
+      if (header) header.style.display = 'none';
       
-      // Restore transitions after a brief delay to allow layout to settle
-      requestAnimationFrame(() => {
-        noteForm.style.transition = '';
-        noteForm.style.height = '';
-        // Clean up forced overflow styles to let CSS take over
-        document.body.style.overflow = '';
-        document.documentElement.style.overflow = '';
-        noteDialog.style.overflow = '';
-      });
+      readModeOverlay.dataset.mode = 'view';
+    } else {
+      // Edit Mode: Show textarea, hide div
+      if (readModeContent) {
+        readModeContent.hidden = true;
+        readModeInput.hidden = false;
+      }
+      // Show header in edit mode
+      const header = readModeOverlay.querySelector('.read-mode-header');
+      if (header) header.style.display = '';
+
+      readModeInput.value = noteInput.value;
+      readModeOverlay.dataset.mode = 'edit';
+      // Focus end of text
+      readModeInput.focus();
+      readModeInput.setSelectionRange(readModeInput.value.length, readModeInput.value.length);
     }
-    return isReadMode;
+  };
+
+  const closeReadMode = () => {
+    if (!readModeOverlay) return;
+    
+    // Sync back value if in edit mode
+    if (readModeOverlay.dataset.mode === 'edit' && readModeInput) {
+      noteInput.value = readModeInput.value;
+    }
+
+    readModeOverlay.close();
+    document.body.style.overflow = '';
+    delete readModeOverlay.dataset.mode;
   };
 
   // Toggle read mode on input click ONLY if locked (viewing mode)
   noteInput.addEventListener("click", () => {
     if (noteInput.classList.contains("locked")) {
-      toggleReadMode();
+      openReadMode(true);
     }
   });
 
-  // Toggle read mode via expand button (works for both editing and viewing)
+  // Toggle read mode via expand button
   const expandBtn = document.getElementById("expandBtn");
   if (expandBtn) {
     expandBtn.addEventListener("click", (e) => {
       e.preventDefault();
-      e.stopPropagation(); // Prevent triggering other clicks
-      const isReadMode = toggleReadMode();
+      e.stopPropagation();
+      // Check if we are in view mode (locked) or edit mode
+      const isViewMode = noteInput.classList.contains("locked");
+      openReadMode(isViewMode);
+    });
+  }
+
+  if (closeReadModeBtn) {
+    closeReadModeBtn.addEventListener('click', closeReadMode);
+  }
+
+  // Overlay Click Handling
+  if (readModeOverlay) {
+    readModeOverlay.addEventListener('click', (e) => {
+      const isViewMode = readModeOverlay.dataset.mode === 'view';
       
-      // If expanding while editing, focus the input
-      if (isReadMode && !noteInput.classList.contains("locked")) {
-        noteInput.focus();
+      if (isViewMode) {
+        // In View Mode: Click anywhere (overlay or container) closes it
+        // We don't need to check target because the event bubbles up
+        closeReadMode();
+      } else {
+        // In Edit Mode: Click on backdrop does NOT close (prevent accidental close)
+        // Only close button works (handled above)
+        // So we do nothing here
       }
     });
+
+    // Prevent clicks inside container from closing in Edit Mode
+    // But in View Mode, we WANT clicks inside container to close
+    if (readModeContainer) {
+      readModeContainer.addEventListener('click', (e) => {
+        const isViewMode = readModeOverlay.dataset.mode === 'view';
+        if (!isViewMode) {
+          e.stopPropagation(); // Stop bubbling to overlay in Edit Mode
+        }
+      });
+    }
   }
 
   cancelModalBtn.addEventListener("click", handleCancelAction);

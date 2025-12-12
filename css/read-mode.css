@@ -1,189 +1,137 @@
 
-/* Read Mode - Expanded View for Long Text */
-html.read-mode-active,
-body.read-mode-active {
-  overflow: hidden !important;
-  overscroll-behavior: none;
-  height: 100%;
-  position: fixed; /* Force lock on iOS/Line */
-  width: 100%;
+/* Read Mode Overlay Styles */
+.read-mode-overlay {
+  position: fixed;
   top: 0;
   left: 0;
-}
-
-/* Remove transition for container dimensions to prevent layout glitches during exit */
-.note-dialog {
-  transition: background-color 0.5s ease;
-}
-
-/* Ensure overflow is visible when NOT in read mode to prevent shadow clipping */
-.note-dialog:not(.read-mode) {
-  overflow: visible !important;
-}
-
-.note-dialog.read-mode {
-  /* Force full screen to ensure layout fits viewport */
-  width: 100% !important;
-  height: 100% !important;
-  max-width: none !important;
-  max-height: none !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
-  padding: 0 !important;
-  overflow: hidden; /* Manage overflow internally */
-  top: 0 !important;
-  left: 0 !important;
-  transform: none !important;
-}
-
-.note-dialog.read-mode #noteForm {
-  /* Use Flexbox to manage vertical space */
+  width: 100%;
+  height: 100%; /* Fallback */
+  height: 100dvh; /* Dynamic viewport height for mobile */
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  background: rgba(16, 20, 24, 0.95);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: none;
+  z-index: 2000;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
-  padding: 0 !important; /* Remove default padding */
-}
-
-.note-dialog.read-mode .flip-card {
-  /* Card takes available space but respects limits */
-  width: clamp(340px, 90vw, 600px);
-  /* Calculate height to leave room for header and footer */
-  /* Header ~3rem, Footer ~4rem, Spacing ~2rem */
-  height: calc(100dvh - 10rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
-  max-height: 800px;
-  margin: 0;
-  
-  /* Smooth transition */
-  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.note-dialog.read-mode .flip-face {
-  border-radius: 12px;
-  transition: border-radius 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.note-dialog.read-mode .flip-face.back {
-  padding: clamp(1rem, 2vmin, 1.5rem);
-}
-
-.note-dialog.read-mode .flip-body {
-  padding: 0;
-  border-radius: 0;
-  height: 100%;
-}
-
-.note-dialog.read-mode #noteInput {
-  font-size: 1.05rem;
-  line-height: 1.6;
-  text-align: left;
-  padding: 0.8rem;
-  cursor: zoom-out;
-  border-radius: 12px;
-  height: 100%;
-  user-select: text;
-  -webkit-user-select: text;
-  /* Ensure scrolling within the input if text is very long */
-  overflow-y: auto;
-}
-
-/* Header - Pinned to top */
-.note-dialog.read-mode .dialog-header {
-  position: absolute;
-  top: calc(1rem + env(safe-area-inset-top));
-  left: 0;
-  right: 0;
-  margin: auto;
-  width: 100%;
-  z-index: 10;
-  pointer-events: none; /* Let clicks pass through if needed, but text is below */
-  transform: none; /* Reset transform from styles.css to fix centering */
-}
-.note-dialog.read-mode .dialog-header > * {
-  pointer-events: auto;
-}
-
-/* Actions - Pinned to bottom */
-.note-dialog.read-mode .dialog-actions {
-  position: absolute;
-  bottom: calc(2rem + env(safe-area-inset-bottom));
-  left: 0;
-  right: 0;
-  margin: auto;
-  /* Constrain width to avoid overlapping with nav buttons */
-  /* Nav buttons are ~3rem wide + 1.5rem margin = 4.5rem each side */
-  /* Adding extra buffer -> 6rem each side -> 12rem total reduction */
-  width: calc(100% - 12rem);
-  max-width: 200px; /* Keep buttons compact */
-  z-index: 10;
-  transform: none; /* Reset transform from styles.css to fix centering */
-  justify-content: center;
-}
-
-.note-dialog.read-mode .dialog-actions button {
-  /* Make buttons slightly more compact in read mode */
-  padding: 0.4rem 0.8rem;
-  font-size: 0.9rem;
-  backdrop-filter: blur(4px);
-}
-
-/* Hide elements that might overlap or aren't needed in read mode */
-.note-dialog.read-mode .note-timestamp {
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.3s ease;
+  /* Mobile scroll fixes */
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
-/* Ensure Search Navigation & Counter are visible and correctly positioned in Read Mode */
-.note-dialog.read-mode .dialog-nav-btn {
+.read-mode-overlay[open] {
   opacity: 1;
   pointer-events: auto;
-  z-index: 20;
-  /* Move to bottom corners to avoid overlapping text */
-  top: auto;
-  bottom: calc(2rem + env(safe-area-inset-bottom));
-  transform: none;
+  display: flex; /* Ensure flex is applied when open */
+}
+
+.read-mode-container {
+  width: clamp(300px, 90vw, 800px);
+  height: clamp(400px, 80vh, 900px);
+  background: #2a2a2a;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.read-mode-header {
+  padding: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.read-mode-header .close-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  line-height: 1;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.read-mode-header .close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+#readModeInput {
+  flex: 1;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #f5f5f5;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  padding: 1.5rem;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  /* Allow scrolling inside input */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+#readModeInput::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.read-mode-content {
+  flex: 1;
+  width: 100%;
+  padding: 1.5rem;
+  color: #f5f5f5;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  /* Removed justify-content: center to fix clipping issue */
+  text-align: left;
+  /* Allow scrolling inside content */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+.read-mode-text-wrapper {
+  margin: auto; /* Centers vertically when small, aligns top when overflowing */
+  width: 100%;
+  white-space: pre-wrap;
+}
+
+/* Mobile adjustments */
+@media (max-width: 640px) {
+  .read-mode-container {
+    width: 100%;
+    height: 100%;
+    height: 100dvh; /* Use dynamic viewport height */
+    border-radius: 0;
+    border: none;
+  }
   
-  /* Unify style with Ghost buttons */
-  background: rgba(255, 255, 255, 0.18);
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  color: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(4px);
-  width: 2.8rem;
-  height: 2.8rem;
+  .read-mode-header {
+    padding: 0.8rem;
+    padding-top: calc(0.8rem + env(safe-area-inset-top));
+  }
 }
-
-.note-dialog.read-mode .dialog-nav-btn:active {
-  transform: scale(0.92);
-  background: rgba(255, 255, 255, 0.25);
-}
-
-.note-dialog.read-mode .dialog-nav-btn.prev {
-  left: 1.5rem;
-  right: auto;
-}
-
-.note-dialog.read-mode .dialog-nav-btn.next {
-  right: 1.5rem;
-  left: auto;
-}
-
-.note-dialog.read-mode .dialog-search-counter {
-  opacity: 1;
-  pointer-events: auto;
-  z-index: 20;
-  /* Position above the actions area */
-  bottom: calc(6rem + env(safe-area-inset-bottom));
-  /* Ensure it stays centered */
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-/* Hint for expandability */
-#noteInput.locked {
-  cursor: zoom-in;
-}
-
-/* Adjust close button or actions if needed */

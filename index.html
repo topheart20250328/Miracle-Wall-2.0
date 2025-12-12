@@ -368,6 +368,16 @@
          hidden>
     您的瀏覽器不支援自動播放音訊。
   </audio>
+  <dialog id="readModeOverlay" class="read-mode-overlay">
+    <div class="read-mode-container">
+      <header class="read-mode-header">
+        <button type="button" id="closeReadModeBtn" class="close-btn" aria-label="關閉閱讀模式">✕</button>
+      </header>
+      <div id="readModeContent" class="read-mode-content" hidden></div>
+      <textarea id="readModeInput" placeholder="輸入你的感動或見證&#10;&#10;『記得署名喔』"></textarea>
+    </div>
+  </dialog>
+
   <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha384-fXdIufVbE9aU7STmdk/DWK0imNOozId9fTwzM/gi0NfPjphEIC3gq0M760UnsKVy" crossorigin="anonymous"></script>
   <script type="module" src="js/app.js"></script>
 </body>

@@ -1430,7 +1430,8 @@ main::before {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: clamp(4.8rem, 8.2vmin, 6.2rem);
+  /* Moved down slightly to avoid being too close to the sticker */
+  bottom: clamp(4.2rem, 7.2vmin, 5.6rem);
   margin: 0;
   font-size: 0.82rem;
   letter-spacing: 0.05em;
