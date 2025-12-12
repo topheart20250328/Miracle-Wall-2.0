@@ -16,6 +16,11 @@ body.read-mode-active {
   transition: background-color 0.5s ease;
 }
 
+/* Ensure overflow is visible when NOT in read mode to prevent shadow clipping */
+.note-dialog:not(.read-mode) {
+  overflow: visible !important;
+}
+
 .note-dialog.read-mode {
   /* Force full screen to ensure layout fits viewport */
   width: 100% !important;
