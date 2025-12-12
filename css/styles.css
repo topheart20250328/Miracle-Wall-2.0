@@ -1092,15 +1092,24 @@ main::before {
 
 
 .note-dialog {
-  width: min(520px, 92vw);
+  /* Full screen overlay approach to fix LINE browser layout issues */
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh; /* Use dynamic viewport height */
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  
   border: none;
-  border-radius: 32px;
+  border-radius: 0;
   background: transparent;
   color: var(--text-primary);
   box-shadow: none;
-  padding: clamp(1.8rem, 3vw, 2.6rem);
-  overflow: visible;
-  touch-action: pan-y;
+  overflow: hidden; /* Prevent scroll on the dialog itself */
+  touch-action: none; /* We handle touches in the form */
+  z-index: 1000; /* Ensure it's on top */
 }
 
 .note-dialog::backdrop {
@@ -1155,11 +1164,13 @@ main::before {
   margin: 0;
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: clamp(5.5rem, 15vmin, 7.5rem) 0;
-  transition: padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), min-height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  min-height: clamp(500px, 70vmin, 700px);
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  /* Remove min-height and transition hacks */
 }
 
 .flip-card {
@@ -1266,8 +1277,8 @@ main::before {
 }
 
 .dialog-header {
-  position: fixed;
-  top: calc(clamp(1.2rem, 3.8vmin, 2.6rem) + env(safe-area-inset-top));
+  position: absolute;
+  top: calc(1.5rem + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
@@ -1362,8 +1373,8 @@ main::before {
 
 
 .dialog-actions {
-  position: fixed;
-  bottom: calc(clamp(1.3rem, 4vmin, 2.2rem) + env(safe-area-inset-bottom));
+  position: absolute;
+  bottom: calc(2rem + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%);
   width: 100%;
@@ -1411,10 +1422,10 @@ main::before {
 }
 
 .form-error {
-  position: fixed;
+  position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(clamp(6rem, 10vmin, 7.4rem) + env(safe-area-inset-bottom));
+  bottom: calc(7rem + env(safe-area-inset-bottom));
   min-height: 1.2rem;
   margin: 0;
   color: var(--danger);
@@ -1428,10 +1439,10 @@ main::before {
 }
 
 .note-timestamp {
-  position: fixed;
+  position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(clamp(4.8rem, 8.2vmin, 6.2rem) + env(safe-area-inset-bottom));
+  bottom: calc(5.5rem + env(safe-area-inset-bottom));
   margin: 0;
   font-size: 0.82rem;
   letter-spacing: 0.05em;
