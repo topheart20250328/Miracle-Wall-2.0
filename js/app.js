@@ -169,15 +169,26 @@ function init() {
   paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
   noteForm.addEventListener("submit", handleFormSubmit);
   
+  // Helper to toggle read mode safely
+  const toggleReadMode = (forceState) => {
+    const isReadMode = noteDialog.classList.toggle("read-mode", forceState);
+    document.body.classList.toggle("read-mode-active", isReadMode);
+    document.documentElement.classList.toggle("read-mode-active", isReadMode);
+
+    if (!isReadMode) {
+      noteInput.scrollTop = 0;
+      // Force reset scroll and layout on exit to prevent LINE browser glitches
+      window.scrollTo(0, 0);
+      // Force a reflow to ensure layout recalculation
+      void document.body.offsetHeight;
+    }
+    return isReadMode;
+  };
+
   // Toggle read mode on input click ONLY if locked (viewing mode)
   noteInput.addEventListener("click", () => {
     if (noteInput.classList.contains("locked")) {
-      const isReadMode = noteDialog.classList.toggle("read-mode");
-      document.body.classList.toggle("read-mode-active", isReadMode);
-      
-      if (!isReadMode) {
-        noteInput.scrollTop = 0;
-      }
+      toggleReadMode();
     }
   });
 
@@ -187,12 +198,7 @@ function init() {
     expandBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation(); // Prevent triggering other clicks
-      const isReadMode = noteDialog.classList.toggle("read-mode");
-      document.body.classList.toggle("read-mode-active", isReadMode);
-      
-      if (!isReadMode) {
-        noteInput.scrollTop = 0;
-      }
+      const isReadMode = toggleReadMode();
       
       // If expanding while editing, focus the input
       if (isReadMode && !noteInput.classList.contains("locked")) {
@@ -1198,9 +1204,14 @@ async function handleDialogClose() {
   document.body?.classList.remove("dialog-open");
   noteDialog.classList.remove("read-mode");
   document.body.classList.remove("read-mode-active");
+  document.documentElement.classList.remove("read-mode-active"); // Ensure cleanup
   setNoteLocked(false);
   updateDeleteButton();
   const result = noteDialog.returnValue || "";
+  
+  // Force reset scroll and layout on close
+  window.scrollTo(0, 0);
+  void document.body.offsetHeight;
   
   // Only animate if we have a snapshot AND we are not already animating (via closeDialogWithResult)
   if (pendingSnapshot && pendingSnapshot.node && !state.isAnimatingReturn) {
