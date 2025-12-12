@@ -1283,9 +1283,6 @@ async function handleDialogClose() {
   formError.textContent = "";
   setTimestampDisplay(null);
   document.body?.classList.remove("dialog-open");
-  noteDialog.classList.remove("read-mode");
-  document.body.classList.remove("read-mode-active");
-  document.documentElement.classList.remove("read-mode-active"); // Ensure cleanup
   setNoteLocked(false);
   updateDeleteButton();
   const result = noteDialog.returnValue || "";
