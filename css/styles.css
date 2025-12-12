@@ -1101,6 +1101,11 @@ main::before {
   padding: clamp(1.8rem, 3vw, 2.6rem);
   overflow: visible;
   touch-action: pan-y;
+  position: relative; /* Ensure absolute children position relative to dialog, not form */
+  max-height: 100dvh; /* Prevent dialog from exceeding viewport */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .note-dialog::backdrop {
@@ -1153,13 +1158,13 @@ main::before {
 
 #noteForm {
   margin: 0;
-  position: relative;
+  /* position: relative; Removed to let actions position to dialog */
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(5.5rem, 15vmin, 7.5rem) 0;
+  padding: clamp(3rem, 10vmin, 5rem) 0; /* Reduced padding */
   transition: padding 0.7s cubic-bezier(0.2, 0.8, 0.2, 1), min-height 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
-  min-height: clamp(500px, 70vmin, 700px);
+  min-height: auto; /* Let content dictate height, avoid forcing tall size */
 }
 
 .flip-card {

@@ -210,7 +210,10 @@ function init() {
         document.body.style.overflow = '';
         document.documentElement.style.overflow = '';
         noteDialog.style.overflow = '';
-      }, 100);
+        
+        // Double check scroll position
+        window.scrollTo(0, 0);
+      }, 150);
     }
     return isReadMode;
   };
@@ -241,8 +244,15 @@ function init() {
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   noteDialog.addEventListener("click", (event) => {
-    // Allow closing when clicking on dialog backdrop OR the form container (padding area)
-    if (event.target === noteDialog || event.target === noteForm) {
+    // Robust click-outside detection
+    // Close if clicking on dialog/form directly, OR if clicking outside the card/actions
+    // This handles cases where layout might be slightly shifted or padding is clicked
+    const isInsideCard = event.target.closest('.flip-card');
+    const isInsideActions = event.target.closest('.dialog-actions');
+    const isInsideNav = event.target.closest('.dialog-nav-btn');
+    const isInsideHeader = event.target.closest('.dialog-header');
+    
+    if (!isInsideCard && !isInsideActions && !isInsideNav && !isInsideHeader) {
       // Prevent closing if editing/creating (to avoid accidental data loss)
       // Only allow closing on backdrop click if in "view only" mode
       const isEditable = state.pending && (state.pending.isNew || !state.pending.locked);
