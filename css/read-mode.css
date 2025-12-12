@@ -1,5 +1,19 @@
 
 /* Read Mode - Expanded View for Long Text */
+html.read-mode-active,
+body.read-mode-active {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  height: 100%;
+  position: fixed; /* Force lock on iOS/Line */
+  width: 100%;
+}
+
+.note-dialog.read-mode {
+  overflow: visible; /* Allow navigation buttons to be seen outside */
+  overscroll-behavior: none;
+}
+
 .note-dialog.read-mode #noteForm {
   /* Asymmetric padding to push content upwards */
   /* Top: 2.5rem (clears header), Bottom: 14rem (clears actions & search counter) */

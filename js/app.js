@@ -172,7 +172,8 @@ function init() {
   // Toggle read mode on input click ONLY if locked (viewing mode)
   noteInput.addEventListener("click", () => {
     if (noteInput.classList.contains("locked")) {
-      noteDialog.classList.toggle("read-mode");
+      const isReadMode = noteDialog.classList.toggle("read-mode");
+      document.body.classList.toggle("read-mode-active", isReadMode);
     }
   });
 
@@ -182,10 +183,11 @@ function init() {
     expandBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation(); // Prevent triggering other clicks
-      noteDialog.classList.toggle("read-mode");
+      const isReadMode = noteDialog.classList.toggle("read-mode");
+      document.body.classList.toggle("read-mode-active", isReadMode);
       
       // If expanding while editing, focus the input
-      if (noteDialog.classList.contains("read-mode") && !noteInput.classList.contains("locked")) {
+      if (isReadMode && !noteInput.classList.contains("locked")) {
         noteInput.focus();
       }
     });
@@ -195,7 +197,8 @@ function init() {
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   noteDialog.addEventListener("click", (event) => {
-    if (event.target === noteDialog) {
+    // Allow closing when clicking on dialog backdrop OR the form container (padding area)
+    if (event.target === noteDialog || event.target === noteForm) {
       // Prevent closing if editing/creating (to avoid accidental data loss)
       // Only allow closing on backdrop click if in "view only" mode
       const isEditable = state.pending && (state.pending.isNew || !state.pending.locked);
@@ -1186,6 +1189,7 @@ async function handleDialogClose() {
   setTimestampDisplay(null);
   document.body?.classList.remove("dialog-open");
   noteDialog.classList.remove("read-mode");
+  document.body.classList.remove("read-mode-active");
   setNoteLocked(false);
   updateDeleteButton();
   const result = noteDialog.returnValue || "";
