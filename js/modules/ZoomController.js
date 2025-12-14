@@ -10,6 +10,8 @@ const viewportState = {
   offsetX: 0,
   offsetY: 0,
 };
+let savedState = null;
+
 const panState = {
   pointerId: null,
   startX: 0,
@@ -45,6 +47,67 @@ export function setInteractionLocked(locked) {
     panState.moved = false;
     panState.pointers.clear();
     panState.pinchStartDistance = 0;
+  }
+}
+
+export function saveState() {
+  if (!savedState) {
+    savedState = {
+      scale: zoomState.scale,
+      offsetX: viewportState.offsetX,
+      offsetY: viewportState.offsetY
+    };
+  }
+}
+
+export function clearSavedState() {
+  savedState = null;
+}
+
+export function restoreState(duration = 600) {
+  if (!savedState) return;
+  
+  const targetState = { ...savedState };
+  savedState = null;
+
+  if (window.anime) {
+      if (resetAnimation) resetAnimation.pause();
+      
+      const targets = { 
+          offsetX: viewportState.offsetX, 
+          offsetY: viewportState.offsetY,
+          scale: zoomState.scale
+      };
+
+      resetAnimation = window.anime({
+          targets: targets,
+          offsetX: targetState.offsetX,
+          offsetY: targetState.offsetY,
+          scale: targetState.scale,
+          duration: duration,
+          easing: 'easeOutExpo',
+          update: () => {
+              viewportState.offsetX = targets.offsetX;
+              viewportState.offsetY = targets.offsetY;
+              zoomState.scale = targets.scale;
+              applyZoomTransform(true);
+              updateZoomIndicator();
+          },
+          complete: () => {
+              resetAnimation = null;
+              viewportState.offsetX = targetState.offsetX;
+              viewportState.offsetY = targetState.offsetY;
+              zoomState.scale = targetState.scale;
+              applyZoomTransform(true);
+              updateZoomIndicator();
+          }
+      });
+  } else {
+      viewportState.offsetX = targetState.offsetX;
+      viewportState.offsetY = targetState.offsetY;
+      zoomState.scale = targetState.scale;
+      applyZoomTransform();
+      updateZoomIndicator();
   }
 }
 

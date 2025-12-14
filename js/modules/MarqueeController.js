@@ -27,13 +27,30 @@ const marqueeState = {
   mobileViewport: null,
   layer: null,
   lines: [],
-  onItemClick: null
+  onItemClick: null,
+  animations: new Map(), // track -> Animation
+  dragState: {
+    active: false,
+    track: null,
+    startX: 0,
+    startTime: 0,
+    animation: null,
+    hasMoved: false
+  },
+  listenersAttached: false
 };
 
 export function initMarqueeController(layer, lines, onItemClick) {
   marqueeState.layer = layer;
   marqueeState.lines = lines;
   marqueeState.onItemClick = onItemClick;
+  
+  if (!marqueeState.listenersAttached && typeof window !== "undefined") {
+    document.addEventListener("pointermove", handleDragMove);
+    document.addEventListener("pointerup", handleDragEnd);
+    document.addEventListener("pointercancel", handleDragEnd);
+    marqueeState.listenersAttached = true;
+  }
 }
 
 export function initMarqueeTicker() {
@@ -44,7 +61,8 @@ export function initMarqueeTicker() {
   resetMarqueeTicker();
   setupMarqueeLineListeners();
   marqueeState.initialized = true;
-  refreshMarqueeFlow(true, true);
+  // Use false for immediate to allow staggered start
+  refreshMarqueeFlow(true, false);
 }
 
 export function updateMarqueePool(stickersMap, reviewSettings) {
@@ -89,7 +107,14 @@ function initMarqueeViewportWatcher() {
 
 function resetMarqueeTicker() {
   clearMarqueeTimeouts();
-  marqueeState.activeLines.forEach((line) => line.classList.remove("is-active"));
+  marqueeState.activeLines.forEach((line) => {
+    line.classList.remove("is-active");
+    const track = line.querySelector(".marquee-track");
+    if (track && marqueeState.animations.has(track)) {
+      marqueeState.animations.get(track).cancel();
+      marqueeState.animations.delete(track);
+    }
+  });
   marqueeState.activeLines.clear();
   marqueeState.activeMessages.clear();
   marqueeState.lineCursor = 0;
@@ -106,20 +131,86 @@ function setupMarqueeLineListeners() {
       return;
     }
     track.dataset.marqueeBound = "true";
-    track.addEventListener("animationend", handleMarqueeAnimationEnd);
     
-    // Add click listener for interaction
-    const textSpan = track.querySelector(".marquee-text");
-    if (textSpan) {
-      textSpan.addEventListener("click", (e) => {
-        const id = line.dataset.stickerId;
-        if (id && marqueeState.onItemClick) {
-          e.stopPropagation();
-          marqueeState.onItemClick(id);
-        }
-      });
-    }
+    // Add pointer listeners for drag
+    track.addEventListener("pointerdown", handleDragStart);
+    
+    // Prevent default drag behavior to avoid issues
+    track.addEventListener("dragstart", (e) => e.preventDefault());
   });
+}
+
+function handleDragStart(e) {
+  const track = e.currentTarget;
+  const animation = marqueeState.animations.get(track);
+  
+  if (!animation) return;
+  
+  // Only allow left click or touch
+  if (e.button !== 0 && e.pointerType === 'mouse') return;
+
+  // Stop propagation to prevent dragging the underlying wall
+  e.stopPropagation();
+
+  marqueeState.dragState = {
+    active: true,
+    track: track,
+    startX: e.clientX,
+    startTime: animation.currentTime || 0,
+    animation: animation,
+    hasMoved: false,
+    originalTarget: e.target // Store the original target for click detection
+  };
+  
+  animation.pause();
+  track.setPointerCapture(e.pointerId);
+  track.style.cursor = 'grabbing';
+}
+
+function handleDragMove(e) {
+  if (!marqueeState.dragState.active) return;
+  
+  const { startX, startTime, animation } = marqueeState.dragState;
+  const deltaX = e.clientX - startX;
+  
+  if (Math.abs(deltaX) > 5) {
+    marqueeState.dragState.hasMoved = true;
+  }
+  
+  // Calculate new time based on drag distance
+  // Moving left (negative delta) should advance the animation (positive time shift)
+  // because the animation moves right-to-left.
+  const timeShift = (-deltaX / MARQUEE_SPEED_PX_PER_SEC) * 1000;
+  let newTime = startTime + timeShift;
+  
+  animation.currentTime = newTime;
+}
+
+function handleDragEnd(e) {
+  if (!marqueeState.dragState.active) return;
+  
+  const { track, animation, hasMoved, originalTarget } = marqueeState.dragState;
+  
+  track.style.cursor = '';
+  if (track.hasPointerCapture(e.pointerId)) {
+    track.releasePointerCapture(e.pointerId);
+  }
+  
+  if (!hasMoved) {
+    // It was a click
+    const textSpan = track.querySelector(".marquee-text");
+    // Check if the original target was the text or inside it
+    if (originalTarget === textSpan || textSpan.contains(originalTarget)) {
+       const line = track.closest(".marquee-line");
+       const id = line.dataset.stickerId;
+       if (id && marqueeState.onItemClick) {
+         marqueeState.onItemClick(id);
+       }
+    }
+  }
+  
+  animation.play();
+  marqueeState.dragState = { active: false, track: null, animation: null, originalTarget: null };
 }
 
 function getResponsiveMarqueeLines() {
@@ -169,9 +260,22 @@ function updateMarqueeActiveLimit() {
 function ensureMarqueeFlow(seed = false, immediate = false) {
   const deficit = Math.max(0, marqueeState.activeLimit - marqueeState.activeLines.size);
   const isMobileSeed = seed && Boolean(marqueeState.mobileViewport?.matches);
+  
   for (let i = 0; i < deficit; i += 1) {
-    const baseDelay = seed ? i * MARQUEE_STAGGER_DELAY_MS : (i === 0 ? 0 : MARQUEE_RESPAWN_DELAY_MS);
-    const jitter = seed && i === 0 ? 0 : seed ? MARQUEE_SEED_JITTER_MS : MARQUEE_RESPAWN_JITTER_MS;
+    let baseDelay;
+    let jitter;
+
+    if (seed) {
+      // Random staggered start for initial load
+      // Spread start times between 0s and 8s (approx)
+      baseDelay = Math.random() * 8000; 
+      jitter = 1000; 
+    } else {
+      // Normal respawn logic
+      baseDelay = (i === 0 ? 0 : MARQUEE_RESPAWN_DELAY_MS);
+      jitter = MARQUEE_RESPAWN_JITTER_MS;
+    }
+
     const shouldBurst = isMobileSeed && i < MOBILE_SEED_BURST_COUNT;
     queueMarqueeActivation(baseDelay, jitter, { immediate: immediate || shouldBurst });
   }
@@ -218,10 +322,50 @@ function restartMarqueeAnimation(line) {
   if (!track) {
     return;
   }
-  line.classList.remove("is-active");
-  void track.offsetWidth;
-  updateMarqueeDuration(line, track);
-  requestAnimationFrame(() => line.classList.add("is-active"));
+  
+  // Clean up old animation if exists
+  if (marqueeState.animations.has(track)) {
+    marqueeState.animations.get(track).cancel();
+    marqueeState.animations.delete(track);
+  }
+
+  line.classList.add("is-active");
+  
+  // Calculate geometry
+  const viewportWidth = line.clientWidth || window.innerWidth;
+  const trackWidth = track.scrollWidth || track.offsetWidth;
+  
+  // Calculate duration
+  const travelDistance = viewportWidth + trackWidth;
+  const minSeconds = MARQUEE_MIN_DURATION_MS / 1000;
+  const maxSeconds = MARQUEE_MAX_DURATION_MS / 1000;
+  const rawSeconds = travelDistance / MARQUEE_SPEED_PX_PER_SEC;
+  const durationSeconds = clampNumber(rawSeconds, minSeconds, maxSeconds);
+  const durationMs = durationSeconds * 1000;
+
+  // Define Keyframes
+  // Start: Just outside right edge (translateX = viewportWidth)
+  // End: Just outside left edge (translateX = -trackWidth)
+  const keyframes = [
+    { transform: `translateX(${viewportWidth}px)`, opacity: 0, offset: 0 },
+    { opacity: 1, offset: 0.08 },
+    { opacity: 1, offset: 0.92 },
+    { transform: `translateX(-${trackWidth}px)`, opacity: 0, offset: 1 }
+  ];
+
+  const animation = track.animate(keyframes, {
+    duration: durationMs,
+    easing: 'linear',
+    fill: 'forwards'
+  });
+
+  animation.onfinish = () => {
+    deactivateMarqueeLine(line);
+    ensureMarqueeFlow(false, true);
+    marqueeState.animations.delete(track);
+  };
+
+  marqueeState.animations.set(track, animation);
 }
 
 function findNextIdleMarqueeLine() {
@@ -257,19 +401,6 @@ function getAvailableMarqueeMessages() {
   return marqueeState.pool.length ? marqueeState.pool : [{ text: "神蹟留言即將出現", id: null }];
 }
 
-function handleMarqueeAnimationEnd(event) {
-  if (event.animationName !== "marquee-slide") {
-    return;
-  }
-  const track = event.currentTarget;
-  const line = track?.closest(".marquee-line");
-  if (!line) {
-    return;
-  }
-  deactivateMarqueeLine(line);
-  ensureMarqueeFlow(false, true);
-}
-
 function deactivateMarqueeLine(line) {
   if (!line) {
     return;
@@ -281,6 +412,12 @@ function deactivateMarqueeLine(line) {
   }
   marqueeState.activeLines.delete(line);
   line.dataset.message = "";
+  
+  const track = line.querySelector(".marquee-track");
+  if (track && marqueeState.animations.has(track)) {
+    marqueeState.animations.get(track).cancel();
+    marqueeState.animations.delete(track);
+  }
 }
 
 function applyMarqueeText(line, item) {
@@ -300,38 +437,10 @@ function applyMarqueeText(line, item) {
     }
   }
   line.dataset.message = normalized;
-  line.dataset.stickerId = id; // Store ID for click handler
+  line.dataset.stickerId = id;
   return normalized;
 }
 
 function normalizeMarqueeText(text) {
   return (text ?? "").replace(/\s+/g, " ").trim();
-}
-
-function updateMarqueeDuration(line, track) {
-  if (!track) {
-    return;
-  }
-  const durationSeconds = computeMarqueeDurationSeconds(line, track);
-  if (durationSeconds) {
-    track.style.setProperty("--marquee-duration", `${durationSeconds.toFixed(2)}s`);
-  } else {
-    track.style.removeProperty("--marquee-duration");
-  }
-}
-
-function computeMarqueeDurationSeconds(line, track) {
-  if (!line || !track || !MARQUEE_SPEED_PX_PER_SEC) {
-    return null;
-  }
-  const viewportWidth = line.clientWidth || marqueeState.layer?.clientWidth || window.innerWidth || 0;
-  const trackWidth = track.scrollWidth || track.offsetWidth || viewportWidth;
-  const travelDistance = viewportWidth + trackWidth;
-  if (!Number.isFinite(travelDistance) || travelDistance <= 0) {
-    return null;
-  }
-  const minSeconds = MARQUEE_MIN_DURATION_MS / 1000;
-  const maxSeconds = MARQUEE_MAX_DURATION_MS / 1000;
-  const rawSeconds = travelDistance / MARQUEE_SPEED_PX_PER_SEC;
-  return clampNumber(rawSeconds, minSeconds, maxSeconds);
 }

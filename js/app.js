@@ -338,6 +338,7 @@ function init() {
       if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
         const isMobile = window.innerWidth <= 640;
         const targetZoom = isMobile ? 10 : 5;
+        ZoomController.saveState();
         ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, () => {
           StickerManager.handleStickerActivation(stickerId);
         }, { duration: 500, easing: 'easeOutCubic' });
@@ -376,6 +377,7 @@ function init() {
       if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
         const isMobile = window.innerWidth <= 640;
         const targetZoom = isMobile ? 10 : 5;
+        ZoomController.saveState();
         ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, () => {
           if (playEffect) {
             EffectsManager.playFocusHalo(sticker.x, sticker.y);
@@ -393,6 +395,9 @@ function init() {
       // Stop any active focus halo
       EffectsManager.stopFocusHalo();
       
+      // Restore zoom state if saved
+      ZoomController.restoreState();
+
       // Only resume shimmer if we are NOT entering playback mode
       // (PlaybackController closes search when starting, which would otherwise resume shimmer)
       if (!document.body.classList.contains("playback-mode")) {
@@ -1519,6 +1524,9 @@ async function closeDialogWithResult(result) {
     if (returnAnimPromise) {
         await returnAnimPromise;
     }
+
+    // 5. Restore Zoom State (if saved)
+    ZoomController.restoreState();
 
   } finally {
     noteDialog.classList.remove("closing");

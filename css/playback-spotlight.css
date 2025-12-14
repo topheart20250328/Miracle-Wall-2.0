@@ -1,0 +1,34 @@
+
+/* Playback Spotlight */
+.playback-spotlight {
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.playback-spotlight.active {
+  opacity: 1;
+}
+
+.playback-spotlight-core {
+  fill: #ffffff;
+  filter: blur(12px);
+  opacity: 0.8;
+}
+
+.playback-spotlight-ring {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-dasharray: 10 10;
+  opacity: 0.5;
+  animation: spotlight-spin 8s linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes spotlight-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

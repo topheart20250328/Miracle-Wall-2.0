@@ -97,6 +97,9 @@ export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
   // Calculate angle
   const angle = Math.atan2(targetY - startY, targetX - startX) * 180 / Math.PI;
   
+  // Ensure gradient exists
+  ensureProjectileBeamGradient(elements.effectsLayer.ownerSVGElement);
+
   // Create Wrapper Group (for position)
   const wrapper = document.createElementNS(svgNS, "g");
   wrapper.style.pointerEvents = "none";
@@ -108,26 +111,25 @@ export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
   inner.setAttribute("transform", `rotate(${angle})`);
   wrapper.appendChild(inner);
 
-  // Beam - Outer Glow (Solid Color, No Gradient)
+  // Beam - Outer Glow (Gradient Tail)
   const glowBeam = document.createElementNS(svgNS, "line");
-  glowBeam.setAttribute("x1", "-30"); // Short tail (30px)
+  glowBeam.setAttribute("x1", "-120"); // Long tail
   glowBeam.setAttribute("y1", "0");
   glowBeam.setAttribute("x2", "0");
   glowBeam.setAttribute("y2", "0");
-  glowBeam.setAttribute("stroke", "#ffffff");
-  glowBeam.setAttribute("stroke-width", "16"); // Wide glow
-  glowBeam.setAttribute("stroke-opacity", "0.2"); // Faint glow
+  glowBeam.setAttribute("stroke", "url(#projectileBeamGradient)");
+  glowBeam.setAttribute("stroke-width", "12");
   glowBeam.setAttribute("stroke-linecap", "round");
 
-  // Beam - Core (Solid Color, No Gradient)
+  // Beam - Core (Solid Bright)
   const coreBeam = document.createElementNS(svgNS, "line");
-  coreBeam.setAttribute("x1", "-30"); // Match length
+  coreBeam.setAttribute("x1", "-40"); 
   coreBeam.setAttribute("y1", "0");
   coreBeam.setAttribute("x2", "0");
   coreBeam.setAttribute("y2", "0");
   coreBeam.setAttribute("stroke", "#ffffff");
-  coreBeam.setAttribute("stroke-width", "4"); // Sharp core
-  coreBeam.setAttribute("stroke-opacity", "0.8"); // Bright core
+  coreBeam.setAttribute("stroke-width", "3");
+  coreBeam.setAttribute("stroke-opacity", "0.9");
   coreBeam.setAttribute("stroke-linecap", "round");
   
   // Tip (Small glowing point)
@@ -136,6 +138,7 @@ export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
   tip.setAttribute("cy", "0");
   tip.setAttribute("r", "4");
   tip.setAttribute("fill", "#ffffff");
+  tip.setAttribute("stroke", "none"); // Ensure no black stroke
   tip.setAttribute("opacity", "1"); 
 
   inner.appendChild(glowBeam);
@@ -563,8 +566,10 @@ export function playRevealBurst(x, y) {
   glow.setAttribute("cx", x.toFixed(2));
   glow.setAttribute("cy", y.toFixed(2));
   glow.setAttribute("r", "0");
-  glow.setAttribute("fill", "url(#revealGlowGradient)");
-  glow.setAttribute("opacity", "1");
+  // Use filter instead of gradient to avoid "black circle" issues if gradient fails
+  glow.setAttribute("fill", "#ffffff");
+  glow.setAttribute("filter", "url(#softGlowFilter)");
+  glow.setAttribute("opacity", "0.6");
   
   // 3. Expanding Ring
   const ring = document.createElementNS(svgNS, "circle");

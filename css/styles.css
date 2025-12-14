@@ -170,6 +170,10 @@ main::before {
   animation-timing-function: linear;
   animation-iteration-count: 1;
   animation-fill-mode: forwards;
+  /* LINE Browser Compatibility: Prevent native gestures/scrolling while dragging */
+  touch-action: none; 
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .marquee-line.is-active .marquee-track {
@@ -178,12 +182,26 @@ main::before {
 
 .marquee-text {
   white-space: nowrap;
-  cursor: pointer;
+  cursor: grab;
   pointer-events: auto;
+  color: #ffffff;
+  text-shadow: 
+    0 0 5px rgba(255, 215, 0, 0.8),
+    0 0 10px rgba(255, 160, 50, 0.6),
+    0 0 20px rgba(255, 69, 0, 0.4);
+  filter: drop-shadow(0 0 2px rgba(255, 215, 0, 0.5));
+  transition: text-shadow 0.3s ease;
+}
+
+.marquee-text:active {
+  cursor: grabbing;
 }
 
 .marquee-text:hover {
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+  text-shadow: 
+    0 0 8px rgba(255, 215, 0, 1),
+    0 0 15px rgba(255, 160, 50, 0.8),
+    0 0 30px rgba(255, 69, 0, 0.6);
 }
 
 @keyframes marquee-slide {
@@ -1364,10 +1382,11 @@ main::before {
 
 
 .dialog-actions {
-  position: absolute;
-  bottom: clamp(1.3rem, 4vmin, 2.2rem);
-  left: 50%;
-  transform: translateX(-50%);
+  position: relative;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  margin-top: 1.5rem;
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
   display: flex;
@@ -1376,7 +1395,7 @@ main::before {
   align-items: center;
   gap: clamp(0.65rem, 2vmin, 0.95rem);
   z-index: 2;
-  transition: bottom 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+  order: 3;
 }
 
 .dialog-actions button {
@@ -1411,12 +1430,12 @@ main::before {
 }
 
 .form-error {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: clamp(6rem, 10vmin, 7.4rem);
+  position: relative;
+  left: auto;
+  transform: none;
+  bottom: auto;
   min-height: 1.2rem;
-  margin: 0;
+  margin: 0.5rem 0 0 0;
   color: var(--danger);
   font-size: 0.85rem;
   letter-spacing: 0.04em;
@@ -1424,15 +1443,15 @@ main::before {
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
   z-index: 2;
+  order: 1;
 }
 
 .note-timestamp {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  /* Moved down slightly to avoid being too close to the sticker */
-  bottom: clamp(4.2rem, 7.2vmin, 5.6rem);
-  margin: 0;
+  position: relative;
+  left: auto;
+  transform: none;
+  bottom: auto;
+  margin: 0.8rem 0 0 0;
   font-size: 0.82rem;
   letter-spacing: 0.05em;
   color: rgba(255, 255, 255, 0.9);
@@ -1440,7 +1459,7 @@ main::before {
   width: 100%;
   max-width: clamp(320px, 52vmin, 440px);
   z-index: 2;
-  transition: bottom 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+  order: 2;
 }
 
 .drag-ghost {

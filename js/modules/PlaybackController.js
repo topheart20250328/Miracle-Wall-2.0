@@ -132,7 +132,13 @@ export function startPlayback(stickersMap) {
   // 2. Prepare UI
   document.body.classList.add("playback-mode");
   document.body.classList.remove("playback-finished");
+  
+  // Ensure loading spinner is hidden
+  const spinner = document.getElementById("loadingSpinner");
+  if (spinner) spinner.classList.remove("visible");
+
   attachGlobalListeners();
+  createSpotlight();
 
   if (state.elements.playButton) {
     state.elements.playButton.classList.add("is-playing");
@@ -228,6 +234,10 @@ export function stopPlayback() {
 
   if (state.elements.dateContainer) {
     state.elements.dateContainer.classList.remove("visible");
+  }
+
+  if (state.elements.spotlight) {
+    state.elements.spotlight.classList.remove("active");
   }
   
   // Trigger End Flash
@@ -365,6 +375,14 @@ function revealSticker(sticker) {
   if (!sticker || !sticker.node) return;
   
   sticker.node.classList.remove("playback-hidden");
+
+  // Update Spotlight Position
+  if (state.elements.spotlight) {
+    state.elements.spotlight.classList.add("active");
+    if (Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+       state.elements.spotlight.setAttribute("transform", `translate(${sticker.x}, ${sticker.y})`);
+    }
+  }
   
   // Trigger lightweight impact effect
   if (state.callbacks.onStickerReveal) {
@@ -435,6 +453,12 @@ function updateCounterDisplay(current, total) {
 
 export function finalizePlaybackUI() {
   document.body.classList.add("playback-finished");
+  
+  // Hide spotlight when finished
+  if (state.elements.spotlight) {
+    state.elements.spotlight.classList.remove("active");
+  }
+
   showFinishedDateRange();
   
   if (state.elements.counterDisplay) {
@@ -533,3 +557,29 @@ function showFinishedDateRange() {
     }
   }
 }
+
+function createSpotlight() {
+  if (state.elements.spotlight) return;
+  if (!state.elements.wallSvg) return;
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const group = document.createElementNS(svgNS, "g");
+  group.classList.add("playback-spotlight");
+  
+  // Core Glow
+  const core = document.createElementNS(svgNS, "circle");
+  core.classList.add("playback-spotlight-core");
+  core.setAttribute("r", "40");
+  group.appendChild(core);
+
+  // Rotating Ring
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.classList.add("playback-spotlight-ring");
+  ring.setAttribute("r", "28");
+  group.appendChild(ring);
+
+  // Append to wall
+  state.elements.wallSvg.appendChild(group);
+  state.elements.spotlight = group;
+}
+
