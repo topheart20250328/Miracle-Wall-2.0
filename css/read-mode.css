@@ -115,8 +115,9 @@
 }
 
 .read-mode-text-wrapper {
-  margin: auto; /* Centers vertically when small, aligns top when overflowing */
-  width: 100%;
+  margin: auto; /* Centers vertically and horizontally */
+  width: fit-content;
+  max-width: 100%;
   white-space: pre-wrap;
 }
 

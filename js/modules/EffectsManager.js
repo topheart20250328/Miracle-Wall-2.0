@@ -866,7 +866,8 @@ export function initAmbientGlow() {
   const isCompactViewport = typeof window !== "undefined"
     && typeof window.matchMedia === "function"
     && window.matchMedia("(max-width: 768px)").matches;
-  const sparkCount = isCompactViewport ? 12 : 22;
+  // Optimized for Desktop: Reduced sparkCount from 22 to 16
+  const sparkCount = isCompactViewport ? 12 : 16;
   const averageSpacing = combinedLength / sparkCount;
   const jitterWindow = Math.min(averageSpacing * 0.6, 220);
 
@@ -1188,14 +1189,16 @@ export function initFireEffect() {
     // Performance throttling for mobile:
     // To support longer particle life without killing performance, we MUST reduce spawn rate.
     // We increase delays and reduce batch sizes to keep total concurrent nodes stable.
-    let delayBase = isMobile ? 350 : 200; // Slower spawn loop
-    let delayMin = isMobile ? 150 : 60;
+    // Optimized for Desktop: Increased delayBase from 200 to 300 to reduce DOM load
+    let delayBase = isMobile ? 350 : 300; // Slower spawn loop
+    let delayMin = isMobile ? 150 : 100;
     
     // Spawn delay: decreases as intensity increases
     const delay = delayBase - (intensity * (delayBase - delayMin));
     
     // Batch size: Reduced to compensate for longer life
-    let maxBatch = isMobile ? 2 : 3; 
+    // Optimized for Desktop: Reduced maxBatch from 3 to 2
+    let maxBatch = isMobile ? 2 : 2; 
     const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
 
     for (let i = 0; i < batchSize; i++) {
