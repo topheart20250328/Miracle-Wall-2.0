@@ -1042,16 +1042,17 @@ export function initShimmerSystem(stickersMap, state) {
           return !Number.isNaN(created) && (now - created) < twentyFourHoursMs;
         });
 
-        // Use recent stickers if available, otherwise fallback to all stickers
-        const pool = recentStickers.length > 0 ? recentStickers : stickers;
-        const randomRecord = pool[Math.floor(Math.random() * pool.length)];
-        
-        if (randomRecord && randomRecord.node && 
-            state.pending?.id !== randomRecord.id &&
-            state.drag?.node !== randomRecord.node &&
-            !randomRecord.node.classList.contains("pending") &&
-            !randomRecord.node.classList.contains("shimmering")) {
-          triggerShimmer(randomRecord.node);
+        // Only use recent stickers (last 24h). If none, do nothing.
+        if (recentStickers.length > 0) {
+          const randomRecord = recentStickers[Math.floor(Math.random() * recentStickers.length)];
+          
+          if (randomRecord && randomRecord.node && 
+              state.pending?.id !== randomRecord.id &&
+              state.drag?.node !== randomRecord.node &&
+              !randomRecord.node.classList.contains("pending") &&
+              !randomRecord.node.classList.contains("shimmering")) {
+            triggerShimmer(randomRecord.node);
+          }
         }
       }
     }
@@ -1076,13 +1077,21 @@ function triggerShimmer(node) {
     group.setAttribute("transform", `translate(${cx}, ${cy})`);
     group.style.pointerEvents = "none";
 
-    const sparkle = document.createElementNS(svgNS, "path");
-    sparkle.classList.add("shimmer-sparkle");
-    // Long, thin cross shape (Radius 85px, very thin center)
-    // This ensures the center doesn't obscure the sticker too much, while spikes are long
-    sparkle.setAttribute("d", "M0,-85 C1,-15 15,-1 85,0 C15,1 1,15 0,85 C-1,15 -15,1 -85,0 C-15,-1 -1,-15 0,-85");
+    // 1. The Core Glow (Soft, diffuse circle)
+    const core = document.createElementNS(svgNS, "circle");
+    core.classList.add("shimmer-core");
+    core.setAttribute("r", "12");
+    core.setAttribute("fill", "white");
     
-    group.appendChild(sparkle);
+    // 2. The Rays (Sharp, long cross)
+    const rays = document.createElementNS(svgNS, "path");
+    rays.classList.add("shimmer-rays");
+    // Very thin, long cross shape
+    rays.setAttribute("d", "M0,-90 C2,-20 20,-2 90,0 C20,2 2,20 0,90 C-2,20 -20,2 -90,0 C-20,-2 -2,-20 0,-90 Z");
+    rays.setAttribute("fill", "white");
+
+    group.appendChild(core);
+    group.appendChild(rays);
     elements.effectsLayer.appendChild(group);
 
     // Cleanup function
@@ -1097,7 +1106,7 @@ function triggerShimmer(node) {
     // Listen to the sticker's animation end
     node.addEventListener("animationend", cleanup);
     // Safety timeout to prevent endless loops if animation is interrupted (e.g. by drag/redraw)
-    safetyTimer = setTimeout(cleanup, 2400);
+    safetyTimer = setTimeout(cleanup, 3000);
   } else {
     // Fallback if coordinates missing
     let safetyTimer = null;

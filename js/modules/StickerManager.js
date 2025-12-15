@@ -212,24 +212,84 @@ export function positionStickerNode(node, x, y) {
   }
   node.dataset.cx = x.toFixed(2);
   node.dataset.cy = y.toFixed(2);
-  const highlight = node.querySelector(".drag-ghost-highlight");
+  
+  // Update external highlight if exists
+  const highlightId = `highlight-${node.dataset.id || 'temp'}`;
+  const highlight = document.getElementById(highlightId);
   if (highlight) {
-    highlight.setAttribute("cx", x.toFixed(2));
-    highlight.setAttribute("cy", y.toFixed(2));
-    highlight.setAttribute("r", (STICKER_RADIUS + 8).toFixed(2));
+    if (highlight.tagName.toLowerCase() === 'g') {
+      highlight.setAttribute("transform", `translate(${x.toFixed(2)}, ${y.toFixed(2)})`);
+    } else {
+      highlight.setAttribute("cx", x.toFixed(2));
+      highlight.setAttribute("cy", y.toFixed(2));
+    }
   }
 }
 
-export function attachDragHighlight(node) {
-  if (!node || node.querySelector(".drag-ghost-highlight")) {
-    return;
+export function attachDragHighlight(node, type = 'marquee') {
+  if (!node) return;
+  
+  const highlightsLayer = document.getElementById("highlightsLayer");
+  if (!highlightsLayer) return;
+
+  const id = node.dataset.id || 'temp';
+  const highlightId = `highlight-${id}`;
+  
+  // Always recreate to ensure correct structure (Group vs Circle)
+  const existing = document.getElementById(highlightId);
+  if (existing) existing.remove();
+
+  const group = document.createElementNS(svgNS, "g");
+  group.id = highlightId;
+  highlightsLayer.appendChild(group);
+
+  // Create Core Glow Circle
+  const core = document.createElementNS(svgNS, "circle");
+  core.setAttribute("r", String(STICKER_RADIUS + 24));
+  core.setAttribute("cx", "0");
+  core.setAttribute("cy", "0");
+  core.classList.add("highlight-glow");
+  group.appendChild(core);
+  
+  // Set type-specific attributes
+  if (type === 'marquee') {
+    core.classList.add("marquee-glow");
+    core.style.fill = "url(#marqueeHighlightGradient)";
+
+    // Add Ripple Effect for Marquee (High visibility at zoom)
+    const ripple = document.createElementNS(svgNS, "circle");
+    ripple.setAttribute("r", String(STICKER_RADIUS + 24));
+    ripple.setAttribute("cx", "0");
+    ripple.setAttribute("cy", "0");
+    ripple.classList.add("highlight-glow", "marquee-ripple");
+    ripple.style.fill = "none";
+    ripple.style.stroke = "#ffffff";
+    ripple.style.strokeWidth = "3";
+    ripple.style.opacity = "0.8";
+    group.insertBefore(ripple, core); // Behind core
+  } else if (type === 'valid') {
+    core.classList.add("valid-glow");
+    core.style.fill = "url(#validHighlightGradient)";
+  } else if (type === 'invalid') {
+    core.classList.add("invalid-glow");
+    core.style.fill = "url(#invalidHighlightGradient)";
   }
-  const halo = document.createElementNS(svgNS, "circle");
-  halo.classList.add("drag-ghost-highlight");
-  halo.setAttribute("cx", "0");
-  halo.setAttribute("cy", "0");
-  halo.setAttribute("r", String(STICKER_RADIUS + 8));
-  node.insertBefore(halo, node.firstChild ?? null);
+
+  // Sync position
+  const cx = parseFloat(node.dataset.cx);
+  const cy = parseFloat(node.dataset.cy);
+  if (!isNaN(cx) && !isNaN(cy)) {
+    group.setAttribute("transform", `translate(${cx.toFixed(2)}, ${cy.toFixed(2)})`);
+  }
+}
+
+export function removeDragHighlight(node) {
+  if (!node) return;
+  const id = node.dataset.id || 'temp';
+  const highlight = document.getElementById(`highlight-${id}`);
+  if (highlight) {
+    highlight.remove();
+  }
 }
 
 export function handleStickerActivation(stickerId) {

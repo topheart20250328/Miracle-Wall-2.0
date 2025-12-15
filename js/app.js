@@ -346,6 +346,11 @@ function init() {
         StickerManager.handleStickerActivation(stickerId);
       }
     }
+  }, () => {
+    // On interaction start (drag/click marquee)
+    if (state.placementMode !== "idle") {
+      setPlacementMode("idle");
+    }
   });
   SearchController.initSearchController({
     searchBtn: document.getElementById("searchBtn"),
@@ -907,6 +912,9 @@ function handlePalettePointerUp(event) {
   const drag = state.drag;
   state.drag = null;
   if (drag?.active) {
+    // Cleanup highlight
+    StickerManager.removeDragHighlight(drag.node);
+    
     drag.node?.remove();
     drag.layer = null;
     if (!drag.valid) {
@@ -932,6 +940,9 @@ function handlePalettePointerCancel(event) {
   paletteSticker.removeEventListener("pointermove", handlePalettePointerMove);
   paletteSticker.removeEventListener("pointerup", handlePalettePointerUp);
   if (state.drag?.node) {
+    // Cleanup highlight
+    StickerManager.removeDragHighlight(state.drag.node);
+    
     state.drag.node.remove();
     state.drag.layer = null;
   }
@@ -950,7 +961,11 @@ function activatePaletteDrag(event) {
   }
   const ghost = StickerManager.createStickerNode("drag-ghost", svgPoint.x, svgPoint.y, true);
   ghost.classList.add("drag-ghost");
-  StickerManager.attachDragHighlight(ghost);
+  
+  // Initial highlight attachment
+  const initialType = isValidSpot(svgPoint.x, svgPoint.y) ? 'valid' : 'invalid';
+  StickerManager.attachDragHighlight(ghost, initialType);
+  
   const hostLayer = dragOverlay ?? stickersLayer;
   hostLayer.appendChild(ghost);
   drag.node = ghost;
@@ -959,8 +974,8 @@ function activatePaletteDrag(event) {
   drag.y = svgPoint.y;
   drag.valid = isValidSpot(svgPoint.x, svgPoint.y);
   drag.active = true;
-  ghost.classList.toggle("valid", drag.valid);
-  ghost.classList.toggle("invalid", !drag.valid);
+  // ghost.classList.toggle("valid", drag.valid); // Removed: handled by external highlight
+  // ghost.classList.toggle("invalid", !drag.valid); // Removed: handled by external highlight
   setPlacementMode("drag");
   return true;
 }
@@ -976,8 +991,11 @@ function updateDragPosition(event) {
   }
   StickerManager.positionStickerNode(drag.node, svgPoint.x, svgPoint.y);
   const valid = isValidSpot(svgPoint.x, svgPoint.y);
-  drag.node.classList.toggle("valid", valid);
-  drag.node.classList.toggle("invalid", !valid);
+  
+  // Update highlight type
+  const type = valid ? 'valid' : 'invalid';
+  StickerManager.attachDragHighlight(drag.node, type);
+
   drag.x = svgPoint.x;
   drag.y = svgPoint.y;
   drag.valid = valid;
@@ -1526,13 +1544,17 @@ async function closeDialogWithResult(result) {
     }
 
     // 5. Restore Zoom State (if saved)
-    ZoomController.restoreState();
+    await ZoomController.restoreState();
 
   } finally {
     noteDialog.classList.remove("closing");
     state.closing = false;
     state.isAnimatingReturn = false;
     state.isTransitioning = false;
+    // Only unlock if we are sure no other animation is running.
+    // Since restoreState handles its own locking/unlocking, we might not need to force unlock here,
+    // but as a safety net for other errors, we keep it.
+    // However, since we awaited restoreState, it should be safe now.
     ZoomController.setInteractionLocked(false);
     
     // Final cleanup just in case

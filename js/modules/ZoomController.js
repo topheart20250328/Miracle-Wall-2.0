@@ -65,50 +65,67 @@ export function clearSavedState() {
 }
 
 export function restoreState(duration = 600) {
-  if (!savedState) return;
+  if (!savedState) return Promise.resolve();
   
   const targetState = { ...savedState };
   savedState = null;
 
-  if (window.anime) {
-      if (resetAnimation) resetAnimation.pause();
-      
-      const targets = { 
-          offsetX: viewportState.offsetX, 
-          offsetY: viewportState.offsetY,
-          scale: zoomState.scale
-      };
+  return new Promise((resolve) => {
+    // Safety timeout to ensure promise resolves even if animation hangs
+    const safetyTimer = setTimeout(() => {
+      if (interactionLocked) {
+        setInteractionLocked(false);
+        resolve();
+      }
+    }, duration + 200);
 
-      resetAnimation = window.anime({
-          targets: targets,
-          offsetX: targetState.offsetX,
-          offsetY: targetState.offsetY,
-          scale: targetState.scale,
-          duration: duration,
-          easing: 'easeOutExpo',
-          update: () => {
-              viewportState.offsetX = targets.offsetX;
-              viewportState.offsetY = targets.offsetY;
-              zoomState.scale = targets.scale;
-              applyZoomTransform(true);
-              updateZoomIndicator();
-          },
-          complete: () => {
-              resetAnimation = null;
-              viewportState.offsetX = targetState.offsetX;
-              viewportState.offsetY = targetState.offsetY;
-              zoomState.scale = targetState.scale;
-              applyZoomTransform(true);
-              updateZoomIndicator();
-          }
-      });
-  } else {
-      viewportState.offsetX = targetState.offsetX;
-      viewportState.offsetY = targetState.offsetY;
-      zoomState.scale = targetState.scale;
-      applyZoomTransform();
-      updateZoomIndicator();
-  }
+    if (window.anime) {
+        if (resetAnimation) resetAnimation.pause();
+        
+        setInteractionLocked(true);
+
+        const targets = { 
+            offsetX: viewportState.offsetX, 
+            offsetY: viewportState.offsetY,
+            scale: zoomState.scale
+        };
+
+        resetAnimation = window.anime({
+            targets: targets,
+            offsetX: targetState.offsetX,
+            offsetY: targetState.offsetY,
+            scale: targetState.scale,
+            duration: duration,
+            easing: 'easeOutExpo',
+            update: () => {
+                viewportState.offsetX = targets.offsetX;
+                viewportState.offsetY = targets.offsetY;
+                zoomState.scale = targets.scale;
+                applyZoomTransform(true);
+                updateZoomIndicator();
+            },
+            complete: () => {
+                clearTimeout(safetyTimer);
+                resetAnimation = null;
+                setInteractionLocked(false);
+                viewportState.offsetX = targetState.offsetX;
+                viewportState.offsetY = targetState.offsetY;
+                zoomState.scale = targetState.scale;
+                applyZoomTransform(true);
+                updateZoomIndicator();
+                resolve();
+            }
+        });
+    } else {
+        clearTimeout(safetyTimer);
+        viewportState.offsetX = targetState.offsetX;
+        viewportState.offsetY = targetState.offsetY;
+        zoomState.scale = targetState.scale;
+        applyZoomTransform();
+        updateZoomIndicator();
+        resolve();
+    }
+  });
 }
 
 export function initZoomController(domElements, forceRedraw) {
@@ -162,6 +179,7 @@ export function clientToSvg(clientX, clientY, viewBox) {
 
 export function panToPoint(svgX, svgY, viewBox, minScale = null, onComplete = null, options = {}) {
   if (!elements.wallSvg || !viewBox) return;
+  if (interactionLocked) return;
   
   // Calculate center of viewBox
   const centerX = viewBox.x + viewBox.width / 2;
@@ -210,6 +228,8 @@ export function panToPoint(svgX, svgY, viewBox, minScale = null, onComplete = nu
   if (window.anime) {
       if (resetAnimation) resetAnimation.pause();
       
+      setInteractionLocked(true);
+
       const targets = { 
           offsetX: viewportState.offsetX, 
           offsetY: viewportState.offsetY,
@@ -232,6 +252,7 @@ export function panToPoint(svgX, svgY, viewBox, minScale = null, onComplete = nu
           },
           complete: () => {
               resetAnimation = null;
+              setInteractionLocked(false);
               viewportState.offsetX = targetOffsetX;
               viewportState.offsetY = targetOffsetY;
               zoomState.scale = targetScale;
@@ -367,6 +388,8 @@ function releasePointer(pointerId) {
 }
 
 function resetZoomView() {
+  if (interactionLocked) return;
+
   panState.pointerId = null;
   panState.moved = false;
   panState.pointers.clear();
@@ -375,6 +398,8 @@ function resetZoomView() {
   if (window.anime) {
     if (resetAnimation) resetAnimation.pause();
     
+    setInteractionLocked(true);
+
     const targets = { 
       scale: zoomState.scale, 
       offsetX: viewportState.offsetX, 
@@ -397,6 +422,7 @@ function resetZoomView() {
       },
       complete: () => {
         resetAnimation = null;
+        setInteractionLocked(false);
         zoomState.scale = 1;
         viewportState.offsetX = 0;
         viewportState.offsetY = 0;

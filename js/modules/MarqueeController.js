@@ -1,5 +1,6 @@
 
 import { clampNumber } from "./Utils.js";
+import * as StickerManager from "./StickerManager.js";
 
 const MAX_ACTIVE_MARQUEE_LINES = 3;
 const MIN_ACTIVE_MARQUEE_LINES = 2;
@@ -20,6 +21,7 @@ const marqueeState = {
   pool: [],
   activeLines: new Set(),
   activeMessages: new Set(),
+  recentHistory: [], // Array of message strings to avoid repetition
   pendingTimeouts: new Set(),
   lineCursor: 0,
   activeLimit: 0,
@@ -37,13 +39,15 @@ const marqueeState = {
     animation: null,
     hasMoved: false
   },
-  listenersAttached: false
+  listenersAttached: false,
+  onInteractionStart: null
 };
 
-export function initMarqueeController(layer, lines, onItemClick) {
+export function initMarqueeController(layer, lines, onItemClick, onInteractionStart) {
   marqueeState.layer = layer;
   marqueeState.lines = lines;
   marqueeState.onItemClick = onItemClick;
+  marqueeState.onInteractionStart = onInteractionStart;
   
   if (!marqueeState.listenersAttached && typeof window !== "undefined") {
     document.addEventListener("pointermove", handleDragMove);
@@ -152,6 +156,20 @@ function handleDragStart(e) {
   // Stop propagation to prevent dragging the underlying wall
   e.stopPropagation();
 
+  // Notify interaction start (e.g. to cancel placement mode)
+  if (marqueeState.onInteractionStart) {
+    marqueeState.onInteractionStart();
+  }
+
+  // Find associated sticker (but don't highlight yet - wait for drag)
+  const line = track.closest(".marquee-line");
+  const stickerId = line?.dataset.stickerId;
+  let highlightedNode = null;
+  
+  if (stickerId) {
+    highlightedNode = document.querySelector(`.sticker-node[data-id="${stickerId}"]`);
+  }
+
   marqueeState.dragState = {
     active: true,
     track: track,
@@ -159,7 +177,9 @@ function handleDragStart(e) {
     startTime: animation.currentTime || 0,
     animation: animation,
     hasMoved: false,
-    originalTarget: e.target // Store the original target for click detection
+    visualsActivated: false, // New flag to track if visuals are active
+    originalTarget: e.target,
+    highlightedNode: highlightedNode
   };
   
   animation.pause();
@@ -170,8 +190,24 @@ function handleDragStart(e) {
 function handleDragMove(e) {
   if (!marqueeState.dragState.active) return;
   
-  const { startX, startTime, animation } = marqueeState.dragState;
+  const { startX, startTime, animation, highlightedNode, visualsActivated } = marqueeState.dragState;
   const deltaX = e.clientX - startX;
+  
+  if (Math.abs(deltaX) > 5) {
+    marqueeState.dragState.hasMoved = true;
+
+    // Activate visuals only once when threshold is crossed
+    if (!visualsActivated) {
+      marqueeState.dragState.visualsActivated = true;
+      if (highlightedNode) {
+        StickerManager.attachDragHighlight(highlightedNode, 'marquee');
+        document.body.classList.add("marquee-drag-active");
+        highlightedNode.classList.add("marquee-highlight");
+      }
+    }
+  }
+  
+  // Calculate new time based on drag distance
   
   if (Math.abs(deltaX) > 5) {
     marqueeState.dragState.hasMoved = true;
@@ -189,8 +225,17 @@ function handleDragMove(e) {
 function handleDragEnd(e) {
   if (!marqueeState.dragState.active) return;
   
-  const { track, animation, hasMoved, originalTarget } = marqueeState.dragState;
+  const { track, animation, hasMoved, originalTarget, highlightedNode, visualsActivated } = marqueeState.dragState;
   
+  // Cleanup highlight (only if activated)
+  if (visualsActivated) {
+    if (highlightedNode) {
+      StickerManager.removeDragHighlight(highlightedNode);
+      highlightedNode.classList.remove("marquee-highlight");
+    }
+    document.body.classList.remove("marquee-drag-active");
+  }
+
   track.style.cursor = '';
   if (track.hasPointerCapture(e.pointerId)) {
     track.releasePointerCapture(e.pointerId);
@@ -207,10 +252,25 @@ function handleDragEnd(e) {
          marqueeState.onItemClick(id);
        }
     }
+    animation.play();
+  } else {
+    // Check if dragged to end (Swipe to Dismiss/Refresh)
+    // If the animation is near the end (e.g. > 95% or within last 1s), treat as dismissed
+    const duration = animation.effect.getTiming().duration;
+    const currentTime = animation.currentTime;
+    
+    if (currentTime >= duration - 500) { // Within last 0.5s or finished
+       // Force immediate finish and respawn
+       const line = track.closest(".marquee-line");
+       deactivateMarqueeLine(line);
+       // Immediately queue next one without delay (Swipe to Refresh mechanic)
+       queueMarqueeActivation(0, 0, { immediate: true });
+    } else {
+       animation.play();
+    }
   }
   
-  animation.play();
-  marqueeState.dragState = { active: false, track: null, animation: null, originalTarget: null };
+  marqueeState.dragState = { active: false, track: null, animation: null, originalTarget: null, highlightedNode: null };
 }
 
 function getResponsiveMarqueeLines() {
@@ -335,23 +395,64 @@ function restartMarqueeAnimation(line) {
   const viewportWidth = line.clientWidth || window.innerWidth;
   const trackWidth = track.scrollWidth || track.offsetWidth;
   
-  // Calculate duration
+  // Configuration for Smart Timeout
+  const SMART_MAX_DURATION_MS = 60000; // 60 seconds hard limit
+  const BLINK_WARNING_DURATION_MS = 10000; // 10 seconds warning
+  const FADE_DURATION_MS = 3000; // 3 seconds fade in/out
+  
+  // Calculate natural duration based on constant speed
   const travelDistance = viewportWidth + trackWidth;
-  const minSeconds = MARQUEE_MIN_DURATION_MS / 1000;
-  const maxSeconds = MARQUEE_MAX_DURATION_MS / 1000;
-  const rawSeconds = travelDistance / MARQUEE_SPEED_PX_PER_SEC;
-  const durationSeconds = clampNumber(rawSeconds, minSeconds, maxSeconds);
-  const durationMs = durationSeconds * 1000;
+  const naturalDurationMs = (travelDistance / MARQUEE_SPEED_PX_PER_SEC) * 1000;
+  
+  // Calculate when the tail enters the screen (when the last character becomes visible)
+  const timeToTailEnterMs = (trackWidth / MARQUEE_SPEED_PX_PER_SEC) * 1000;
 
-  // Define Keyframes
-  // Start: Just outside right edge (translateX = viewportWidth)
-  // End: Just outside left edge (translateX = -trackWidth)
-  const keyframes = [
-    { transform: `translateX(${viewportWidth}px)`, opacity: 0, offset: 0 },
-    { opacity: 1, offset: 0.08 },
-    { opacity: 1, offset: 0.92 },
-    { transform: `translateX(-${trackWidth}px)`, opacity: 0, offset: 1 }
-  ];
+  // Determine if we need to enforce timeout
+  // We only enforce timeout if the tail hasn't even entered the screen by the limit time.
+  // If the tail is visible (or will be visible) within the limit, we let it finish naturally.
+  const isTimeoutMode = timeToTailEnterMs > SMART_MAX_DURATION_MS;
+  
+  const durationMs = isTimeoutMode ? SMART_MAX_DURATION_MS : Math.max(MARQUEE_MIN_DURATION_MS, naturalDurationMs);
+  
+  // Calculate end position
+  // If timeout, we stop where we are at 60s. If normal, we go all the way to -trackWidth
+  const endTranslateX = isTimeoutMode 
+    ? viewportWidth - (MARQUEE_SPEED_PX_PER_SEC * (durationMs / 1000))
+    : -trackWidth;
+
+  // Build Keyframes
+  const keyframes = [];
+  
+  // 1. Start (Fade In)
+  const fadeInOffset = Math.min(FADE_DURATION_MS / durationMs, 0.2);
+  keyframes.push({ transform: `translateX(${viewportWidth}px)`, opacity: 0, offset: 0 });
+  keyframes.push({ opacity: 1, offset: fadeInOffset });
+
+  if (isTimeoutMode) {
+    // 2. Timeout Mode: Long Fade Out (10s)
+    const TIMEOUT_FADE_DURATION_MS = 10000;
+    const fadeStartMs = Math.max(0, durationMs - TIMEOUT_FADE_DURATION_MS);
+    const fadeStartOffset = fadeStartMs / durationMs;
+    
+    // Ensure we are fully visible until fade starts
+    if (fadeStartOffset > fadeInOffset) {
+      keyframes.push({ opacity: 1, offset: fadeStartOffset });
+    }
+    
+    // Final fade out
+    keyframes.push({ transform: `translateX(${endTranslateX}px)`, opacity: 0, offset: 1 });
+    
+  } else {
+    // 2. Normal Mode: Fade Out at end
+    const fadeOutOffset = 1 - fadeInOffset;
+    if (fadeOutOffset > fadeInOffset) {
+      keyframes.push({ opacity: 1, offset: fadeOutOffset });
+    }
+    keyframes.push({ transform: `translateX(${endTranslateX}px)`, opacity: 0, offset: 1 });
+  }
+
+  // Disable CSS animation to ensure WAAPI takes full control (important for drag interactions)
+  track.style.animation = 'none';
 
   const animation = track.animate(keyframes, {
     duration: durationMs,
@@ -386,15 +487,47 @@ function pickUniqueMarqueeMessage() {
   if (!available.length) {
     return null;
   }
-  const offset = Math.floor(Math.random() * available.length);
-  for (let i = 0; i < available.length; i += 1) {
-    const candidate = available[(offset + i) % available.length];
-    const normalized = normalizeMarqueeText(candidate.text);
-    if (!marqueeState.activeMessages.has(normalized)) {
-      return candidate;
+
+  // Filter out messages that are currently active OR in recent history
+  // If the pool is small, we relax the history constraint to avoid starvation
+  const maxHistory = Math.max(0, Math.floor(available.length * 0.6)); // Keep history size reasonable relative to pool
+  
+  // Trim history if needed
+  if (marqueeState.recentHistory.length > maxHistory) {
+    marqueeState.recentHistory = marqueeState.recentHistory.slice(marqueeState.recentHistory.length - maxHistory);
+  }
+
+  const candidates = available.filter(item => {
+    const normalized = normalizeMarqueeText(item.text);
+    return !marqueeState.activeMessages.has(normalized) && !marqueeState.recentHistory.includes(normalized);
+  });
+
+  let selected = null;
+
+  if (candidates.length > 0) {
+    // Pick random from valid candidates
+    const randomIndex = Math.floor(Math.random() * candidates.length);
+    selected = candidates[randomIndex];
+  } else {
+    // Fallback: If all are in history/active (should be rare due to maxHistory), 
+    // just pick one that is NOT active.
+    const nonActive = available.filter(item => !marqueeState.activeMessages.has(normalizeMarqueeText(item.text)));
+    if (nonActive.length > 0) {
+      const offset = Math.floor(Math.random() * nonActive.length);
+      selected = nonActive[offset];
+    } else {
+      // Absolute fallback
+      const offset = Math.floor(Math.random() * available.length);
+      selected = available[offset];
     }
   }
-  return available[offset];
+
+  if (selected) {
+    const normalized = normalizeMarqueeText(selected.text);
+    marqueeState.recentHistory.push(normalized);
+  }
+
+  return selected;
 }
 
 function getAvailableMarqueeMessages() {
