@@ -2151,6 +2151,12 @@ body.playback-mode .marquee-text {
   color: #ffffff;
 }
 
+/* Marquee Fade Mask */
+.marquee-track.is-fading-out {
+  mask-image: linear-gradient(to right, black 85%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+}
+
 /* Search Highlight Effects */
 body.search-active .sticker-node {
   transition: opacity 0.2s ease, filter 0.2s ease;

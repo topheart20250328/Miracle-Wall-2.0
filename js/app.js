@@ -1392,7 +1392,7 @@ async function handleDeleteSticker() {
     }
   }
 
-  if (!pending || pending.isNew || isTimeLocked || (pending.locked && pending.lockReason !== "approved")) {
+  if (!pending || pending.isNew || isTimeLocked || pending.locked) {
     return;
   }
   if (pending.deviceId && state.deviceId && pending.deviceId !== state.deviceId) {
@@ -2103,7 +2103,7 @@ function updateDeleteButton() {
       && !pending.isNew
       && ownDevice
       && !isTimeLocked
-      && (!pending.locked || pending.lockReason === "approved")
+      && !pending.locked
   );
   deleteStickerBtn.hidden = !canDelete;
   deleteStickerBtn.disabled = !canDelete;

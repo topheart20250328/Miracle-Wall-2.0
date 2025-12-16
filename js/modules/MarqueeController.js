@@ -146,6 +146,24 @@ function setupMarqueeLineListeners() {
 
 function handleDragStart(e) {
   const track = e.currentTarget;
+
+  // Check if click is on the invisible/faded part of the mask
+  if (track.dataset.maskEnd) {
+    const maskStart = parseFloat(track.dataset.maskStart);
+    const maskEnd = parseFloat(track.dataset.maskEnd);
+    const rect = track.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    
+    // Calculate threshold: allow clicking until it's 95% faded
+    // (opacity 0.05). After that, it's considered "empty space".
+    const fadeLength = maskEnd - maskStart;
+    const clickThreshold = maskStart + (fadeLength * 0.95);
+    
+    if (clickX > clickThreshold) {
+      return;
+    }
+  }
+
   const animation = marqueeState.animations.get(track);
   
   if (!animation) return;
@@ -396,62 +414,75 @@ function restartMarqueeAnimation(line) {
   const trackWidth = track.scrollWidth || track.offsetWidth;
   
   // Configuration for Smart Timeout
-  const SMART_MAX_DURATION_MS = 60000; // 60 seconds hard limit
-  const BLINK_WARNING_DURATION_MS = 10000; // 10 seconds warning
-  const FADE_DURATION_MS = 3000; // 3 seconds fade in/out
+  const SMART_MAX_DURATION_MS = 60000; // 60 seconds of content
+  const FADE_DURATION_MS = 3000; // 3 seconds fade in entrance
+  const FADE_TAIL_LENGTH_PX = 800; // Length of the fade out tail
   
-  // Calculate natural duration based on constant speed
-  const travelDistance = viewportWidth + trackWidth;
-  const naturalDurationMs = (travelDistance / MARQUEE_SPEED_PX_PER_SEC) * 1000;
+  // Calculate max content width (how much text we show before fading out)
+  const maxContentWidthPx = MARQUEE_SPEED_PX_PER_SEC * (SMART_MAX_DURATION_MS / 1000);
   
-  // Calculate when the tail enters the screen (when the last character becomes visible)
-  const timeToTailEnterMs = (trackWidth / MARQUEE_SPEED_PX_PER_SEC) * 1000;
-
   // Determine if we need to enforce timeout
-  // We only enforce timeout if the tail hasn't even entered the screen by the limit time.
-  // If the tail is visible (or will be visible) within the limit, we let it finish naturally.
-  const isTimeoutMode = timeToTailEnterMs > SMART_MAX_DURATION_MS;
+  const isTimeoutMode = trackWidth > maxContentWidthPx;
   
-  const durationMs = isTimeoutMode ? SMART_MAX_DURATION_MS : Math.max(MARQUEE_MIN_DURATION_MS, naturalDurationMs);
-  
-  // Calculate end position
-  // If timeout, we stop where we are at 60s. If normal, we go all the way to -trackWidth
-  const endTranslateX = isTimeoutMode 
-    ? viewportWidth - (MARQUEE_SPEED_PX_PER_SEC * (durationMs / 1000))
-    : -trackWidth;
+  let durationMs;
+  let endTranslateX;
+
+  if (isTimeoutMode) {
+    // Timeout Mode:
+    // 1. Set a mask to fade out the text after maxContentWidthPx
+    const effectiveWidth = maxContentWidthPx + FADE_TAIL_LENGTH_PX;
+    const maskStyle = `linear-gradient(to right, black 0px, black ${maxContentWidthPx}px, transparent ${effectiveWidth}px)`;
+    track.style.maskImage = maskStyle;
+    track.style.webkitMaskImage = maskStyle;
+
+    // Store mask info for click detection
+    track.dataset.maskStart = maxContentWidthPx;
+    track.dataset.maskEnd = effectiveWidth;
+
+    // 2. Calculate duration to move the effective width fully off-screen
+    // Distance = Viewport (entrance) + Effective Width (exit)
+    const totalDistance = viewportWidth + effectiveWidth;
+    durationMs = (totalDistance / MARQUEE_SPEED_PX_PER_SEC) * 1000;
+    endTranslateX = -effectiveWidth;
+  } else {
+    // Normal Mode:
+    track.style.maskImage = '';
+    track.style.webkitMaskImage = '';
+    delete track.dataset.maskStart;
+    delete track.dataset.maskEnd;
+
+    // Calculate natural duration
+    const totalDistance = viewportWidth + trackWidth;
+    const naturalDurationMs = (totalDistance / MARQUEE_SPEED_PX_PER_SEC) * 1000;
+    
+    // Enforce min duration (slow down short messages)
+    durationMs = Math.max(MARQUEE_MIN_DURATION_MS, naturalDurationMs);
+    
+    endTranslateX = -trackWidth;
+  }
 
   // Build Keyframes
   const keyframes = [];
   
-  // 1. Start (Fade In)
+  // 1. Start (Fade In Entrance)
   const fadeInOffset = Math.min(FADE_DURATION_MS / durationMs, 0.2);
   keyframes.push({ transform: `translateX(${viewportWidth}px)`, opacity: 0, offset: 0 });
   keyframes.push({ opacity: 1, offset: fadeInOffset });
 
-  if (isTimeoutMode) {
-    // 2. Timeout Mode: Long Fade Out (10s)
-    const TIMEOUT_FADE_DURATION_MS = 10000;
-    const fadeStartMs = Math.max(0, durationMs - TIMEOUT_FADE_DURATION_MS);
-    const fadeStartOffset = fadeStartMs / durationMs;
-    
-    // Ensure we are fully visible until fade starts
-    if (fadeStartOffset > fadeInOffset) {
-      keyframes.push({ opacity: 1, offset: fadeStartOffset });
-    }
-    
-    // Final fade out
-    keyframes.push({ transform: `translateX(${endTranslateX}px)`, opacity: 0, offset: 1 });
-    
+  // 2. End
+  if (!isTimeoutMode) {
+     // Normal mode fade out at the very end
+     const fadeOutOffset = 1 - fadeInOffset;
+     if (fadeOutOffset > fadeInOffset) {
+       keyframes.push({ opacity: 1, offset: fadeOutOffset });
+     }
+     keyframes.push({ transform: `translateX(${endTranslateX}px)`, opacity: 0, offset: 1 });
   } else {
-    // 2. Normal Mode: Fade Out at end
-    const fadeOutOffset = 1 - fadeInOffset;
-    if (fadeOutOffset > fadeInOffset) {
-      keyframes.push({ opacity: 1, offset: fadeOutOffset });
-    }
-    keyframes.push({ transform: `translateX(${endTranslateX}px)`, opacity: 0, offset: 1 });
+     // Timeout mode: Opacity stays 1, mask handles the fade
+     keyframes.push({ transform: `translateX(${endTranslateX}px)`, opacity: 1, offset: 1 });
   }
 
-  // Disable CSS animation to ensure WAAPI takes full control (important for drag interactions)
+  // Disable CSS animation to ensure WAAPI takes full control
   track.style.animation = 'none';
 
   const animation = track.animate(keyframes, {
@@ -461,6 +492,9 @@ function restartMarqueeAnimation(line) {
   });
 
   animation.onfinish = () => {
+    track.style.maskImage = '';
+    track.style.webkitMaskImage = '';
+    track.classList.remove("is-fading-out");
     deactivateMarqueeLine(line);
     ensureMarqueeFlow(false, true);
     marqueeState.animations.delete(track);
