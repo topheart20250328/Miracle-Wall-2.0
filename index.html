@@ -393,7 +393,11 @@
   <dialog id="readModeOverlay" class="read-mode-overlay">
     <div class="read-mode-container">
       <header class="read-mode-header">
-        <button type="button" id="closeReadModeBtn" class="close-btn" aria-label="關閉閱讀模式">✕</button>
+        <button type="button" id="closeReadModeBtn" class="close-btn" aria-label="縮小視窗" title="縮小視窗">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>
+          </svg>
+        </button>
       </header>
       <div id="readModeContent" class="read-mode-content" hidden></div>
       <textarea id="readModeInput" placeholder="輸入你的感動或見證&#10;&#10;『記得署名喔』"></textarea>

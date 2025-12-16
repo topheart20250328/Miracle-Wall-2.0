@@ -8,6 +8,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/admin.css">
+  <link rel="stylesheet" href="css/admin-pagination.css">
+  <link rel="stylesheet" href="css/admin-filter.css">
+  <link rel="stylesheet" href="css/admin-review-compact.css">
 </head>
 <body>
   <main class="admin-shell">
@@ -35,6 +38,10 @@
           <div class="search-box">
             <input type="text" id="searchInput" class="search-input" placeholder="搜尋留言、ID..." aria-label="搜尋留言">
           </div>
+          <label class="filter-checkbox-label">
+            <input type="checkbox" id="pendingFilterCheckbox">
+            僅顯示審核中
+          </label>
           <div class="batch-actions" id="batchActions" hidden>
             <button type="button" id="batchApproveBtn" class="primary-btn small">批次通過</button>
             <button type="button" id="batchDeleteBtn" class="danger-btn small">批次刪除</button>
@@ -47,31 +54,27 @@
           <button type="button" id="logoutBtn" class="ghost-btn">登出</button>
         </div>
       </header>
-      <section class="review-controls" id="reviewControls" hidden aria-live="polite">
-        <div class="review-card">
-          <div class="review-copy">
-            <p class="review-label" id="marqueeReviewLabel">審核跑馬燈</p>
-            <p class="review-description">開啟後，背景跑馬燈只會播放通過審核的文字。</p>
-            <span class="review-status" id="marqueeReviewStatus">需審核</span>
-          </div>
+
+      <section class="review-controls-compact" id="reviewControls" hidden aria-live="polite">
+        <div class="review-item">
+          <span class="review-item-label" id="marqueeReviewLabel">跑馬燈審核</span>
           <label class="toggle-switch">
             <input type="checkbox" id="marqueeApprovalToggle" role="switch" aria-labelledby="marqueeReviewLabel">
             <span class="switch-track"><span class="switch-thumb"></span></span>
           </label>
+          <span class="review-status-text" id="marqueeReviewStatus">需審核</span>
         </div>
-        <div class="review-card nested" id="stickerReviewCard" hidden>
-          <div class="review-copy">
-            <p class="review-label" id="stickerReviewLabel">審核貼紙</p>
-            <p class="review-description">開啟後，牆面留言必須由管理員通過後才會公開。</p>
-            <span class="review-status" id="stickerReviewStatus">需審核</span>
-          </div>
+        
+        <div class="review-item" id="stickerReviewCard" hidden>
+          <span class="review-item-label" id="stickerReviewLabel">貼紙審核</span>
           <label class="toggle-switch">
             <input type="checkbox" id="stickerApprovalToggle" role="switch" aria-labelledby="stickerReviewLabel">
             <span class="switch-track"><span class="switch-thumb"></span></span>
           </label>
+          <span class="review-status-text" id="stickerReviewStatus">需審核</span>
         </div>
-        <p class="review-hint" id="reviewHint">當關閉跑馬燈審核時，貼紙審核將自動關閉並隱藏。</p>
       </section>
+
       <div id="loadingIndicator" class="loading-indicator" hidden>正在載入資料…</div>
       <div id="emptyState" class="empty-state" hidden>目前尚無留言。</div>
       <div class="table-wrapper" aria-live="polite">
@@ -93,7 +96,11 @@
       </div>
 
       <div class="pagination-controls" id="paginationControls" hidden>
-        <span class="pagination-info" id="paginationInfo">第 1 頁，共 1 頁</span>
+        <div class="pagination-input-group">
+          <span>第</span>
+          <input type="number" id="pageInput" class="page-input" min="1" value="1" aria-label="頁碼">
+          <span id="totalPagesLabel">頁，共 1 頁</span>
+        </div>
         <div class="pagination-buttons">
           <button type="button" id="prevPageBtn" class="ghost-btn small" disabled>上一頁</button>
           <button type="button" id="nextPageBtn" class="ghost-btn small" disabled>下一頁</button>

@@ -22,6 +22,7 @@ const toastNode = document.getElementById("adminToast");
 const exportBtn = document.getElementById("exportBtn");
 const exportCsvBtn = document.getElementById("exportCsvBtn");
 const searchInput = document.getElementById("searchInput");
+const pendingFilterCheckbox = document.getElementById("pendingFilterCheckbox");
 const totalCountNode = document.getElementById("totalCount");
 const reviewControls = document.getElementById("reviewControls");
 const marqueeToggle = document.getElementById("marqueeApprovalToggle");
@@ -37,6 +38,7 @@ const paginationControls = document.getElementById("paginationControls");
 const paginationInfo = document.getElementById("paginationInfo");
 const prevPageBtn = document.getElementById("prevPageBtn");
 const nextPageBtn = document.getElementById("nextPageBtn");
+const pageInput = document.getElementById("pageInput");
 const deleteConfirmModal = document.getElementById("deleteConfirmModal");
 const modalConfirmBtn = document.getElementById("modalConfirmBtn");
 const modalCancelBtn = document.getElementById("modalCancelBtn");
@@ -63,9 +65,11 @@ const state = {
   toastTimer: null,
   selectedIds: new Set(),
   searchTerm: "",
+  filterPending: false,
   currentPage: 1,
-  pageSize: 50,
+  pageSize: 100,
   totalCount: 0,
+  allEntryIds: [], // Cache for calculating original sequence numbers
 };
 
 const reviewSettingsState = {
@@ -130,6 +134,7 @@ entriesBody?.addEventListener("change", handleTableChange);
 exportBtn?.addEventListener("click", handleExportEntries);
 exportCsvBtn?.addEventListener("click", handleExportCsv);
 searchInput?.addEventListener("input", debounce(handleSearchInput, 500));
+pendingFilterCheckbox?.addEventListener("change", handlePendingFilterChange);
 marqueeToggle?.addEventListener("change", handleMarqueeToggleChange);
 stickerToggle?.addEventListener("change", handleStickerToggleChange);
 selectAllCheckbox?.addEventListener("change", handleSelectAllChange);
@@ -137,6 +142,10 @@ batchApproveBtn?.addEventListener("click", handleBatchApprove);
 batchDeleteBtn?.addEventListener("click", handleBatchDelete);
 prevPageBtn?.addEventListener("click", () => changePage(state.currentPage - 1));
 nextPageBtn?.addEventListener("click", () => changePage(state.currentPage + 1));
+pageInput?.addEventListener("change", (e) => {
+  const val = parseInt(e.target.value, 10);
+  if (val) changePage(val);
+});
 modalCancelBtn?.addEventListener("click", closeDeleteModal);
 modalConfirmBtn?.addEventListener("click", executePendingDelete);
 
@@ -204,12 +213,14 @@ async function handleLogin(event) {
   }
   supabaseClient = createSupabaseClient({ headers: { "x-admin-secret": ADMIN_SECRET_HEADER } });
   void initializeReviewSettings();
+  void fetchAllEntryIds(); // Fetch sequence map
   void loadStickers(1);
 }
 
 function handleLogout() {
   state.authorized = false;
   state.entries = [];
+  state.allEntryIds = [];
   state.selectedIds.clear();
   state.currentPage = 1;
   state.totalCount = 0;
@@ -260,23 +271,64 @@ async function loadStickers(page = 1, showToastOnError = false) {
   const to = from + state.pageSize - 1;
 
   try {
+    // Ensure sequence map is loaded if empty (e.g. after refresh)
+    if (!state.allEntryIds.length) {
+      await fetchAllEntryIds();
+    }
+
+    // 1. Get Count first to calculate inverted pagination
+    let countQuery = supabaseClient
+      .from("wall_sticker_entries")
+      .select("id", { count: 'exact', head: true });
+      
+    if (state.searchTerm) {
+      countQuery = countQuery.ilike('note', `%${state.searchTerm}%`);
+    }
+    
+    if (state.filterPending) {
+      countQuery = countQuery.eq('is_approved', false);
+    }
+    
+    const { count, error: countError } = await countQuery;
+    if (countError) throw countError;
+    
+    state.totalCount = count || 0;
+    
+    // 2. Calculate Inverted Page
+    // Page 1 (UI) -> Last Page (DB ASC)
+    // Page 2 (UI) -> Second to Last Page (DB ASC)
+    const totalPages = Math.ceil(state.totalCount / state.pageSize) || 1;
+    
+    // Ensure page is valid
+    if (page > totalPages) page = totalPages;
+    if (page < 1) page = 1;
+    
+    const invertedPage = totalPages - page + 1;
+    const invertedFrom = (invertedPage - 1) * state.pageSize;
+    const invertedTo = invertedFrom + state.pageSize - 1;
+
+    // 3. Fetch Data (ASC)
     let query = supabaseClient
       .from("wall_sticker_entries")
-      .select("id, note, x_norm, y_norm, created_at, updated_at, is_approved", { count: 'exact' })
-      .order("created_at", { ascending: false })
-      .range(from, to);
+      .select("id, note, x_norm, y_norm, created_at, updated_at, is_approved")
+      .order("created_at", { ascending: true })
+      .range(invertedFrom, invertedTo);
 
     if (state.searchTerm) {
       query = query.ilike('note', `%${state.searchTerm}%`);
     }
 
-    const { data, error, count } = await query;
+    if (state.filterPending) {
+      query = query.eq('is_approved', false);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;
     }
     
-    state.entries = Array.isArray(data)
+    let entries = Array.isArray(data)
       ? data.map((entry) => ({
           ...entry,
           x_norm: typeof entry.x_norm === "number" ? entry.x_norm : null,
@@ -284,8 +336,11 @@ async function loadStickers(page = 1, showToastOnError = false) {
           is_approved: Boolean(entry.is_approved),
         }))
       : [];
+      
+    // Reverse to show Newest First within the chunk
+    entries.reverse();
+    state.entries = entries;
     
-    state.totalCount = count || 0;
     state.currentPage = page;
     state.selectedIds.clear();
     
@@ -320,8 +375,16 @@ function updatePaginationControls() {
   const totalPages = Math.ceil(state.totalCount / state.pageSize) || 1;
   paginationControls.hidden = state.totalCount === 0;
   
-  if (paginationInfo) {
-    paginationInfo.textContent = `第 ${state.currentPage} 頁，共 ${totalPages} 頁 (總計 ${state.totalCount} 筆)`;
+  const pageInput = document.getElementById("pageInput");
+  const totalPagesLabel = document.getElementById("totalPagesLabel");
+
+  if (pageInput) {
+    pageInput.value = state.currentPage;
+    pageInput.max = totalPages;
+  }
+  
+  if (totalPagesLabel) {
+    totalPagesLabel.textContent = `頁，共 ${totalPages} 頁 (總計 ${state.totalCount} 筆)`;
   }
   
   if (prevPageBtn) {
@@ -371,10 +434,12 @@ function renderEntries() {
     const approveButton = clone.querySelector('button[data-action="approve"]');
     const revokeButton = clone.querySelector('button[data-action="revoke"]');
 
-    // Display number logic: Total - Absolute Index
-    // If searching, this number might be confusing if it represents "nth result" vs "nth total record"
-    // Let's stick to "nth result" for now as it's simpler with server-side search
-    const displayNumber = state.totalCount - absoluteIndex;
+    // Display number logic: Use original sequence number from allEntryIds
+    let displayNumber = "-";
+    const originalIndex = state.allEntryIds.indexOf(entry.id);
+    if (originalIndex !== -1) {
+      displayNumber = originalIndex + 1;
+    }
     
     if (numberCell) {
       numberCell.textContent = `#${displayNumber}`;
@@ -548,7 +613,10 @@ async function approveEntry(row, button) {
   try {
     const { data, error } = await supabaseClient
       .from("wall_stickers")
-      .update({ is_approved: true })
+      .update({ 
+        is_approved: true,
+        updated_at: existing.updated_at // Preserve original updated_at
+      })
       .eq("id", id)
       .select()
       .single();
@@ -637,6 +705,11 @@ async function deleteEntry(row, button) {
         throw error;
       }
       state.entries = state.entries.filter((entry) => entry.id !== id);
+      state.totalCount = Math.max(0, state.totalCount - 1); // Update total count
+      
+      // Refresh sequence map after delete
+      await fetchAllEntryIds();
+      
       renderEntries();
       if (!state.entries.length) {
         emptyState.hidden = false;
@@ -919,6 +992,11 @@ function handleSearchInput(event) {
   loadStickers(1);
 }
 
+function handlePendingFilterChange(event) {
+  state.filterPending = event.target.checked;
+  loadStickers(1);
+}
+
 async function handleExportCsv() {
   if (!state.authorized) {
     showToast("請先登入管理後再匯出。", "danger");
@@ -1180,7 +1258,12 @@ async function handleBatchDelete() {
       if (error) throw error;
       
       state.entries = state.entries.filter(entry => !ids.includes(entry.id));
+      state.totalCount = Math.max(0, state.totalCount - ids.length); // Update total count
       state.selectedIds.clear();
+      
+      // Refresh sequence map after delete
+      await fetchAllEntryIds();
+      
       renderEntries();
       if (!state.entries.length) {
         emptyState.hidden = false;
@@ -1195,4 +1278,20 @@ async function handleBatchDelete() {
       batchDeleteBtn.textContent = originalText;
     }
   });
+}
+
+async function fetchAllEntryIds() {
+  if (!supabaseClient) return;
+  try {
+    const { data, error } = await supabaseClient
+      .from("wall_stickers")
+      .select("id")
+      .order("created_at", { ascending: true });
+      
+    if (error) throw error;
+    
+    state.allEntryIds = data.map(x => x.id);
+  } catch (e) {
+    console.error("Failed to fetch sequence", e);
+  }
 }
