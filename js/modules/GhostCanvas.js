@@ -38,7 +38,8 @@ function createGhostImage() {
 
   // Add "..." text
   oCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
-  oCtx.font = 'bold 24px sans-serif';
+  // Use system-ui or sans-serif for better compatibility
+  oCtx.font = 'bold 24px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   oCtx.textAlign = 'center';
   oCtx.textBaseline = 'middle';
   oCtx.fillText('...', center, center - 5);
@@ -49,12 +50,29 @@ function createGhostImage() {
 export function initGhostCanvas(canvasEl, svgEl) {
   canvas = canvasEl;
   svgElement = svgEl;
-  ctx = canvas.getContext('2d', { alpha: true });
+  
+  // Try to get context with explicit settings for mobile compatibility
+  try {
+    ctx = canvas.getContext('2d', { alpha: true });
+  } catch (e) {
+    console.error("Failed to get canvas context", e);
+    return;
+  }
+  
+  if (!ctx) {
+    console.warn("Canvas context is null");
+    return;
+  }
   
   ghostImage = createGhostImage();
 
   // Handle resize
   window.addEventListener('resize', resizeCanvas);
+  // Also listen to orientation change for mobile
+  window.addEventListener('orientationchange', () => {
+    setTimeout(resizeCanvas, 100);
+  });
+  
   resizeCanvas();
 
   // Start loop
@@ -63,12 +81,25 @@ export function initGhostCanvas(canvasEl, svgEl) {
 
 function resizeCanvas() {
   if (!canvas) return;
+  
+  // Force read window dimensions
+  const width = window.innerWidth;
+  const height = window.innerHeight;
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = window.innerWidth * dpr;
-  canvas.height = window.innerHeight * dpr;
-  canvas.style.width = `${window.innerWidth}px`;
-  canvas.style.height = `${window.innerHeight}px`;
-  ctx.scale(dpr, dpr);
+  
+  // Set actual canvas size (memory)
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  
+  // Set display size (css)
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+  
+  // Reset transform and scale
+  if (ctx) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.scale(dpr, dpr);
+  }
 }
 
 export function updateGhostDirectly(deviceId, x, y, timestamp) {
