@@ -318,20 +318,7 @@ function init() {
   ZoomController.initZoomController({
     wallStage, wallWrapper, wallSvg, stickersLayer, zoomSlider, zoomResetBtn, zoomIndicator,
     interactionTarget: document.body, // Allow zooming/panning from anywhere on the screen
-    onZoomReset: () => {
-        // If playback is active, do NOT refresh stickers, just reset view (which ZoomController does)
-        if (document.body.classList.contains("playback-mode")) {
-            return;
-        }
-        
-        if (!isSupabaseConfigured()) return;
-        // Only refresh if not using realtime (though we are, user asked for this logic)
-        // But user said: "if you already have set real-time update stickers setting, then no need to add this function"
-        // Since we DO have realtime subscription in init(), we technically don't need this.
-        // However, to be safe and follow "refresh latest message" request explicitly:
-        // We will just re-fetch to ensure sync if realtime missed something.
-        StickerManager.loadExistingStickers().catch(console.error);
-    }
+    // onZoomReset removed as we have realtime updates now, so reset button only resets view
   }, requiresStickerForceRedraw);
   EffectsManager.initEffectsManager({
     effectsLayer, ambientLayer, stickersLayer
@@ -524,6 +511,7 @@ function init() {
   if (isSupabaseConfigured()) {
     StickerManager.loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
     StickerManager.subscribeToReviewSettings();
+    StickerManager.subscribeToStickers();
   } else {
     reviewSettings.ready = true;
   }
@@ -867,6 +855,8 @@ function handlePalettePointerDown(event) {
   }
   event.preventDefault();
   if (state.drag?.node) {
+    // Ensure highlight is removed before removing the node
+    StickerManager.removeDragHighlight(state.drag.node);
     state.drag.node.remove();
   }
   state.drag = {

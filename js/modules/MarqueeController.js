@@ -174,6 +174,25 @@ function handleDragStart(e) {
   // Stop propagation to prevent dragging the underlying wall
   e.stopPropagation();
 
+  // Cleanup any existing drag state (e.g. multi-touch interruption)
+  if (marqueeState.dragState.active) {
+    const { track: oldTrack, highlightedNode, visualsActivated } = marqueeState.dragState;
+    if (visualsActivated) {
+      if (highlightedNode) {
+        StickerManager.removeDragHighlight(highlightedNode);
+        highlightedNode.classList.remove("marquee-highlight");
+      }
+      document.body.classList.remove("marquee-drag-active");
+    }
+    if (oldTrack) {
+      oldTrack.style.cursor = '';
+      // We can't easily release pointer capture for the old ID here without the ID, 
+      // but the browser usually handles it if we start a new capture or if the element is the same.
+    }
+    // Reset state
+    marqueeState.dragState = { active: false, track: null, animation: null, originalTarget: null, highlightedNode: null };
+  }
+
   // Notify interaction start (e.g. to cancel placement mode)
   if (marqueeState.onInteractionStart) {
     marqueeState.onInteractionStart();

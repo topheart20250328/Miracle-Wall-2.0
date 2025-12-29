@@ -772,6 +772,43 @@ export async function deleteSticker(pending) {
 
 
 let reviewSettingsChannel = null;
+let stickersChannel = null;
+const effectQueue = [];
+let effectProcessing = false;
+
+function processEffectQueue() {
+  if (effectQueue.length === 0) {
+    effectProcessing = false;
+    return;
+  }
+  effectProcessing = true;
+  
+  // Process one effect
+  const task = effectQueue.shift();
+  if (task) task();
+
+  // Schedule next, but if queue is huge, speed up or skip
+  let delay = 150;
+  if (effectQueue.length > 5) delay = 50;
+  if (effectQueue.length > 20) delay = 10; // Rush mode
+
+  setTimeout(processEffectQueue, delay);
+}
+
+function queueImpactEffect(node) {
+  // If too many pending, skip effect to save performance
+  if (effectQueue.length > 50) return;
+
+  effectQueue.push(() => {
+    if (document.body.contains(node)) {
+      callbacks.playPlacementImpactEffect(node);
+    }
+  });
+
+  if (!effectProcessing) {
+    processEffectQueue();
+  }
+}
 
 export async function loadReviewSettings() {
   if (!isSupabaseConfigured()) {
@@ -844,10 +881,105 @@ export function subscribeToReviewSettings() {
     .subscribe();
 }
 
+export function subscribeToStickers() {
+  if (!isSupabaseConfigured() || typeof supabase.channel !== "function") {
+    return;
+  }
+  if (stickersChannel) {
+    return;
+  }
+  stickersChannel = supabase
+    .channel("public:wall_stickers")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "wall_stickers" },
+      (payload) => {
+        const record = payload.new;
+        if (!record || globalState.stickers.has(record.id)) return;
+
+        // Add new sticker
+        const x = record.x_norm * globalViewBox.width;
+        const y = record.y_norm * globalViewBox.height;
+        const node = createStickerNode(record.id, x, y, false);
+        elements.stickersLayer.appendChild(node);
+
+        const isOwner = !record.device_id || !globalState.deviceId || record.device_id === globalState.deviceId;
+        const requireApproval = globalReviewSettings.requireStickerApproval;
+        const canViewNote = !requireApproval || record.is_approved || isOwner;
+
+        const stickerData = {
+          id: record.id,
+          x,
+          y,
+          xNorm: record.x_norm,
+          yNorm: record.y_norm,
+          note: record.note ?? "",
+          node,
+          created_at: record.created_at,
+          updated_at: record.updated_at,
+          deviceId: record.device_id ?? null,
+          isApproved: Boolean(record.is_approved),
+          canViewNote: canViewNote,
+        };
+
+        globalState.stickers.set(record.id, stickerData);
+        callbacks.runPopAnimation(node);
+        updateStickerReviewState(stickerData);
+        
+        // Only play impact effect if NOT the owner (owner sees it immediately upon save)
+        if (!isOwner) {
+          queueImpactEffect(node);
+        }
+
+        callbacks.updateFireIntensity(globalState.stickers);
+        callbacks.updateMarqueePool(globalState.stickers, globalReviewSettings);
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "wall_stickers" },
+      (payload) => {
+        const record = payload.new;
+        const existing = globalState.stickers.get(record.id);
+        if (!existing) return;
+
+        existing.note = record.note ?? "";
+        existing.isApproved = Boolean(record.is_approved);
+        existing.updated_at = record.updated_at;
+        
+        const isOwner = !record.device_id || !globalState.deviceId || record.device_id === globalState.deviceId;
+        const requireApproval = globalReviewSettings.requireStickerApproval;
+        existing.canViewNote = !requireApproval || record.is_approved || isOwner;
+        
+        updateStickerReviewState(existing);
+        callbacks.updateMarqueePool(globalState.stickers, globalReviewSettings);
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "wall_stickers" },
+      (payload) => {
+        const id = payload.old.id;
+        const existing = globalState.stickers.get(id);
+        if (existing) {
+          if (existing.node) existing.node.remove();
+          globalState.stickers.delete(id);
+          callbacks.updateFireIntensity(globalState.stickers);
+          callbacks.updateMarqueePool(globalState.stickers, globalReviewSettings);
+        }
+      }
+    )
+    .subscribe();
+}
+
 export function cleanupReviewSettingsSubscription() {
     if (reviewSettingsChannel && typeof supabase?.removeChannel === "function") {
       supabase.removeChannel(reviewSettingsChannel);
       reviewSettingsChannel = null;
+    }
+    if (stickersChannel && typeof supabase?.removeChannel === "function") {
+      supabase.removeChannel(stickersChannel);
+      stickersChannel = null;
     }
 }
 
