@@ -5,10 +5,12 @@ let channel = null;
 let callbacks = {
   onOnlineCountChange: () => {},
   onResonance: () => {},
+  onPresenceChange: () => {},
   getHeat: () => 0, // Default getter
 };
 let state = {
   onlineCount: 0,
+  presenceData: {},
 };
 let isSubscribed = false;
 let shouldTrack = false;
@@ -36,6 +38,7 @@ export function initRealtimeController(controllerCallbacks) {
       const count = Object.keys(newState).length;
       state.onlineCount = count;
       callbacks.onOnlineCountChange(count);
+      callbacks.onPresenceChange(newState);
     })
     .on('broadcast', { event: 'resonance' }, (payload) => {
       callbacks.onResonance(payload.payload); // Pass the inner payload which contains heat
@@ -46,6 +49,7 @@ export function initRealtimeController(controllerCallbacks) {
         if (shouldTrack) {
           await channel.track({
             online_at: new Date().toISOString(),
+            ...state.presenceData,
           });
         }
       }
@@ -60,11 +64,27 @@ export async function setPresenceState(isEnabled) {
     if (isEnabled) {
       await channel.track({
         online_at: new Date().toISOString(),
+        ...state.presenceData,
       });
     } else {
       await channel.untrack();
     }
   }
+}
+
+export async function updatePresence(data) {
+  if (!channel || !isSubscribed || !shouldTrack) {
+    // Update local state even if not tracking yet, so it's ready when we do
+    state.presenceData = { ...state.presenceData, ...data };
+    return;
+  }
+  
+  state.presenceData = { ...state.presenceData, ...data };
+  
+  await channel.track({
+    online_at: new Date().toISOString(),
+    ...state.presenceData,
+  });
 }
 
 let lastTriggerTime = 0;

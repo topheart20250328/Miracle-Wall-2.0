@@ -8,6 +8,7 @@ import * as StickerManager from "./modules/StickerManager.js";
 import * as PlaybackController from "./modules/PlaybackController.js";
 import * as SearchController from "./modules/SearchController.js";
 import * as RealtimeController from "./modules/RealtimeController.js";
+import * as GhostCanvas from "./modules/GhostCanvas.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
 const wallStage = document.getElementById("wallStage");
@@ -130,6 +131,10 @@ const state = {
   isAnimatingReturn: false,
   isTransitioning: false,
 };
+
+// Removed DOM-based ghost stickers in favor of Canvas
+// const ghostStickers = new Map(); 
+
 const reviewSettings = {
   requireMarqueeApproval: true,
   requireStickerApproval: true,
@@ -429,8 +434,17 @@ function init() {
       // Pass the remote heat value to sync if needed
       EffectsManager.playResonanceEffect(payload?.heat);
     },
+    onPresenceChange: (newState) => {
+      GhostCanvas.updateGhosts(newState, state.deviceId);
+    },
     getHeat: () => EffectsManager.getResonanceHeat(),
   });
+
+  // Initialize Ghost Canvas
+  const ghostCanvasEl = document.getElementById("ghostCanvas");
+  if (ghostCanvasEl) {
+    GhostCanvas.initGhostCanvas(ghostCanvasEl, wallSvg);
+  }
 
   // Initialize Online Status
   const savedOnlineStatus = localStorage.getItem("onlineStatus") !== "false";
@@ -1148,6 +1162,10 @@ function beginPlacement(x, y) {
   if (!state.deviceId) {
     state.deviceId = ensureDeviceId();
   }
+  
+  // Broadcast typing location to others
+  RealtimeController.updatePresence({ typingLocation: { x, y } });
+
   state.pending = {
     id: tempId,
     x,
@@ -1301,6 +1319,9 @@ function focusDialog(originNode, options = {}) {
 }
 
 async function handleDialogClose() {
+  // Clear typing location when dialog closes (submit, cancel, or close)
+  RealtimeController.updatePresence({ typingLocation: null });
+
   const pendingSnapshot = state.pending;
   state.pending = null;
   formError.textContent = "";
@@ -1701,18 +1722,32 @@ function createDomPoint(x, y) {
 }
 
 function isOverlapping(x, y) {
+  // 1. Check against existing stickers
   for (const record of state.stickers.values()) {
     const distance = Math.hypot(record.x - x, record.y - y);
     if (distance < MIN_DISTANCE) {
       return true;
     }
   }
+  
+  // 2. Check against pending sticker (if editing)
   if (state.pending && !state.pending.isNew) {
     const distance = Math.hypot(state.pending.x - x, state.pending.y - y);
     if (distance < MIN_DISTANCE) {
       return true;
     }
   }
+
+  // 3. Check against ghost stickers (other users typing)
+  // Use GhostCanvas data source
+  const ghosts = GhostCanvas.getGhosts();
+  for (const ghost of ghosts.values()) {
+    const distance = Math.hypot(ghost.x - x, ghost.y - y);
+    if (distance < MIN_DISTANCE) {
+      return true;
+    }
+  }
+
   return false;
 }
 
