@@ -71,26 +71,73 @@ function resizeCanvas() {
   ctx.scale(dpr, dpr);
 }
 
-export function updateGhosts(presenceState, currentDeviceId) {
-  const newGhosts = new Map();
-  
+export function updateGhostDirectly(deviceId, x, y, timestamp) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    // If invalid coordinates (or null), remove ghost
+    ghosts.delete(deviceId);
+    return;
+  }
+
+  const existing = ghosts.get(deviceId);
+  // Only update if timestamp is newer or equal
+  if (!existing || timestamp >= existing.timestamp) {
+    ghosts.set(deviceId, { x, y, timestamp });
+  }
+}
+
+export function syncGhosts(presenceState, currentDeviceId) {
+  // 1. Identify active ghosts from presence
+  const activeDeviceIds = new Set();
+
   for (const key in presenceState) {
-    // Skip self
     if (key === currentDeviceId) continue;
 
     const presences = presenceState[key];
-    // Use the latest presence entry for this device
     const presence = presences[0]; 
     
     if (presence && presence.typingLocation) {
-      const { x, y } = presence.typingLocation;
+      const { x, y, timestamp } = presence.typingLocation;
+      
       if (Number.isFinite(x) && Number.isFinite(y)) {
-        newGhosts.set(key, { x, y, timestamp: Date.now() });
+        activeDeviceIds.add(key);
+        
+        // Update ghost if presence data is newer than what we have (from broadcast)
+        // If presence doesn't have timestamp (legacy), assume it's current but give it low priority?
+        // We added timestamp to presence payload, so it should be there.
+        // If not, use Date.now() but be careful not to overwrite newer broadcasts.
+        const ts = timestamp || 0; 
+        
+        const existing = ghosts.get(key);
+        if (!existing || ts >= existing.timestamp) {
+           ghosts.set(key, { x, y, timestamp: ts || Date.now() });
+        }
       }
     }
   }
   
-  ghosts = newGhosts;
+  // 2. Remove ghosts that are no longer in presence
+  // BUT: Be careful. Presence might be slightly delayed.
+  // If we received a broadcast "I'm here" 10ms ago, but presence sync (generated 100ms ago) says "Not here",
+  // we shouldn't delete it.
+  // However, usually presence is the authority for "who is online".
+  // If a user disconnects, they disappear from presence.
+  // If we keep them because of an old broadcast, they might stick around forever.
+  
+  // Strategy:
+  // If a device is NOT in presenceState, we should probably remove it, 
+  // UNLESS it was updated very recently via broadcast (e.g. < 2 seconds ago).
+  // This handles the "joined but presence not synced yet" case.
+  
+  const now = Date.now();
+  for (const [deviceId, ghost] of ghosts.entries()) {
+    if (!activeDeviceIds.has(deviceId)) {
+      // If the ghost was updated more than 5 seconds ago and is not in presence, kill it.
+      // 5 seconds is generous for presence sync.
+      if (now - ghost.timestamp > 5000) {
+        ghosts.delete(deviceId);
+      }
+    }
+  }
 }
 
 export function getGhosts() {

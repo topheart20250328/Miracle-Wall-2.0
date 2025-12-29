@@ -435,7 +435,11 @@ function init() {
       EffectsManager.playResonanceEffect(payload?.heat);
     },
     onPresenceChange: (newState) => {
-      GhostCanvas.updateGhosts(newState, state.deviceId);
+      GhostCanvas.syncGhosts(newState, state.deviceId);
+    },
+    onGhostUpdate: (payload) => {
+      if (payload.deviceId === state.deviceId) return;
+      GhostCanvas.updateGhostDirectly(payload.deviceId, payload.x, payload.y, payload.timestamp);
     },
     getHeat: () => EffectsManager.getResonanceHeat(),
   });
@@ -1163,8 +1167,10 @@ function beginPlacement(x, y) {
     state.deviceId = ensureDeviceId();
   }
   
-  // Broadcast typing location to others
-  RealtimeController.updatePresence({ typingLocation: { x, y } });
+  // Broadcast typing location to others (Hybrid: Broadcast + Presence)
+  const now = Date.now();
+  RealtimeController.updatePresence({ typingLocation: { x, y, timestamp: now } });
+  RealtimeController.broadcastGhostPosition(x, y, now);
 
   state.pending = {
     id: tempId,
@@ -1320,7 +1326,9 @@ function focusDialog(originNode, options = {}) {
 
 async function handleDialogClose() {
   // Clear typing location when dialog closes (submit, cancel, or close)
+  const now = Date.now();
   RealtimeController.updatePresence({ typingLocation: null });
+  RealtimeController.broadcastGhostPosition(null, null, now);
 
   const pendingSnapshot = state.pending;
   state.pending = null;

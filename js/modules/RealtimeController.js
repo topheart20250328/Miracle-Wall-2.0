@@ -6,6 +6,7 @@ let callbacks = {
   onOnlineCountChange: () => {},
   onResonance: () => {},
   onPresenceChange: () => {},
+  onGhostUpdate: () => {},
   getHeat: () => 0, // Default getter
 };
 let state = {
@@ -42,6 +43,11 @@ export function initRealtimeController(controllerCallbacks) {
     })
     .on('broadcast', { event: 'resonance' }, (payload) => {
       callbacks.onResonance(payload.payload); // Pass the inner payload which contains heat
+    })
+    .on('broadcast', { event: 'ghost_pos' }, (payload) => {
+      if (callbacks.onGhostUpdate) {
+        callbacks.onGhostUpdate(payload.payload);
+      }
     })
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
@@ -109,6 +115,21 @@ export async function triggerResonance() {
     payload: { 
       from: deviceId,
       heat: currentHeat 
+    },
+  });
+}
+
+export async function broadcastGhostPosition(x, y, timestamp) {
+  if (!channel) return;
+  
+  await channel.send({
+    type: 'broadcast',
+    event: 'ghost_pos',
+    payload: { 
+      deviceId: deviceId,
+      x, 
+      y,
+      timestamp
     },
   });
 }
