@@ -174,9 +174,14 @@ function handleDragStart(e) {
   // Stop propagation to prevent dragging the underlying wall
   e.stopPropagation();
 
+  // Notify interaction start (e.g. to cancel placement mode)
+  if (marqueeState.onInteractionStart) {
+    marqueeState.onInteractionStart();
+  }
+
   // Cleanup any existing drag state (e.g. multi-touch interruption)
   if (marqueeState.dragState.active) {
-    const { track: oldTrack, highlightedNode, visualsActivated } = marqueeState.dragState;
+    const { highlightedNode, visualsActivated, animation: prevAnimation, track: prevTrack } = marqueeState.dragState;
     if (visualsActivated) {
       if (highlightedNode) {
         StickerManager.removeDragHighlight(highlightedNode);
@@ -184,18 +189,16 @@ function handleDragStart(e) {
       }
       document.body.classList.remove("marquee-drag-active");
     }
-    if (oldTrack) {
-      oldTrack.style.cursor = '';
-      // We can't easily release pointer capture for the old ID here without the ID, 
-      // but the browser usually handles it if we start a new capture or if the element is the same.
+    // Resume previous animation if it's a different track
+    if (prevAnimation && prevTrack !== track) {
+      prevAnimation.play();
     }
-    // Reset state
-    marqueeState.dragState = { active: false, track: null, animation: null, originalTarget: null, highlightedNode: null };
-  }
-
-  // Notify interaction start (e.g. to cancel placement mode)
-  if (marqueeState.onInteractionStart) {
-    marqueeState.onInteractionStart();
+    // Release capture if held
+    if (prevTrack && typeof prevTrack.releasePointerCapture === "function" && e.pointerId) {
+        try {
+            prevTrack.releasePointerCapture(e.pointerId); 
+        } catch (err) { /* ignore */ }
+    }
   }
 
   // Find associated sticker (but don't highlight yet - wait for drag)

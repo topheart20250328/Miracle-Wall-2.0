@@ -854,11 +854,19 @@ function handlePalettePointerDown(event) {
     return;
   }
   event.preventDefault();
-  if (state.drag?.node) {
-    // Ensure highlight is removed before removing the node
-    StickerManager.removeDragHighlight(state.drag.node);
-    state.drag.node.remove();
+  
+  // Cleanup existing drag if present (e.g. multi-touch interruption)
+  if (state.drag) {
+    if (state.drag.node) {
+      StickerManager.removeDragHighlight(state.drag.node);
+      state.drag.node.remove();
+    }
+    if (state.dragRafId) {
+      cancelAnimationFrame(state.dragRafId);
+      state.dragRafId = null;
+    }
   }
+
   state.drag = {
     pointerId: event.pointerId,
     startClientX: event.clientX,
