@@ -122,6 +122,12 @@ export async function triggerResonance() {
 export async function broadcastGhostPosition(x, y, timestamp) {
   if (!channel) return;
   
+  // Traffic Control: If online count > 200, stop broadcasting ghost position
+  // This preserves bandwidth for critical events (New Stickers, Resonance)
+  if (state.onlineCount > 200) {
+    return;
+  }
+
   await channel.send({
     type: 'broadcast',
     event: 'ghost_pos',

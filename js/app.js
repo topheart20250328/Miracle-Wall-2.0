@@ -1,3 +1,15 @@
+/**
+ * CRITICAL: CROSS-PLATFORM COMPATIBILITY
+ * 
+ * All features must be compatible with:
+ * - LINE In-App Browser
+ * - Mobile Safari (iOS) & Chrome (Android)
+ * 
+ * Ensure robust handling of:
+ * - Touch events (pointerdown/move/up/cancel)
+ * - Viewport resizing (virtual keyboard, address bar)
+ * - Performance on mobile devices
+ */
 import { supabase, isSupabaseConfigured, deviceId as initialDeviceId } from "./supabase-config.js";
 import * as Utils from "./modules/Utils.js";
 import * as AudioManager from "./modules/AudioManager.js";
