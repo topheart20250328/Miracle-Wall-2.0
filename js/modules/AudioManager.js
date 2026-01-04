@@ -184,3 +184,10 @@ function persistAudioPreference(value) {
     console.warn("Failed to save audio preference", error);
   }
 }
+
+export function playStickerImpact() {
+  // Placeholder for impact sound
+  // If we have an audio file for this, we can play it here
+  // For now, we can just log it or play a simple tone if needed
+  // console.log("🔊 [Audio] Impact Sound");
+}

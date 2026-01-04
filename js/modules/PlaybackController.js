@@ -103,6 +103,10 @@ function togglePlayback() {
   }
 }
 
+export function isPlaying() {
+    return state.isPlaying;
+}
+
 export function startPlayback(stickersMap) {
   if (state.isPlaying || !stickersMap || stickersMap.size === 0) return;
 
@@ -158,18 +162,27 @@ export function startPlayback(stickersMap) {
   }
 
   // 3. Hide all stickers initially (with fade out)
-  state.sortedStickers.forEach(s => {
-    if (s.node) {
-      // Fix: Clear any residual animations or inline styles that might block CSS transitions
-      if (window.anime) window.anime.remove(s.node);
-      s.node.classList.remove("pending", "review-pending", "review-blocked", "in-flight");
-      s.node.style.removeProperty("transform");
-      s.node.style.removeProperty("opacity");
-      s.node.style.removeProperty("filter");
-      
-      s.node.classList.add("playback-preparing");
+  // Delay hiding stickers to match flash peak (approx 100ms) to create a smooth transition
+  setTimeout(() => {
+    // Check if StickerManager supports bulk visibility (Pixi mode)
+    if (state.callbacks.StickerManager && typeof state.callbacks.StickerManager.setAllStickersVisibility === 'function') {
+        state.callbacks.StickerManager.setAllStickersVisibility(false);
+    } else {
+        // Fallback for SVG mode
+        state.sortedStickers.forEach(s => {
+          if (s.node) {
+            // Fix: Clear any residual animations or inline styles that might block CSS transitions
+            if (window.anime) window.anime.remove(s.node);
+            s.node.classList.remove("pending", "review-pending", "review-blocked", "in-flight");
+            s.node.style.removeProperty("transform");
+            s.node.style.removeProperty("opacity");
+            s.node.style.removeProperty("filter");
+            
+            s.node.classList.add("playback-preparing");
+          }
+        });
     }
-  });
+  }, 100);
 
   // 4. Show Date Display
   if (state.elements.dateContainer) {
@@ -193,15 +206,17 @@ export function startPlayback(stickersMap) {
   state.startTimeout = setTimeout(() => {
     if (!state.isPlaying) return; // Check if stopped during delay
     
-    // Now actually hide them for the animation logic
-    state.sortedStickers.forEach(s => {
-      if (s.node) {
-        s.node.classList.remove("playback-preparing");
-        s.node.classList.add("playback-hidden");
-        s.node.style.opacity = "0";
-        s.node.style.transform = "scale(0)";
-      }
-    });
+    // Now actually hide them for the animation logic (SVG Mode only)
+    if (!state.callbacks.StickerManager || typeof state.callbacks.StickerManager.setAllStickersVisibility !== 'function') {
+        state.sortedStickers.forEach(s => {
+          if (s.node) {
+            s.node.classList.remove("playback-preparing");
+            s.node.classList.add("playback-hidden");
+            s.node.style.opacity = "0";
+            s.node.style.transform = "scale(0)";
+          }
+        });
+    }
     
     state.lastFrameTime = performance.now();
     state.animationFrame = requestAnimationFrame(playbackLoop);
@@ -240,6 +255,9 @@ export function stopPlayback() {
     state.elements.spotlight.classList.remove("active");
   }
   
+  // Clear any active effects (projectiles, bursts, etc.)
+  EffectsManager.clearAllEffects();
+  
   // Trigger End Flash
   if (state.elements.flashOverlay) {
     state.elements.flashOverlay.classList.remove("trigger-start");
@@ -252,15 +270,22 @@ export function stopPlayback() {
   }
 
   // Show all stickers
-  state.sortedStickers.forEach(s => {
-    if (s.node) {
-      s.node.classList.remove("playback-preparing");
-      s.node.classList.remove("playback-hidden");
-      s.node.style.removeProperty("opacity");
-      s.node.style.removeProperty("transform");
-      s.node.style.removeProperty("filter");
+  // Delay showing stickers to match flash peak (approx 200ms) to create a smooth transition
+  setTimeout(() => {
+    if (state.callbacks.StickerManager && typeof state.callbacks.StickerManager.setAllStickersVisibility === 'function') {
+        state.callbacks.StickerManager.setAllStickersVisibility(true);
+    } else {
+        state.sortedStickers.forEach(s => {
+          if (s.node) {
+            s.node.classList.remove("playback-preparing");
+            s.node.classList.remove("playback-hidden");
+            s.node.style.removeProperty("opacity");
+            s.node.style.removeProperty("transform");
+            s.node.style.removeProperty("filter");
+          }
+        });
     }
-  });
+  }, 200);
   
   // Restore fire intensity to full count
   if (state.callbacks.onUpdateIntensity) {
@@ -325,14 +350,26 @@ function playbackLoop(timestamp) {
       }
 
       // Fire projectile
-      if (sticker.node && sticker.node.dataset.cx && sticker.node.dataset.cy) {
-         const targetX = parseFloat(sticker.node.dataset.cx);
-         const targetY = parseFloat(sticker.node.dataset.cy);
+      let targetX, targetY;
+      
+      // Check Pixi coordinates first
+      if (Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+          targetX = sticker.x;
+          targetY = sticker.y;
+      } 
+      // Fallback to DOM data attributes
+      else if (sticker.node && sticker.node.dataset.cx && sticker.node.dataset.cy) {
+          targetX = parseFloat(sticker.node.dataset.cx);
+          targetY = parseFloat(sticker.node.dataset.cy);
+      }
+
+      if (Number.isFinite(targetX) && Number.isFinite(targetY)) {
          
          // Capture the count for this sticker to show AFTER it lands
          const countToShow = state.currentIndex + 1;
 
-         EffectsManager.playProjectile(startX, startY, targetX, targetY, () => {
+         // Optimization: Skip projectile animation if playback is too fast
+         if (state.intervalPerSticker < 40) {
             revealSticker(sticker);
             updateDateDisplay(sticker.created_at);
             updateCounterDisplay(countToShow, state.sortedStickers.length);
@@ -344,7 +381,23 @@ function playbackLoop(timestamp) {
                 finalizePlaybackUI();
               }
             }
-         });
+         } else {
+           // Use Pixi Projectile if available (TODO: Implement playPixiProjectile in EffectsManager)
+           // For now, we use the SVG one which overlays everything
+           EffectsManager.playProjectile(startX, startY, targetX, targetY, () => {
+              revealSticker(sticker);
+              updateDateDisplay(sticker.created_at);
+              updateCounterDisplay(countToShow, state.sortedStickers.length);
+  
+              if (isLast) {
+                if (state.callbacks.onPlaybackComplete) {
+                  state.callbacks.onPlaybackComplete();
+                } else {
+                  finalizePlaybackUI();
+                }
+              }
+           });
+         }
       } else {
          revealSticker(sticker);
          updateDateDisplay(sticker.created_at);
@@ -372,7 +425,29 @@ function playbackLoop(timestamp) {
 }
 
 function revealSticker(sticker) {
-  if (!sticker || !sticker.node) return;
+  if (!sticker) return;
+  
+  // Pixi Mode
+  if (state.callbacks.StickerManager && typeof state.callbacks.StickerManager.animateStickerReveal === 'function') {
+      state.callbacks.StickerManager.animateStickerReveal(sticker.id);
+      
+      // Update Spotlight Position (Pixi)
+      if (state.elements.spotlight) {
+        state.elements.spotlight.classList.add("active");
+        if (Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+           state.elements.spotlight.setAttribute("transform", `translate(${sticker.x}, ${sticker.y})`);
+        }
+      }
+      
+      // Trigger lightweight impact effect
+      if (state.callbacks.onStickerReveal) {
+        state.callbacks.onStickerReveal(sticker);
+      }
+      return;
+  }
+
+  // SVG Mode Fallback
+  if (!sticker.node) return;
   
   sticker.node.classList.remove("playback-hidden");
 
@@ -515,13 +590,37 @@ function showFinishedDateRange() {
     
     if (oldestYearText !== newestYearText) {
       // Construct HTML to fade in the oldest part
-      state.elements.yearDisplay.innerHTML = `<span class="year-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 2s ease">${oldestYearText} - </span>${newestYearText}</span>`;
+      // We use inline-flex to keep them on the same line
+      // We wrap the oldest part in a span that starts with 0 width
+      // white-space: pre ensures the trailing space is preserved and measured
+      state.elements.yearDisplay.innerHTML = `
+        <span class="year-wrapper" style="display: inline-flex; align-items: baseline;">
+            <span class="oldest-part" style="display: inline-block; overflow: hidden; width: 0; opacity: 0; white-space: pre; transition: width 1.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 1.5s ease;">${oldestYearText} - </span>
+            <span class="newest-part">${newestYearText}</span>
+        </span>`;
       
       // Trigger reflow to ensure transition works
       requestAnimationFrame(() => {
-        const span = state.elements.yearDisplay.querySelector(".oldest-part");
-        if (span) {
-          span.style.opacity = "1";
+        const oldestSpan = state.elements.yearDisplay.querySelector(".oldest-part");
+        
+        if (oldestSpan) {
+            // Create a clone to measure the natural width
+            const clone = oldestSpan.cloneNode(true);
+            clone.style.width = 'auto';
+            clone.style.position = 'absolute';
+            clone.style.visibility = 'hidden';
+            clone.style.transition = 'none'; // Disable transition on clone
+            state.elements.yearDisplay.appendChild(clone);
+            
+            const targetWidth = clone.offsetWidth;
+            state.elements.yearDisplay.removeChild(clone);
+            
+            // Force reflow
+            oldestSpan.offsetHeight;
+            
+            // Animate
+            oldestSpan.style.width = `${targetWidth}px`;
+            oldestSpan.style.opacity = "1";
         }
       });
     } else {

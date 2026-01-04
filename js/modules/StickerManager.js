@@ -26,6 +26,10 @@ let globalState = {};
 let globalViewBox = {};
 let globalReviewSettings = {};
 
+// Queue System for Performance
+let insertQueue = [];
+let isProcessingQueue = false;
+
 export function initStickerManager(domElements, state, viewBox, reviewSettings, managerCallbacks) {
   elements = { ...elements, ...domElements };
   globalState = state;
@@ -51,6 +55,8 @@ export function resetStickerScale(node) {
 function setupStickerDelegation() {
   if (!elements.stickersLayer) return;
 
+  // Optimization: Mouse hover effects disabled for mobile-first approach
+  /*
   elements.stickersLayer.addEventListener("mouseover", (e) => {
     const group = e.target.closest(".sticker-node");
     if (group) {
@@ -87,6 +93,7 @@ function setupStickerDelegation() {
       }
     }
   });
+  */
 }
 
 export async function loadExistingStickers() {
@@ -133,17 +140,17 @@ export async function loadExistingStickers() {
       return;
     }
 
+    
     const x = record.x_norm * globalViewBox.width;
     const y = record.y_norm * globalViewBox.height;
     const node = createStickerNode(record.id, x, y, false);
-    elements.stickersLayer.appendChild(node);
     
     // Calculate canViewNote client-side since we are querying the raw table
     const isOwner = !record.device_id || !globalState.deviceId || record.device_id === globalState.deviceId;
     const requireApproval = globalReviewSettings.requireStickerApproval;
     const canViewNote = !requireApproval || record.is_approved || isOwner;
 
-    globalState.stickers.set(record.id, {
+    const stickerRecord = {
       id: record.id,
       x,
       y,
@@ -156,12 +163,45 @@ export async function loadExistingStickers() {
       deviceId: record.device_id ?? null,
       isApproved: Boolean(record.is_approved),
       canViewNote: canViewNote,
-    });
-    callbacks.runPopAnimation(node);
-    updateStickerReviewState(globalState.stickers.get(record.id));
+    };
+
+    globalState.stickers.set(record.id, stickerRecord);
+    
+    // Queue insertion instead of direct append
+    insertQueue.push({ node, record: stickerRecord });
   });
+
+  // Start processing queue
+  if (!isProcessingQueue) {
+    processInsertQueue();
+  }
+
   callbacks.updateFireIntensity(globalState.stickers);
   callbacks.updateMarqueePool(globalState.stickers, globalReviewSettings);
+}
+
+function processInsertQueue() {
+  if (insertQueue.length === 0) {
+    isProcessingQueue = false;
+    return;
+  }
+
+  isProcessingQueue = true;
+  // Process a batch
+  const batchSize = 50;
+  const batch = insertQueue.splice(0, batchSize);
+
+  const fragment = document.createDocumentFragment();
+  
+  batch.forEach(({ node, record }) => {
+    fragment.appendChild(node);
+    callbacks.runPopAnimation(node);
+    updateStickerReviewState(record);
+  });
+
+  elements.stickersLayer.appendChild(fragment);
+
+  requestAnimationFrame(processInsertQueue);
 }
 
 export function createStickerNode(id, x, y, isPending = false) {

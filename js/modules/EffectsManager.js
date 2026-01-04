@@ -34,6 +34,24 @@ let elements = {
 };
 let mediaPrefersReducedMotion = null;
 
+// Pixi Context
+let pixiApp = null;
+let pixiBgLayer = null;
+let pixiEffectsLayer = null;
+
+export function setPixiContext(app, bgLayer, effectsLayer) {
+  pixiApp = app;
+  pixiBgLayer = bgLayer;
+  pixiEffectsLayer = effectsLayer;
+  console.log("🚀 [EffectsManager] Pixi Context Set");
+  
+  // Re-init ambient/fire if they were waiting
+  if (pixiBgLayer) {
+      initAmbientGlow();
+      initFireEffect();
+  }
+}
+
 export function initEffectsManager(domElements, reducedMotion) {
   elements = { ...elements, ...domElements };
   mediaPrefersReducedMotion = reducedMotion;
@@ -66,7 +84,58 @@ export function initEffectsManager(domElements, reducedMotion) {
   initResonanceCanvas();
 }
 
+// Track active anime instances
+const activeAnimeInstances = new Set();
+
+// Helper to register anime instance
+function registerAnime(instance) {
+  if (instance && typeof instance.pause === 'function') {
+    activeAnimeInstances.add(instance);
+    // Auto-remove when finished (if possible, but anime.js doesn't have a simple 'onFinish' for all types easily accessible from outside without wrapping)
+    // So we just rely on manual clearing or periodic cleanup if we were sophisticated.
+    // For now, we just add them.
+    if (instance.finished) {
+        instance.finished.then(() => activeAnimeInstances.delete(instance));
+    }
+  }
+  return instance;
+}
+
+export function clearAllEffects() {
+  // 1. Stop all tracked anime instances
+  activeAnimeInstances.forEach(instance => {
+    try {
+      instance.pause();
+      // If it's a timeline, seek to end or just kill it?
+      // pause is safer.
+    } catch (e) { console.warn("Failed to pause anime", e); }
+  });
+  activeAnimeInstances.clear();
+
+  // 2. Clear Pixi Effects
+  if (pixiEffectsLayer) {
+    // Destroy all children to ensure they are cleaned up from memory
+    // We iterate backwards or use removeChildren() which is safer
+    while (pixiEffectsLayer.children.length > 0) {
+        const child = pixiEffectsLayer.children[0];
+        child.destroy({ children: true }); // Deep destroy
+    }
+  }
+
+  // 3. Clear SVG Effects
+  if (elements.effectsLayer) {
+    elements.effectsLayer.innerHTML = '';
+  }
+  
+  // 4. Clear Projectile Beams (if any wrapper exists directly on svg)
+  // (Projectiles usually append to effectsLayer, but let's be safe)
+}
+
 export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
+  if (pixiEffectsLayer) {
+    playPixiProjectile(screenX, screenY, targetX, targetY, onComplete);
+    return;
+  }
   if (!elements.effectsLayer) {
     if (onComplete) onComplete();
     return;
@@ -146,7 +215,7 @@ export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
   inner.appendChild(tip);
 
   if (window.anime) {
-    window.anime({
+    registerAnime(window.anime({
       targets: wrapper,
       translateX: [startX, targetX],
       translateY: [startY, targetY],
@@ -156,7 +225,7 @@ export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
         if (wrapper.isConnected) wrapper.remove();
         if (onComplete) onComplete();
       }
-    });
+    }));
   } else {
     if (wrapper.isConnected) wrapper.remove();
     if (onComplete) onComplete();
@@ -270,6 +339,14 @@ export function playPlacementPreviewEffect(x, y) {
 }
 
 export function playPlacementImpactEffect(node) {
+  if (pixiEffectsLayer && node) {
+    const cx = Number(node.dataset.cx);
+    const cy = Number(node.dataset.cy);
+    if (Number.isFinite(cx) && Number.isFinite(cy)) {
+        playPixiPlacementImpact(cx, cy);
+        return;
+    }
+  }
   if (!elements.effectsLayer || !node) {
     return;
   }
@@ -542,6 +619,10 @@ function ensureRevealGradient() {
 }
 
 export function playRevealBurst(x, y) {
+  if (pixiEffectsLayer) {
+    playPixiRevealBurst(x, y);
+    return;
+  }
   if (!elements.effectsLayer) return;
   
   ensureRevealGradient();
@@ -620,6 +701,104 @@ export function playRevealBurst(x, y) {
   }
 }
 
+export function playStarBurst(x, y) {
+  if (pixiEffectsLayer) {
+    playPixiStarBurst(x, y);
+    return;
+  }
+  if (!elements.effectsLayer) return;
+  
+  // Performance check
+  if (elements.effectsLayer.childElementCount > 60) return;
+
+  const group = document.createElementNS(svgNS, "g");
+  group.style.pointerEvents = "none";
+  group.style.mixBlendMode = "screen"; // Make it glowy
+  
+  // 1. Central Core (Bright White)
+  const core = document.createElementNS(svgNS, "circle");
+  core.setAttribute("cx", x.toFixed(2));
+  core.setAttribute("cy", y.toFixed(2));
+  core.setAttribute("r", "0");
+  core.setAttribute("fill", "#ffffff");
+  
+  // 2. Star Rays (Cross shape or 4-point star)
+  const star = document.createElementNS(svgNS, "path");
+  // A 4-point star path centered at 0,0 (will translate)
+  const size = STICKER_DIAMETER * 4; 
+  const pathData = `M 0 -${size} Q 0 0 ${size} 0 Q 0 0 0 ${size} Q 0 0 -${size} 0 Q 0 0 0 -${size} Z`;
+  
+  star.setAttribute("d", pathData);
+  star.setAttribute("fill", "#fffbe6"); // Warm white
+  star.setAttribute("transform", `translate(${x}, ${y}) scale(0)`);
+  star.setAttribute("opacity", "0.9");
+
+  // 3. Secondary Star (Rotated 45 degrees for 8-point effect)
+  const star2 = document.createElementNS(svgNS, "path");
+  const size2 = STICKER_DIAMETER * 2.5;
+  const pathData2 = `M 0 -${size2} Q 0 0 ${size2} 0 Q 0 0 0 ${size2} Q 0 0 -${size2} 0 Q 0 0 0 -${size2} Z`;
+  
+  star2.setAttribute("d", pathData2);
+  star2.setAttribute("fill", "#ffe4b5"); // Goldish
+  star2.setAttribute("transform", `translate(${x}, ${y}) rotate(45) scale(0)`);
+  star2.setAttribute("opacity", "0.7");
+
+  // 4. Outer Glow Ring
+  const ring = document.createElementNS(svgNS, "circle");
+  ring.setAttribute("cx", x.toFixed(2));
+  ring.setAttribute("cy", y.toFixed(2));
+  ring.setAttribute("r", "0");
+  ring.setAttribute("fill", "none");
+  ring.setAttribute("stroke", "#ffd700"); // Gold stroke
+  ring.setAttribute("stroke-width", "2");
+  ring.setAttribute("opacity", "0.6");
+
+  group.appendChild(star2);
+  group.appendChild(star);
+  group.appendChild(ring);
+  group.appendChild(core);
+  
+  elements.effectsLayer.appendChild(group);
+
+  if (window.anime) {
+    const timeline = window.anime.timeline({
+      easing: "easeOutExpo",
+      complete: () => {
+        if (group.isConnected) group.remove();
+      }
+    });
+    
+    timeline
+      .add({
+        targets: core,
+        r: [0, STICKER_DIAMETER], 
+        opacity: [1, 0],
+        duration: 600
+      }, 0)
+      .add({
+        targets: [star, star2],
+        transform: (el, i) => {
+            const scale = i === 0 ? 1 : 1; // Scale to full size defined in path
+            const rotate = i === 0 ? 0 : 45;
+            return `translate(${x}, ${y}) rotate(${rotate}) scale(${scale})`;
+        },
+        opacity: [1, 0],
+        duration: 800,
+        easing: "easeOutQuart"
+      }, 0)
+      .add({
+        targets: ring,
+        r: [0, STICKER_DIAMETER * 3],
+        strokeWidth: [3, 0],
+        opacity: [0.8, 0],
+        duration: 1000
+      }, 0);
+      
+  } else {
+    setTimeout(() => { if (group.isConnected) group.remove(); }, 1000);
+  }
+}
+
 export function stopFocusHalo() {
   if (!elements.effectsLayer) return;
   const existing = elements.effectsLayer.querySelectorAll(".effect-focus-halo");
@@ -627,6 +806,10 @@ export function stopFocusHalo() {
 }
 
 export function playFocusHalo(x, y) {
+  if (pixiEffectsLayer) {
+    playPixiFocusHalo(x, y);
+    return;
+  }
   if (!elements.effectsLayer) return;
   
   // Clear previous focus halos to prevent stacking
@@ -826,6 +1009,10 @@ export function playEagleSweepEffect(onComplete) {
 }
 
 export function initAmbientGlow() {
+  if (pixiBgLayer) {
+    initPixiAmbientGlow();
+    return;
+  }
   if (!elements.ambientLayer) {
     return;
   }
@@ -1072,6 +1259,11 @@ function triggerShimmer(node) {
   const cx = parseFloat(node.dataset.cx);
   const cy = parseFloat(node.dataset.cy);
 
+  if (pixiEffectsLayer && Number.isFinite(cx) && Number.isFinite(cy)) {
+      playPixiShimmer(cx, cy, node);
+      return;
+  }
+
   if (Number.isFinite(cx) && Number.isFinite(cy) && elements.effectsLayer) {
     const group = document.createElementNS(svgNS, "g");
     group.setAttribute("transform", `translate(${cx}, ${cy})`);
@@ -1121,6 +1313,10 @@ function triggerShimmer(node) {
 }
 
 export function initFireEffect() {
+  if (pixiBgLayer) {
+    initPixiFireEffect();
+    return;
+  }
   if (!elements.ambientLayer) return;
   if (mediaPrefersReducedMotion?.matches) return;
   if (!window.anime || typeof window.anime.timeline !== "function") return;
@@ -2105,5 +2301,836 @@ function startCelebrationLoop() {
     }
   };
   requestAnimationFrame(loop);
+}
+
+// --- PixiJS Implementations ---
+
+let _circleTexture = null;
+function getCircleTexture() {
+  if (_circleTexture) return _circleTexture;
+  if (!pixiApp) return null;
+  
+  // Create a soft gradient circle using Canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  
+  const gradient = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  gradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.5)');
+  gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, 64, 64);
+  
+  _circleTexture = PIXI.Texture.from(canvas);
+  return _circleTexture;
+}
+
+function playPixiStarBurst(x, y) {
+  const container = new PIXI.Container();
+  container.x = x;
+  container.y = y;
+  
+  // 1. Core
+  const core = new PIXI.Graphics();
+  core.beginFill(0xFFFFFF);
+  core.drawCircle(0, 0, STICKER_RADIUS);
+  core.endFill();
+  core.alpha = 1;
+  
+  // 2. Star 1 (Cross)
+  const star1 = new PIXI.Graphics();
+  star1.beginFill(0xFFFBE6);
+  // Draw Star manually: M 0 -size Q 0 0 size 0 ...
+  const size = STICKER_DIAMETER * 4;
+  const inner = STICKER_DIAMETER * 0.2;
+  star1.drawPolygon([
+      0, -size, inner, -inner, size, 0, inner, inner,
+      0, size, -inner, inner, -size, 0, -inner, -inner
+  ]);
+  star1.endFill();
+  star1.scale.set(0);
+  star1.alpha = 0.9;
+  
+  // 3. Star 2 (Diagonal)
+  const star2 = new PIXI.Graphics();
+  star2.beginFill(0xFFE4B5);
+  const size2 = STICKER_DIAMETER * 2.5;
+  star2.drawPolygon([
+      0, -size2, inner, -inner, size2, 0, inner, inner,
+      0, size2, -inner, inner, -size2, 0, -inner, -inner
+  ]);
+  star2.endFill();
+  star2.rotation = Math.PI / 4;
+  star2.scale.set(0);
+  star2.alpha = 0.7;
+  
+  // 4. Ring
+  const ring = new PIXI.Graphics();
+  ring.lineStyle(2, 0xFFD700);
+  ring.drawCircle(0, 0, STICKER_DIAMETER);
+  ring.alpha = 0.6;
+  ring.scale.set(0);
+
+  container.addChild(star2, star1, ring, core);
+  pixiEffectsLayer.addChild(container);
+  
+  const timeline = registerAnime(window.anime.timeline({
+      easing: "easeOutExpo",
+      complete: () => {
+          container.destroy({ children: true });
+      }
+  }));
+  
+  timeline
+  .add({
+      targets: core,
+      alpha: [1, 0],
+      duration: 600
+  }, 0)
+  .add({
+      targets: [star1.scale, star2.scale],
+      x: [0, 1],
+      y: [0, 1],
+      duration: 800,
+      easing: "easeOutQuart"
+  }, 0)
+  .add({
+      targets: [star1, star2],
+      alpha: 0,
+      duration: 800,
+      easing: "easeInQuad"
+  }, 200)
+  .add({
+      targets: ring.scale,
+      x: 3,
+      y: 3,
+      duration: 1000
+  }, 0)
+  .add({
+      targets: ring,
+      alpha: 0,
+      duration: 1000
+  }, 0);
+}
+
+function playPixiRevealBurst(x, y) {
+  const container = new PIXI.Container();
+  container.x = x;
+  container.y = y;
+  
+  // 1. Core
+  const core = new PIXI.Graphics();
+  core.beginFill(0xFFFFFF);
+  core.drawCircle(0, 0, STICKER_RADIUS);
+  core.endFill();
+  core.alpha = 1;
+  
+  // 2. Glow (Simulated with large circle)
+  const glow = new PIXI.Graphics();
+  glow.beginFill(0xFFFFFF);
+  glow.drawCircle(0, 0, STICKER_DIAMETER * 3);
+  glow.endFill();
+  glow.alpha = 0.4;
+  glow.scale.set(0);
+  
+  // 3. Ring
+  const ring = new PIXI.Graphics();
+  ring.lineStyle(4, 0xFFFFFF);
+  ring.drawCircle(0, 0, STICKER_RADIUS);
+  ring.alpha = 0.8;
+  ring.scale.set(0);
+
+  container.addChild(glow, core, ring);
+  pixiEffectsLayer.addChild(container);
+  
+  const timeline = registerAnime(window.anime.timeline({
+      easing: "easeOutExpo",
+      complete: () => {
+          container.destroy({ children: true });
+      }
+  }));
+  
+  timeline
+  .add({
+      targets: core,
+      alpha: [1, 0],
+      duration: 500
+  }, 0)
+  .add({
+      targets: glow.scale,
+      x: 2, y: 2,
+      duration: 900
+  }, 0)
+  .add({
+      targets: glow,
+      alpha: 0,
+      duration: 900
+  }, 0)
+  .add({
+      targets: ring.scale,
+      x: 2.5, y: 2.5,
+      duration: 600
+  }, 0)
+  .add({
+      targets: ring,
+      alpha: 0,
+      duration: 600
+  }, 0);
+}
+
+// --- Optimized Pixi Fire System ---
+const pixiFireSystem = {
+  particles: [],
+  spawnTimer: 0,
+  active: false,
+  texture: null,
+  spawnPoints: [],
+  center: { x: 0, y: 0 },
+  container: null
+};
+
+function initPixiFireEffect() {
+  // Reuse eagle paths for fire emission
+  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
+  const pathEntries = pathNodes
+    .map((path) => {
+      try {
+        const length = path.getTotalLength();
+        if (!Number.isFinite(length) || length <= 0) return null;
+        return { path, length };
+      } catch (error) { return null; }
+    })
+    .filter(Boolean);
+
+  if (!pathEntries.length) return;
+
+  // Pre-calculate spawn points
+  pixiFireSystem.spawnPoints = [];
+  const sampleResolution = 3; 
+  pathEntries.forEach(entry => {
+    const steps = Math.floor(entry.length / sampleResolution);
+    for (let i = 0; i <= steps; i++) {
+      try {
+        const point = entry.path.getPointAtLength(i * sampleResolution);
+        pixiFireSystem.spawnPoints.push({ x: point.x, y: point.y });
+      } catch (e) {}
+    }
+  });
+
+  if (pixiFireSystem.spawnPoints.length === 0) return;
+
+  // Center of mass
+  let totalX = 0, totalY = 0;
+  pixiFireSystem.spawnPoints.forEach(p => { totalX += p.x; totalY += p.y; });
+  pixiFireSystem.center = { x: totalX / pixiFireSystem.spawnPoints.length, y: totalY / pixiFireSystem.spawnPoints.length };
+
+  fireState.active = true;
+  pixiFireSystem.active = true;
+  pixiFireSystem.texture = getCircleTexture();
+  pixiFireSystem.container = pixiBgLayer;
+
+  // Start the update loop
+  if (!pixiFireSystem.loopRunning) {
+      pixiFireSystem.loopRunning = true;
+      pixiApp.ticker.add(updatePixiFire);
+  }
+}
+
+function updatePixiFire(delta) {
+    if (!fireState.active || !pixiFireSystem.active) return;
+    
+    const intensity = fireState.intensity;
+    const isMobile = window.innerWidth < 768;
+    
+    // 1. Spawn Logic
+    if (intensity > 0.01) {
+        let delayBase = isMobile ? 20 : 15; // Frames between spawns (approx)
+        // Higher intensity = lower delay
+        const spawnDelay = Math.max(2, delayBase - (intensity * (delayBase - 5)));
+        
+        pixiFireSystem.spawnTimer += delta;
+        
+        if (pixiFireSystem.spawnTimer >= spawnDelay) {
+            pixiFireSystem.spawnTimer = 0;
+            
+            let maxBatch = isMobile ? 1 : 2; 
+            const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
+            
+            for (let i = 0; i < batchSize; i++) {
+                spawnPixiFireParticle(intensity, isMobile);
+            }
+        }
+    }
+
+    // 2. Update Particles
+    for (let i = pixiFireSystem.particles.length - 1; i >= 0; i--) {
+        const p = pixiFireSystem.particles[i];
+        p.life += delta;
+        
+        // Normalized life (0 to 1)
+        const progress = p.life / p.maxLife;
+        
+        if (progress >= 1) {
+            // Kill
+            p.sprite.destroy();
+            pixiFireSystem.particles.splice(i, 1);
+            continue;
+        }
+        
+        // Movement
+        p.sprite.x += p.vx * delta;
+        p.sprite.y += p.vy * delta;
+        
+        // Alpha: Fade in fast (15%), Fade out slow (85%)
+        if (progress < 0.15) {
+            p.sprite.alpha = (progress / 0.15) * 0.9;
+        } else {
+            p.sprite.alpha = (1 - ((progress - 0.15) / 0.85)) * 0.9;
+        }
+        
+        // Scale: Puff up then shrink
+        // Start: 0.3, Peak: 1.4 at 40%, End: 0
+        let scale = 0;
+        if (progress < 0.4) {
+            // 0.3 -> 1.4
+            const t = progress / 0.4;
+            // Ease out quad
+            const ease = 1 - (1 - t) * (1 - t);
+            scale = p.baseSize * (0.3 + (ease * 1.1));
+        } else {
+            // 1.4 -> 0
+            const t = (progress - 0.4) / 0.6;
+            // Ease in quad
+            const ease = t * t;
+            scale = p.baseSize * (1.4 * (1 - ease));
+        }
+        
+        p.sprite.width = scale;
+        p.sprite.height = scale;
+    }
+}
+
+function spawnPixiFireParticle(intensity, isMobile) {
+    const point = pixiFireSystem.spawnPoints[Math.floor(Math.random() * pixiFireSystem.spawnPoints.length)];
+    if (!point) return;
+
+    const sprite = new PIXI.Sprite(pixiFireSystem.texture);
+    sprite.anchor.set(0.5);
+    
+    const jitter = 15 + (intensity * 25);
+    const startX = point.x + (Math.random() - 0.5) * jitter;
+    const startY = point.y + (Math.random() - 0.5) * jitter;
+    
+    sprite.x = startX;
+    sprite.y = startY;
+    
+    const mobileScale = isMobile ? 1.5 : 1;
+    const baseSize = (2 + (intensity * 4)) * mobileScale; 
+    const size = baseSize * (0.8 + Math.random() * 0.4); 
+    
+    sprite.width = size * 0.3; // Start small
+    sprite.height = size * 0.3;
+    
+    // Color
+    const colors = [0xFFD700, 0xFFA500, 0xFF8C00, 0xFF4500];
+    sprite.tint = colors[Math.floor(Math.random() * colors.length)];
+    sprite.alpha = 0;
+    sprite.blendMode = PIXI.BLEND_MODES.SCREEN;
+
+    pixiFireSystem.container.addChild(sprite);
+
+    // Calculate Velocity
+    // Duration in frames (assuming 60fps)
+    // 2.5s - 4.5s -> 150 - 270 frames
+    const maxLife = 150 + Math.random() * 120;
+    
+    const dx = startX - pixiFireSystem.center.x;
+    const dy = startY - pixiFireSystem.center.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+    let dirX = dx / dist;
+    let dirY = dy / dist;
+    dirY -= 0.8; // Upward bias
+    const newDist = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
+    dirX /= newDist;
+    dirY /= newDist;
+
+    // Speed per frame
+    // Original speed was ~15-40 pixels over duration? No, speed was per second in anime?
+    // Anime.js translateX is total distance.
+    // Original: speed = 15 + (intensity * 25) + random(10)
+    // This was the TOTAL travel distance? No, that seems small for 2.5s.
+    // Wait, in createPixiFireParticle:
+    // const travelX = dirX * speed;
+    // x: startX + travelX
+    // So 'speed' was actually 'distance'.
+    // 15-50 pixels travel over 2.5s is very slow.
+    // Let's match that.
+    const totalDist = 15 + (intensity * 25) + (Math.random() * 10);
+    const vx = (dirX * totalDist) / maxLife;
+    const vy = (dirY * totalDist) / maxLife;
+
+    pixiFireSystem.particles.push({
+        sprite,
+        vx, vy,
+        life: 0,
+        maxLife,
+        baseSize: size
+    });
+}
+
+// --- Optimized Pixi Ambient Glow ---
+const pixiAmbientSystem = {
+    particles: [],
+    active: false
+};
+
+function initPixiAmbientGlow() {
+  // Clear existing
+  pixiBgLayer.removeChildren();
+  pixiAmbientSystem.particles = [];
+  
+  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
+  const pathEntries = pathNodes
+    .map((path) => {
+      try {
+        const length = path.getTotalLength();
+        if (!Number.isFinite(length) || length <= 0) return null;
+        return { path, length };
+      } catch (error) { return null; }
+    })
+    .filter(Boolean);
+
+  if (!pathEntries.length) return;
+
+  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
+  const isCompactViewport = window.innerWidth < 768;
+  const sparkCount = isCompactViewport ? 15 : 25; 
+  const averageSpacing = combinedLength / sparkCount;
+  const jitterWindow = Math.min(averageSpacing * 0.8, 250);
+
+  const texture = getCircleTexture();
+
+  for (let i = 0; i < sparkCount; i += 1) {
+    const offset = averageSpacing * i + (Math.random() - 0.5) * jitterWindow;
+    const normalizedCombined = ((offset % combinedLength) + combinedLength) % combinedLength;
+
+    let remaining = normalizedCombined;
+    let targetEntry = pathEntries[0];
+    for (const entry of pathEntries) {
+      if (remaining <= entry.length) {
+        targetEntry = entry;
+        break;
+      }
+      remaining -= entry.length;
+    }
+
+    let point;
+    try {
+      point = targetEntry.path.getPointAtLength(Math.max(0, remaining));
+    } catch (error) { continue; }
+    
+    if (!point) continue;
+
+    const jitterX = window.anime.random(-30, 30);
+    const jitterY = window.anime.random(-30, 30);
+    
+    const maxRadius = window.anime.random(10, 25); 
+    const maxOpacity = window.anime.random(30, 60) / 100; 
+    
+    const sprite = new PIXI.Sprite(texture);
+    sprite.anchor.set(0.5);
+    sprite.x = point.x + jitterX;
+    sprite.y = point.y + jitterY;
+    sprite.width = 0; 
+    sprite.height = 0;
+    sprite.alpha = 0;
+    sprite.tint = 0xFFE4BC; 
+    
+    pixiBgLayer.addChild(sprite);
+    
+    // Init particle state
+    pixiAmbientSystem.particles.push({
+        sprite,
+        startX: sprite.x,
+        startY: sprite.y,
+        maxSize: maxRadius * 2,
+        maxOpacity,
+        drift: (Math.random() - 0.5) * 40,
+        // Random start phase
+        timer: Math.random() * 300, // frames
+        duration: 180 + Math.random() * 120, // 3-5 seconds (at 60fps)
+        state: 'in' // in, out, wait
+    });
+  }
+
+  if (!pixiAmbientSystem.loopRunning) {
+      pixiAmbientSystem.loopRunning = true;
+      pixiApp.ticker.add(updatePixiAmbient);
+  }
+}
+
+function updatePixiAmbient(delta) {
+    for (const p of pixiAmbientSystem.particles) {
+        p.timer += delta;
+        
+        // Cycle: Wait -> In -> Out -> Wait
+        // Wait: 0 to delay
+        // In: delay to delay+halfDuration
+        // Out: delay+halfDuration to delay+duration
+        
+        // Simplified state machine
+        const halfDur = p.duration * 0.5;
+        
+        if (p.timer > p.duration) {
+            // Reset
+            p.timer = 0;
+            p.duration = 180 + Math.random() * 120;
+            // Randomize position slightly again? No, keep anchor.
+        }
+        
+        const progress = p.timer / p.duration;
+        
+        if (progress < 0.5) {
+            // Fade In & Rise
+            // 0 -> 1
+            const t = progress * 2; 
+            // Ease out sine
+            const ease = Math.sin(t * Math.PI / 2);
+            
+            p.sprite.width = p.maxSize * ease;
+            p.sprite.height = p.maxSize * ease;
+            p.sprite.alpha = p.maxOpacity * ease;
+            p.sprite.x = p.startX + (p.drift * 0.5 * ease);
+            p.sprite.y = p.startY - (30 * ease);
+        } else {
+            // Fade Out & Rise Further
+            // 1 -> 0
+            const t = (progress - 0.5) * 2;
+            // Ease in sine
+            const ease = 1 - Math.cos(t * Math.PI / 2); // 0 to 1
+            const invEase = 1 - ease; // 1 to 0
+            
+            p.sprite.width = p.maxSize * invEase;
+            p.sprite.height = p.maxSize * invEase;
+            p.sprite.alpha = p.maxOpacity * invEase;
+            
+            // Continue moving up
+            // From -30 to -60
+            const yOffset = 30 + (30 * ease);
+            p.sprite.y = p.startY - yOffset;
+            
+            // Continue drift
+            // From 0.5 to 1.0
+            const driftOffset = 0.5 + (0.5 * ease);
+            p.sprite.x = p.startX + (p.drift * driftOffset);
+        }
+    }
+}
+
+function playPixiProjectile(screenX, screenY, targetX, targetY, onComplete) {
+  // 1. Determine Start Position (Top-Left SUPER FAR off-screen)
+  // Concentrated in the far top-left with slight jitter
+  const startScreenX = -window.innerWidth * 0.4 + (Math.random() * 100); 
+  const startScreenY = -window.innerHeight * 0.4 + (Math.random() * 100);
+
+  // Convert Screen coords to World coords (Pixi Stage)
+  // Assuming pixiEffectsLayer is in the world space (scaled/panned)
+  // We need to inverse transform the screen point to world point
+  // But wait, screenX/Y passed in are usually SVG coordinates or Screen coordinates?
+  // playProjectile receives screenX/Y but then converts them using getScreenCTM().inverse().
+  // Here we assume targetX/targetY are already in World Space (because they come from sticker.x/y).
+  // We need to calculate startX/startY in World Space.
+  
+  // Since we don't have easy access to the viewport transform here (it's in ZoomController),
+  // we can try to approximate or just use a very far point relative to target.
+  // Or better, if we can access the stage transform.
+  // pixiEffectsLayer.parent is likely the stage or a container with the transform.
+  
+  let startX = startScreenX;
+  let startY = startScreenY;
+  
+  if (pixiEffectsLayer.parent) {
+      const worldStart = pixiEffectsLayer.parent.toLocal({x: startScreenX, y: startScreenY});
+      startX = worldStart.x;
+      startY = worldStart.y;
+  }
+
+  const container = new PIXI.Container();
+  container.x = startX;
+  container.y = startY;
+  container.rotation = Math.atan2(targetY - startY, targetX - startX);
+  
+  // Beam - Outer Glow (Gradient Tail)
+  // Simulated with a long sprite or graphics with gradient texture
+  const beamLength = 60; // Reduced from 120
+  const beam = new PIXI.Graphics();
+  // Gradient simulation: multiple rects or texture
+  // Simple white line with alpha fade
+  beam.beginFill(0xFFFFFF);
+  beam.drawRect(-beamLength, -3, beamLength, 6); // Thinner: height 6 instead of 12
+  beam.endFill();
+  beam.alpha = 0.4; // Slightly lower alpha for subtler look
+  
+  // Beam - Core
+  const core = new PIXI.Graphics();
+  core.beginFill(0xFFFFFF);
+  core.drawRect(-25, -1, 25, 2); // Shorter and thinner core
+  core.endFill();
+  core.alpha = 0.9;
+  
+  // Tip
+  const tip = new PIXI.Graphics();
+  tip.beginFill(0xFFFFFF);
+  tip.drawCircle(0, 0, 2.5); // Smaller tip
+  tip.endFill();
+  
+  container.addChild(beam, core, tip);
+  // Add blend mode
+  container.filters = [new PIXI.filters.AlphaFilter()]; // Just to ensure alpha works well? No.
+  // Use blend mode on children
+  beam.blendMode = PIXI.BLEND_MODES.SCREEN;
+  core.blendMode = PIXI.BLEND_MODES.SCREEN;
+  
+  pixiEffectsLayer.addChild(container);
+  
+  const timeline = registerAnime(window.anime.timeline({
+      easing: 'easeInQuad',
+      complete: () => {
+          container.destroy({ children: true });
+          if (onComplete) onComplete();
+      }
+  }));
+  
+  timeline.add({
+      targets: container,
+      x: targetX,
+      y: targetY,
+      duration: 750
+  });
+}
+
+function playPixiPlacementImpact(cx, cy) {
+  const container = new PIXI.Container();
+  container.x = cx;
+  container.y = cy;
+  
+  // 1. Glow
+  const glow = new PIXI.Graphics();
+  glow.beginFill(0xFFFFFF);
+  glow.drawCircle(0, 0, STICKER_DIAMETER * 4.2);
+  glow.endFill();
+  glow.alpha = 0.75;
+  glow.scale.set(0);
+  
+  // 2. Halo
+  const halo = new PIXI.Graphics();
+  halo.lineStyle(10, 0xFFFFFF);
+  halo.drawCircle(0, 0, STICKER_DIAMETER * 2.4);
+  halo.alpha = 0.9;
+  halo.scale.set(STICKER_RADIUS * 0.6 / (STICKER_DIAMETER * 2.4)); // Start small
+  
+  // 3. Wave
+  const wave = new PIXI.Graphics();
+  wave.lineStyle(8, 0xFFFFFF);
+  wave.drawCircle(0, 0, STICKER_DIAMETER * 3.4);
+  wave.alpha = 0.9;
+  wave.scale.set(STICKER_RADIUS * 0.75 / (STICKER_DIAMETER * 3.4));
+  
+  // 4. Ring
+  const ring = new PIXI.Graphics();
+  ring.lineStyle(3, 0xFFFFFF);
+  ring.drawCircle(0, 0, STICKER_DIAMETER * 2.9);
+  ring.alpha = 0.95;
+  ring.scale.set(STICKER_RADIUS * 0.5 / (STICKER_DIAMETER * 2.9));
+  
+  // 5. Core
+  const core = new PIXI.Graphics();
+  core.beginFill(0xFFFFFF);
+  core.drawCircle(0, 0, STICKER_RADIUS * 0.55);
+  core.endFill();
+  core.alpha = 1;
+  core.scale.set(0);
+  
+  container.addChild(glow, halo, wave, ring, core);
+  
+  // Sparks
+  const sparks = [];
+  const sparkCount = 8;
+  const sparkLength = STICKER_DIAMETER * 2.1;
+  
+  for (let i = 0; i < sparkCount; i++) {
+      const angle = (Math.PI * 2 * i) / sparkCount;
+      const spark = new PIXI.Graphics();
+      spark.lineStyle(3, 0xFFFFFF);
+      spark.moveTo(0, 0);
+      spark.lineTo(sparkLength, 0);
+      spark.rotation = angle;
+      spark.alpha = 0;
+      container.addChild(spark);
+      sparks.push(spark);
+  }
+  
+  pixiEffectsLayer.addChild(container);
+  
+  const timeline = registerAnime(window.anime.timeline({
+      easing: "easeOutCubic",
+      complete: () => {
+          container.destroy({ children: true });
+      }
+  }));
+  
+  timeline
+  .add({
+      targets: glow,
+      alpha: [0.75, 0],
+      scale: 1, // Target scale 1 (which is diameter * 4.2)
+      duration: 880
+  }, 0)
+  .add({
+      targets: halo,
+      alpha: [0.9, 0],
+      scale: 1,
+      duration: 560,
+      easing: "easeOutQuad"
+  }, 0)
+  .add({
+      targets: wave,
+      alpha: [0.9, 0],
+      scale: 1,
+      duration: 700
+  }, 80)
+  .add({
+      targets: ring,
+      alpha: [0.95, 0],
+      scale: 1,
+      duration: 620,
+      easing: "easeOutQuad"
+  }, 120)
+  .add({
+      targets: core,
+      alpha: [1, 0],
+      scale: 1,
+      duration: 340,
+      easing: "easeOutQuad"
+  }, 0)
+  .add({
+      targets: sparks,
+      alpha: [0, 1],
+      duration: 280,
+      easing: "easeOutExpo",
+      delay: window.anime.stagger(18)
+  }, 0)
+  .add({
+      targets: sparks,
+      alpha: 0,
+      duration: 260,
+      easing: "easeInQuad",
+      delay: window.anime.stagger(22)
+  }, 320);
+}
+
+function playPixiFocusHalo(x, y) {
+  const container = new PIXI.Container();
+  container.x = x;
+  container.y = y;
+  
+  // 1. Glow
+  const glow = new PIXI.Graphics();
+  glow.beginFill(0xFFFFFF);
+  glow.drawCircle(0, 0, STICKER_DIAMETER * 3);
+  glow.endFill();
+  glow.alpha = 0.9;
+  glow.scale.set(0);
+  
+  // 2. Ring
+  const ring = new PIXI.Graphics();
+  ring.lineStyle(4, 0xFFFFFF);
+  ring.drawCircle(0, 0, STICKER_DIAMETER * 2.2);
+  ring.alpha = 0;
+  ring.scale.set(STICKER_DIAMETER * 0.8 / (STICKER_DIAMETER * 2.2));
+  
+  // 3. Ripple
+  const ripple = new PIXI.Graphics();
+  ripple.lineStyle(2, 0xFFFFFF);
+  ripple.drawCircle(0, 0, STICKER_DIAMETER * 3.5);
+  ripple.alpha = 0;
+  ripple.scale.set(STICKER_DIAMETER * 1.2 / (STICKER_DIAMETER * 3.5));
+  
+  container.addChild(glow, ring, ripple);
+  pixiEffectsLayer.addChild(container);
+  
+  const timeline = registerAnime(window.anime.timeline({
+      easing: "easeOutExpo",
+      loop: 4,
+      complete: () => {
+          container.destroy({ children: true });
+      }
+  }));
+  
+  timeline
+  .add({
+      targets: glow,
+      alpha: [0.9, 0],
+      scale: 1,
+      duration: 1400
+  }, 0)
+  .add({
+      targets: ring,
+      alpha: [1, 0],
+      scale: 1,
+      duration: 1000,
+      easing: "easeOutQuad"
+  }, 0)
+  .add({
+      targets: ripple,
+      alpha: [0.6, 0],
+      scale: 1,
+      duration: 1200,
+      delay: 100,
+      easing: "easeOutQuad"
+  }, 0)
+  .add({
+      duration: 800
+  });
+}
+
+function playPixiShimmer(cx, cy, node) {
+  const container = new PIXI.Container();
+  container.x = cx;
+  container.y = cy;
+  
+  // 1. Core
+  const core = new PIXI.Graphics();
+  core.beginFill(0xFFFFFF);
+  core.drawCircle(0, 0, 12);
+  core.endFill();
+  
+  // 2. Rays
+  const rays = new PIXI.Graphics();
+  rays.beginFill(0xFFFFFF);
+  // "M0,-90 C2,-20 20,-2 90,0 C20,2 2,20 0,90 C-2,20 -20,2 -90,0 C-20,-2 -2,-20 0,-90 Z"
+  // Simplified to polygon for Pixi
+  rays.drawPolygon([
+      0, -90, 5, -20, 20, -5, 90, 0, 20, 5, 5, 20, 0, 90, -5, 20, -20, 5, -90, 0, -20, -5, -5, -20
+  ]);
+  rays.endFill();
+  
+  container.addChild(core, rays);
+  pixiEffectsLayer.addChild(container);
+  
+  // Cleanup
+  let safetyTimer = null;
+  const cleanup = () => {
+      if (safetyTimer) clearTimeout(safetyTimer);
+      node.classList.remove("shimmering");
+      container.destroy({ children: true });
+      node.removeEventListener("animationend", cleanup);
+  };
+  
+  node.addEventListener("animationend", cleanup);
+  safetyTimer = setTimeout(cleanup, 3000);
 }
 

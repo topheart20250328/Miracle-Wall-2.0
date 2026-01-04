@@ -16,7 +16,23 @@ import * as AudioManager from "./modules/AudioManager.js";
 import * as MarqueeController from "./modules/MarqueeController.js";
 import * as ZoomController from "./modules/ZoomController.js";
 import * as EffectsManager from "./modules/EffectsManager.js";
-import * as StickerManager from "./modules/StickerManager.js";
+import * as StickerManagerSVG from "./modules/StickerManager.js";
+import * as StickerManagerPixi from "./modules/StickerManagerPixi.js";
+
+// Feature Flag: Switch Engine based on URL param ?engine=pixi
+// Modified: Default to Pixi for testing, unless engine=svg is provided
+const urlParams = new URLSearchParams(window.location.search);
+const forceSvg = urlParams.get("engine") === "svg";
+const usePixi = !forceSvg; // Default to Pixi (PixiJS)
+
+const StickerManager = usePixi ? StickerManagerPixi : StickerManagerSVG;
+
+if (usePixi) {
+  console.log("%c [Engine] Switched to PixiJS Renderer ", "background: #222; color: #bada55");
+} else {
+  console.log("%c [Engine] Using Standard SVG Renderer ", "background: #222; color: #ffffff");
+}
+
 import * as PlaybackController from "./modules/PlaybackController.js";
 import * as SearchController from "./modules/SearchController.js";
 import * as RealtimeController from "./modules/RealtimeController.js";
@@ -26,6 +42,7 @@ const svgNS = "http://www.w3.org/2000/svg";
 const wallStage = document.getElementById("wallStage");
 const wallWrapper = document.getElementById("wallWrapper");
 const wallSvg = document.getElementById("wallSvg");
+const effectsSvg = document.getElementById("effectsSvg");
 const stickersLayer = document.getElementById("stickersLayer");
 const effectsLayer = document.getElementById("effectsLayer");
 const ambientLayer = document.getElementById("ambientLayer");
@@ -328,7 +345,7 @@ function init() {
 
   AudioManager.initAudioManager(backgroundAudio, audioToggle);
   ZoomController.initZoomController({
-    wallStage, wallWrapper, wallSvg, stickersLayer, zoomSlider, zoomResetBtn, zoomIndicator,
+    wallStage, wallWrapper, wallSvg, effectsSvg, stickersLayer, zoomSlider, zoomResetBtn, zoomIndicator,
     interactionTarget: document.body, // Allow zooming/panning from anywhere on the screen
     // onZoomReset removed as we have realtime updates now, so reset button only resets view
   }, requiresStickerForceRedraw);
@@ -415,6 +432,11 @@ function init() {
     },
     resetStickerScale: (node) => {
       StickerManager.resetStickerScale(node);
+    },
+    updateStickerVisuals: (id, visualState) => {
+      if (StickerManager.setStickerSearchState) {
+        StickerManager.setStickerSearchState(id, visualState);
+      }
     }
   });
 
@@ -470,6 +492,7 @@ function init() {
     counterDisplay: playbackCounterDisplay,
     wallSvg: wallSvg
   }, {
+    StickerManager: StickerManager, // Pass the active StickerManager (Pixi or SVG)
     getStickers: () => state.stickers,
     onUpdateIntensity: (count) => EffectsManager.setFireIntensity(count),
     onPlaybackStateChange: (isPlaying) => {
@@ -501,6 +524,8 @@ function init() {
       PlaybackController.finalizePlaybackUI();
     }
   });
+  
+  console.log("🚀 [App] Calling StickerManager.initStickerManager...");
   StickerManager.initStickerManager({
     stickersLayer, loadingSpinner, paletteSticker
   }, state, viewBox, reviewSettings, {
@@ -509,7 +534,11 @@ function init() {
     updateMarqueePool: (map, settings) => MarqueeController.updateMarqueePool(map, settings),
     runPopAnimation: EffectsManager.runPopAnimation,
     triggerPendingReviewFeedback,
-    openStickerModal,
+    openStickerModal: (id) => {
+        // Prevent opening stickers during playback
+        if (PlaybackController.isPlaying && PlaybackController.isPlaying()) return;
+        openStickerModal(id);
+    },
     playPlacementImpactEffect: EffectsManager.playPlacementImpactEffect
   });
 
@@ -694,13 +723,13 @@ function handleStickerNavigation(sticker, direction = 1) {
   if (!record) return;
 
   // Restore previous sticker visibility if it exists
-  if (state.pending && state.pending.node && state.pending.id !== record.id) {
-    StickerManager.setStickerInFlight(state.pending.node, false);
+  if (state.pending && (state.pending.node || state.pending.id) && state.pending.id !== record.id) {
+    StickerManager.setStickerInFlight(state.pending.node, false, state.pending.id);
   }
 
   // Hide new sticker (it's now "in" the dialog)
-  if (record.node) {
-    StickerManager.setStickerInFlight(record.node, true);
+  if (record.node || record.id) {
+    StickerManager.setStickerInFlight(record.node, true, record.id);
   }
 
   state.pending = {
@@ -1208,7 +1237,8 @@ function focusDialog(originNode, options = {}) {
   resetFlipCard();
   const { usePaletteSource = false } = options;
   const paletteRect = usePaletteSource ? StickerManager.getPaletteTargetRect() : null;
-  const canAnimate = Boolean((paletteRect || originNode) && window.anime && typeof window.anime.timeline === "function");
+  // Allow animation if we have a palette rect, an origin node, OR a pending sticker ID (for Pixi)
+  const canAnimate = Boolean((paletteRect || originNode || state.pending?.id) && window.anime && typeof window.anime.timeline === "function");
   
   const openModal = (visible = true) => {
     if (document.body) {
@@ -1246,10 +1276,11 @@ function focusDialog(originNode, options = {}) {
     }
   };
 
-  if (canAnimate && originNode && originNode.isConnected) {
+  // Allow animation if originNode is connected OR if we are in Pixi mode (originNode is null but we have an ID)
+  if (canAnimate && ((originNode && originNode.isConnected) || (!originNode && state.pending?.id))) {
     state.isTransitioning = true;
     ZoomController.setInteractionLocked(true);
-    StickerManager.setStickerInFlight(originNode, true);
+    // StickerManager.setStickerInFlight(originNode, true); // Moved inside RAF to prevent flicker
 
     // 1. Open invisibly to measure layout
     try {
@@ -1261,6 +1292,9 @@ function focusDialog(originNode, options = {}) {
     // Use double RAF to ensure layout is stable before measuring
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        // Hide sticker just before animation starts
+        StickerManager.setStickerInFlight(originNode, true);
+
         // 2. Measure the actual card position
         let targetRect = null;
         const card = document.querySelector(".flip-card");
@@ -1354,12 +1388,12 @@ async function handleDialogClose() {
   void document.body.offsetHeight;
   
   // Only animate if we have a snapshot AND we are not already animating (via closeDialogWithResult)
-  if (pendingSnapshot && pendingSnapshot.node && !state.isAnimatingReturn) {
+  if (pendingSnapshot && (pendingSnapshot.node || pendingSnapshot.id) && !state.isAnimatingReturn) {
     try {
       await StickerManager.animateStickerReturn(pendingSnapshot, result);
     } catch (error) {
       console.error("Sticker return animation failed", error);
-      StickerManager.finalizeReturnWithoutAnimation(pendingSnapshot.node, Boolean(pendingSnapshot.isNew && result !== "saved"));
+      StickerManager.finalizeReturnWithoutAnimation(pendingSnapshot.node, Boolean(pendingSnapshot.isNew && result !== "saved"), pendingSnapshot.id);
     }
   }
   resetFlipCard();
@@ -1545,7 +1579,8 @@ async function closeDialogWithResult(result) {
     const pendingSnapshot = state.pending;
     let returnAnimPromise = null;
     
-    if (pendingSnapshot && pendingSnapshot.node) {
+    // Allow animation if we have a node OR if we have an ID (Pixi mode existing sticker)
+    if (pendingSnapshot && (pendingSnapshot.node || pendingSnapshot.id)) {
         // Recalculate current card position to ensure accuracy after keyboard/scroll shifts
         const card = document.querySelector(".flip-card");
         let currentCardRect = null;

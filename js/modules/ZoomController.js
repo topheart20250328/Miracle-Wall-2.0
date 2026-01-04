@@ -478,8 +478,15 @@ function applyZoomTransform(skipInvalidation = false) {
   if (!elements.wallSvg) {
     return;
   }
+  const transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
   elements.wallSvg.style.transformOrigin = "center";
-  elements.wallSvg.style.transform = `translate(${viewportState.offsetX}px, ${viewportState.offsetY}px) scale(${zoomState.scale})`;
+  elements.wallSvg.style.transform = transform;
+
+  if (elements.effectsSvg) {
+    elements.effectsSvg.style.transformOrigin = "center";
+    elements.effectsSvg.style.transform = transform;
+  }
+
   if (!skipInvalidation) {
     invalidateStickerRendering();
   }

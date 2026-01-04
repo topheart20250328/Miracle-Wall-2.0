@@ -139,6 +139,7 @@ export function closeSearch() {
   // Clear highlights
   const stickers = state.callbacks.getStickers ? state.callbacks.getStickers() : new Map();
   stickers.forEach(s => {
+    // Handle DOM nodes (SVG mode)
     if (s.node) {
       s.node.classList.remove("search-dimmed", "search-highlight");
       // Force opacity reset just in case transition gets stuck
@@ -149,6 +150,10 @@ export function closeSearch() {
       if (state.callbacks.resetStickerScale) {
         state.callbacks.resetStickerScale(s.node);
       }
+    }
+    // Handle Pixi (via callback)
+    if (state.callbacks.updateStickerVisuals && s.id) {
+      state.callbacks.updateStickerVisuals(s.id, 'normal');
     }
   });
   
@@ -196,6 +201,9 @@ function handleInput() {
         if (state.callbacks.resetStickerScale) {
           state.callbacks.resetStickerScale(s.node);
         }
+      }
+      if (state.callbacks.updateStickerVisuals && s.id) {
+        state.callbacks.updateStickerVisuals(s.id, 'normal');
       }
     });
     return;
@@ -275,6 +283,9 @@ function handleQuickFilter(type, btn) {
         if (s.node) {
           s.node.classList.remove("search-dimmed", "search-highlight");
           if (state.callbacks.resetStickerScale) {
+        if (state.callbacks.updateStickerVisuals && s.id) {
+          state.callbacks.updateStickerVisuals(s.id, 'normal');
+        }
             state.callbacks.resetStickerScale(s.node);
           }
         }
@@ -309,25 +320,36 @@ function highlightStickers(matched) {
   const hasMatches = matched.length > 0;
   
   stickersMap.forEach(s => {
-    if (!s.node) return;
-    
-    if (hasMatches) {
-      const isMatch = matched.includes(s);
-      if (isMatch) {
-        s.node.classList.add("search-highlight");
-        s.node.classList.remove("search-dimmed");
-        // Bring to front to ensure visibility
-        if (s.node.parentNode && s.node.parentNode.lastElementChild !== s.node) {
-          s.node.parentNode.appendChild(s.node);
+    const isMatch = hasMatches && matched.includes(s);
+
+    // SVG Mode
+    if (s.node) {
+      if (hasMatches) {
+        if (isMatch) {
+          s.node.classList.add("search-highlight");
+          s.node.classList.remove("search-dimmed");
+          // Bring to front to ensure visibility
+          if (s.node.parentNode && s.node.parentNode.lastElementChild !== s.node) {
+            s.node.parentNode.appendChild(s.node);
+          }
+        } else {
+          s.node.classList.add("search-dimmed");
+          s.node.classList.remove("search-highlight");
         }
       } else {
+        // No matches found -> Dim everything
         s.node.classList.add("search-dimmed");
         s.node.classList.remove("search-highlight");
       }
-    } else {
-      // No matches found -> Dim everything
-      s.node.classList.add("search-dimmed");
-      s.node.classList.remove("search-highlight");
+    }
+
+    // Pixi Mode
+    if (state.callbacks.updateStickerVisuals && s.id) {
+      if (hasMatches) {
+        state.callbacks.updateStickerVisuals(s.id, isMatch ? 'highlight' : 'dimmed');
+      } else {
+        state.callbacks.updateStickerVisuals(s.id, 'dimmed');
+      }
     }
   });
 
