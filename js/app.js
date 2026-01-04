@@ -562,6 +562,15 @@ function init() {
   return StickerManager.loadExistingStickers().then(() => {
     MarqueeController.initMarqueeTicker();
     
+    // Hide Initial Loader
+    const initialLoader = document.getElementById("initialLoader");
+    if (initialLoader) {
+      initialLoader.classList.add("hidden");
+      setTimeout(() => {
+        initialLoader.remove();
+      }, 600);
+    }
+    
     // Highlight palette sticker on load
     const palette = document.querySelector(".drag-palette");
     if (palette) {

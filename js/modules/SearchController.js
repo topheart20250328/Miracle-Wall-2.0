@@ -318,9 +318,10 @@ function highlightStickers(matched) {
   const stickersMap = state.callbacks.getStickers ? state.callbacks.getStickers() : new Map();
 
   const hasMatches = matched.length > 0;
+  const matchedSet = new Set(matched); // Optimization: O(1) lookup
   
   stickersMap.forEach(s => {
-    const isMatch = hasMatches && matched.includes(s);
+    const isMatch = hasMatches && matchedSet.has(s);
 
     // SVG Mode
     if (s.node) {

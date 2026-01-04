@@ -392,12 +392,66 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
   // 4. Sync Loop (Robust Coordinate System using getScreenCTM)
   app.ticker.add(() => {
     const wallSvg = document.getElementById("wallSvg");
-    if (wallSvg) {
-      // getScreenCTM maps SVG User Units (0..3500) to Screen Pixels
-      const ctm = wallSvg.getScreenCTM();
+    if (wallSvg && globalViewBox) {
+      let matrix = null;
       
-      if (ctm) {
-        const matrix = new PIXI.Matrix(ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f);
+      // Manual Calculation for Zoom/Pan (Fix for Mobile/LINE Browser drifting)
+      // getScreenCTM can be unreliable with CSS transforms on some mobile browsers
+      const styleTransform = wallSvg.style.transform;
+      const hasZoomTransform = styleTransform && styleTransform.includes('scale(');
+      
+      if (hasZoomTransform) {
+          const match = styleTransform.match(/translate\(([^p]+)px,\s*([^p]+)px\)\s*scale\(([^)]+)\)/);
+          if (match) {
+              const panX = parseFloat(match[1]);
+              const panY = parseFloat(match[2]);
+              const zoomScale = parseFloat(match[3]);
+              
+              const wrapper = wallSvg.parentElement; // .wall-wrapper
+              if (wrapper && wallSvg.clientWidth > 0 && wallSvg.clientHeight > 0) {
+                  const wrapperRect = wrapper.getBoundingClientRect();
+                  const svgWidth = wallSvg.clientWidth;
+                  const svgHeight = wallSvg.clientHeight;
+                  
+                  // Calculate Base Scale (SVG Units -> Element Pixels)
+                  // preserveAspectRatio="xMidYMid meet"
+                  const scaleX = svgWidth / globalViewBox.width;
+                  const scaleY = svgHeight / globalViewBox.height;
+                  const baseScale = Math.min(scaleX, scaleY);
+                  
+                  // Calculate Base Translation (centering in element)
+                  const baseTx = (svgWidth - globalViewBox.width * baseScale) / 2;
+                  const baseTy = (svgHeight - globalViewBox.height * baseScale) / 2;
+                  
+                  // Calculate Origin on Screen (Element position relative to viewport)
+                  // Since wrapper centers the SVG:
+                  const originX = wrapperRect.left + (wrapperRect.width - svgWidth) / 2;
+                  const originY = wrapperRect.top + (wrapperRect.height - svgHeight) / 2;
+                  
+                  // Center of rotation (Element Center)
+                  const cx = svgWidth / 2;
+                  const cy = svgHeight / 2;
+                  
+                  // Final Matrix Components
+                  // P_screen = (P_svg * baseScale + baseT - C) * zoomScale + C + Pan + Origin
+                  const finalScale = baseScale * zoomScale;
+                  const finalTx = (baseTx - cx) * zoomScale + cx + panX + originX;
+                  const finalTy = (baseTy - cy) * zoomScale + cy + panY + originY;
+                  
+                  matrix = new PIXI.Matrix(finalScale, 0, 0, finalScale, finalTx, finalTy);
+              }
+          }
+      }
+
+      // Fallback to getScreenCTM if manual calculation skipped (e.g. no zoom yet)
+      if (!matrix) {
+        const ctm = wallSvg.getScreenCTM();
+        if (ctm) {
+          matrix = new PIXI.Matrix(ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f);
+        }
+      }
+      
+      if (matrix) {
         mainContainer.transform.setFromMatrix(matrix);
         backgroundContainer.transform.setFromMatrix(matrix);
         effectsContainer.transform.setFromMatrix(matrix);
@@ -415,9 +469,9 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
         // Invert matrix to map screen -> world
         // Simple inversion for scale/translate (rotation is 0)
         // WorldX = (ScreenX - tx) / scale
-        const scale = ctm.a; // Assuming uniform scale and no rotation
-        const tx = ctm.e;
-        const ty = ctm.f;
+        const scale = matrix.a; // Use matrix.a instead of ctm.a
+        const tx = matrix.tx;   // Use matrix.tx instead of ctm.e
+        const ty = matrix.ty;   // Use matrix.ty instead of ctm.f
 
         const worldLeft = (screenLeft - tx) / scale;
         const worldTop = (screenTop - ty) / scale;
@@ -438,14 +492,6 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
                 sprite.y - r < worldBottom
             );
             
-            // Only toggle if changed to avoid thrashing (though Pixi handles this well)
-            // Note: We use renderable instead of visible so logic that relies on 'visible' for other states (like hidden/flight) isn't messed up?
-            // Actually, earlier code uses 'visible' for flight.
-            // Let's use 'renderable'. Pixi skips rendering but keeps update logic.
-            // But for max perf, we want to skip update logic too if possible.
-            // However, our custom hit test checks 'visible'.
-            // If we use renderable, hit test still works? No, hit test iterates children.
-            // Let's use a custom flag or just renderable.
             sprite.renderable = visible;
         }
       }
