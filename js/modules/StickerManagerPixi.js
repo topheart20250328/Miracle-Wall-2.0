@@ -2,6 +2,7 @@
 import { supabase, isSupabaseConfigured } from "../supabase-config.js";
 import * as EffectsManager from "./EffectsManager.js";
 import * as AudioManager from "./AudioManager.js";
+import * as ZoomController from "./ZoomController.js";
 
 console.log("🚀 [Pixi] Module Loaded");
 
@@ -396,50 +397,49 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
       let matrix = null;
       
       // Manual Calculation for Zoom/Pan (Fix for Mobile/LINE Browser drifting)
-      // getScreenCTM can be unreliable with CSS transforms on some mobile browsers
-      const styleTransform = wallSvg.style.transform;
-      const hasZoomTransform = styleTransform && styleTransform.includes('scale(');
+      // We now fetch state directly from ZoomController to avoid parsing issues
+      const zoomState = ZoomController.getZoomState ? ZoomController.getZoomState() : null;
       
-      if (hasZoomTransform) {
-          const match = styleTransform.match(/translate\(([^p]+)px,\s*([^p]+)px\)\s*scale\(([^)]+)\)/);
-          if (match) {
-              const panX = parseFloat(match[1]);
-              const panY = parseFloat(match[2]);
-              const zoomScale = parseFloat(match[3]);
+      if (zoomState && zoomState.scale !== 1) {
+          const panX = zoomState.offsetX;
+          const panY = zoomState.offsetY;
+          const zoomScale = zoomState.scale;
+          
+          const wrapper = wallSvg.parentElement; // .wall-wrapper
+          if (wrapper && wallSvg.clientWidth > 0 && wallSvg.clientHeight > 0) {
+              const wrapperRect = wrapper.getBoundingClientRect();
+              const svgWidth = wallSvg.clientWidth;
+              const svgHeight = wallSvg.clientHeight;
               
-              const wrapper = wallSvg.parentElement; // .wall-wrapper
-              if (wrapper && wallSvg.clientWidth > 0 && wallSvg.clientHeight > 0) {
-                  const wrapperRect = wrapper.getBoundingClientRect();
-                  const svgWidth = wallSvg.clientWidth;
-                  const svgHeight = wallSvg.clientHeight;
-                  
-                  // Calculate Base Scale (SVG Units -> Element Pixels)
-                  // preserveAspectRatio="xMidYMid meet"
-                  const scaleX = svgWidth / globalViewBox.width;
-                  const scaleY = svgHeight / globalViewBox.height;
-                  const baseScale = Math.min(scaleX, scaleY);
-                  
-                  // Calculate Base Translation (centering in element)
-                  const baseTx = (svgWidth - globalViewBox.width * baseScale) / 2;
-                  const baseTy = (svgHeight - globalViewBox.height * baseScale) / 2;
-                  
-                  // Calculate Origin on Screen (Element position relative to viewport)
-                  // Since wrapper centers the SVG:
-                  const originX = wrapperRect.left + (wrapperRect.width - svgWidth) / 2;
-                  const originY = wrapperRect.top + (wrapperRect.height - svgHeight) / 2;
-                  
-                  // Center of rotation (Element Center)
-                  const cx = svgWidth / 2;
-                  const cy = svgHeight / 2;
-                  
-                  // Final Matrix Components
-                  // P_screen = (P_svg * baseScale + baseT - C) * zoomScale + C + Pan + Origin
-                  const finalScale = baseScale * zoomScale;
-                  const finalTx = (baseTx - cx) * zoomScale + cx + panX + originX;
-                  const finalTy = (baseTy - cy) * zoomScale + cy + panY + originY;
-                  
-                  matrix = new PIXI.Matrix(finalScale, 0, 0, finalScale, finalTx, finalTy);
-              }
+              // Calculate Base Scale (SVG Units -> Element Pixels)
+              // preserveAspectRatio="xMidYMid meet"
+              const scaleX = svgWidth / globalViewBox.width;
+              const scaleY = svgHeight / globalViewBox.height;
+              const baseScale = Math.min(scaleX, scaleY);
+              
+              // Calculate Base Translation (centering in element)
+              const baseTx = (svgWidth - globalViewBox.width * baseScale) / 2;
+              const baseTy = (svgHeight - globalViewBox.height * baseScale) / 2;
+              
+              // Calculate Origin on Screen (Element position relative to viewport)
+              // Since wrapper centers the SVG:
+              const originX = wrapperRect.left + (wrapperRect.width - svgWidth) / 2;
+              const originY = wrapperRect.top + (wrapperRect.height - svgHeight) / 2;
+              
+              // Center of rotation (Element Center)
+              const cx = svgWidth / 2;
+              const cy = svgHeight / 2;
+              
+              // Final Matrix Components
+              // P_screen = (P_svg * baseScale + baseT - C) * zoomScale + C + Pan + Origin
+              // Note: CSS transform: translate(panX, panY) scale(zoomScale) with transform-origin: center
+              // The translation is NOT scaled because transform-origin moves with the element.
+              // Formula: P_final = P_initial * s + (cx * (1-s) + panX)
+              const finalScale = baseScale * zoomScale;
+              const finalTx = (baseTx - cx) * zoomScale + cx + panX + originX;
+              const finalTy = (baseTy - cy) * zoomScale + cy + panY + originY;
+              
+              matrix = new PIXI.Matrix(finalScale, 0, 0, finalScale, finalTx, finalTy);
           }
       }
 

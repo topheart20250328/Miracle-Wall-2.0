@@ -50,6 +50,14 @@ export function setInteractionLocked(locked) {
   }
 }
 
+export function getZoomState() {
+  return {
+    scale: zoomState.scale,
+    offsetX: viewportState.offsetX,
+    offsetY: viewportState.offsetY
+  };
+}
+
 export function saveState() {
   if (!savedState) {
     savedState = {
