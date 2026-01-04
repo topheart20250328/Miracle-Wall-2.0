@@ -390,111 +390,79 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
   // Pass Pixi Context to EffectsManager
   EffectsManager.setPixiContext(app, backgroundContainer, effectsContainer);
 
-  // 4. Sync Loop (Robust Coordinate System using getScreenCTM)
+  // 4. Sync Loop (Robust Coordinate System using getBoundingClientRect)
   app.ticker.add(() => {
     const wallSvg = document.getElementById("wallSvg");
     if (wallSvg && globalViewBox) {
-      let matrix = null;
+      // New Strategy: Absolute Truth via getBoundingClientRect
+      // This bypasses all complex matrix math and CSS transform parsing.
+      // We simply ask the browser: "Where is the SVG on the screen right now?"
+      const rect = wallSvg.getBoundingClientRect();
       
-      // Manual Calculation for Zoom/Pan (Fix for Mobile/LINE Browser drifting)
-      // We now fetch state directly from ZoomController to avoid parsing issues
-      const zoomState = ZoomController.getZoomState ? ZoomController.getZoomState() : null;
-      
-      if (zoomState && zoomState.scale !== 1) {
-          const panX = zoomState.offsetX;
-          const panY = zoomState.offsetY;
-          const zoomScale = zoomState.scale;
+      if (rect.width > 0 && rect.height > 0) {
+          // Calculate Scale relative to the original ViewBox
+          // Note: This assumes preserveAspectRatio="xMidYMid meet" is active and handled by the browser
+          // The rect.width/height IS the scaled size on screen.
           
-          const wrapper = wallSvg.parentElement; // .wall-wrapper
-          if (wrapper && wallSvg.clientWidth > 0 && wallSvg.clientHeight > 0) {
-              const wrapperRect = wrapper.getBoundingClientRect();
-              const svgWidth = wallSvg.clientWidth;
-              const svgHeight = wallSvg.clientHeight;
-              
-              // Calculate Base Scale (SVG Units -> Element Pixels)
-              // preserveAspectRatio="xMidYMid meet"
-              const scaleX = svgWidth / globalViewBox.width;
-              const scaleY = svgHeight / globalViewBox.height;
-              const baseScale = Math.min(scaleX, scaleY);
-              
-              // Calculate Base Translation (centering in element)
-              const baseTx = (svgWidth - globalViewBox.width * baseScale) / 2;
-              const baseTy = (svgHeight - globalViewBox.height * baseScale) / 2;
-              
-              // Calculate Origin on Screen (Element position relative to viewport)
-              // Since wrapper centers the SVG:
-              const originX = wrapperRect.left + (wrapperRect.width - svgWidth) / 2;
-              const originY = wrapperRect.top + (wrapperRect.height - svgHeight) / 2;
-              
-              // Center of rotation (Element Center)
-              const cx = svgWidth / 2;
-              const cy = svgHeight / 2;
-              
-              // Final Matrix Components
-              // P_screen = (P_svg * baseScale + baseT - C) * zoomScale + C + Pan + Origin
-              // Note: CSS transform: translate(panX, panY) scale(zoomScale) with transform-origin: center
-              // The translation is NOT scaled because transform-origin moves with the element.
-              // Formula: P_final = P_initial * s + (cx * (1-s) + panX)
-              const finalScale = baseScale * zoomScale;
-              const finalTx = (baseTx - cx) * zoomScale + cx + panX + originX;
-              const finalTy = (baseTy - cy) * zoomScale + cy + panY + originY;
-              
-              matrix = new PIXI.Matrix(finalScale, 0, 0, finalScale, finalTx, finalTy);
+          // However, we need to map the SVG ViewBox (0,0, 3500, 1779) to this Rect.
+          // Since the SVG might be letterboxed inside the rect if aspect ratios don't match?
+          // Actually, getBoundingClientRect on an <svg> element usually returns the bounding box of the element itself,
+          // NOT the drawn content if it's letterboxed.
+          // BUT, our CSS sets width: 100%; height: auto; (or similar) which usually makes the element match the content aspect ratio.
+          // Let's check styles.css: #wallSvg { width: 100%; height: auto; ... }
+          // This means the element size SHOULD match the content size (mostly).
+          
+          // Let's calculate the scale based on width, which is the primary constraint usually.
+          const scaleX = rect.width / globalViewBox.width;
+          const scaleY = rect.height / globalViewBox.height;
+          
+          // Use the smaller scale to be safe (meet strategy), though they should be close.
+          // Actually, if we just map 0,0 to rect.left, rect.top and scale to rect.width/height,
+          // we might stretch if the SVG element itself is stretched.
+          // But Pixi container scaling is uniform usually.
+          // Let's use the rect directly.
+          
+          // Pixi Matrix:
+          // a = scaleX, d = scaleY
+          // tx = rect.left, ty = rect.top
+          
+          const matrix = new PIXI.Matrix(scaleX, 0, 0, scaleY, rect.left, rect.top);
+          
+          mainContainer.transform.setFromMatrix(matrix);
+          backgroundContainer.transform.setFromMatrix(matrix);
+          effectsContainer.transform.setFromMatrix(matrix);
+
+          // --- Culling Optimization ---
+          const buffer = 100;
+          const screenLeft = -buffer;
+          const screenTop = -buffer;
+          const screenRight = window.innerWidth + buffer;
+          const screenBottom = window.innerHeight + buffer;
+
+          const scale = scaleX; // Approx
+          const tx = rect.left;
+          const ty = rect.top;
+
+          const worldLeft = (screenLeft - tx) / scale;
+          const worldTop = (screenTop - ty) / scale;
+          const worldRight = (screenRight - tx) / scale;
+          const worldBottom = (screenBottom - ty) / scale;
+
+          const children = mainContainer.children;
+          for (let i = 0; i < children.length; i++) {
+              const sprite = children[i];
+              const r = 20;
+              const visible = (
+                  sprite.x + r > worldLeft &&
+                  sprite.x - r < worldRight &&
+                  sprite.y + r > worldTop &&
+                  sprite.y - r < worldBottom
+              );
+              sprite.renderable = visible;
           }
       }
-
-      // Fallback to getScreenCTM if manual calculation skipped (e.g. no zoom yet)
-      if (!matrix) {
-        const ctm = wallSvg.getScreenCTM();
-        if (ctm) {
-          matrix = new PIXI.Matrix(ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f);
-        }
-      }
-      
-      if (matrix) {
-        mainContainer.transform.setFromMatrix(matrix);
-        backgroundContainer.transform.setFromMatrix(matrix);
-        effectsContainer.transform.setFromMatrix(matrix);
-
-        // --- Culling Optimization ---
-        // Only render stickers that are within the viewport
-        // Transform screen bounds to world bounds
-        // We use a buffer to prevent popping
-        const buffer = 100;
-        const screenLeft = -buffer;
-        const screenTop = -buffer;
-        const screenRight = window.innerWidth + buffer;
-        const screenBottom = window.innerHeight + buffer;
-
-        // Invert matrix to map screen -> world
-        // Simple inversion for scale/translate (rotation is 0)
-        // WorldX = (ScreenX - tx) / scale
-        const scale = matrix.a; // Use matrix.a instead of ctm.a
-        const tx = matrix.tx;   // Use matrix.tx instead of ctm.e
-        const ty = matrix.ty;   // Use matrix.ty instead of ctm.f
-
-        const worldLeft = (screenLeft - tx) / scale;
-        const worldTop = (screenTop - ty) / scale;
-        const worldRight = (screenRight - tx) / scale;
-        const worldBottom = (screenBottom - ty) / scale;
-
-        // Iterate stickers
-        const children = mainContainer.children;
-        for (let i = 0; i < children.length; i++) {
-            const sprite = children[i];
-            // Simple AABB check
-            // Sprite x,y is center. Radius ~18.
-            const r = 20;
-            const visible = (
-                sprite.x + r > worldLeft &&
-                sprite.x - r < worldRight &&
-                sprite.y + r > worldTop &&
-                sprite.y - r < worldBottom
-            );
-            
-            sprite.renderable = visible;
-        }
-      }
+    }
+  });
     }
   });
 

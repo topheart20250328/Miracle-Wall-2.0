@@ -2676,12 +2676,15 @@ html.hide-online-status #onlineCountBtn {
 }
 
 
-/* Initial Loader */
+/* Initial Loader - Robust Fix */
 .initial-loader {
- position: fixed;
- inset: 0;
- background-color: var(--bg-color);
- z-index: 9999;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-color);
+  z-index: 99999; /* Increased z-index */
  display: flex;
  align-items: center;
  justify-content: center;
