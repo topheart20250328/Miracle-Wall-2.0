@@ -157,6 +157,18 @@ export function closeSearch() {
     }
   });
   
+  // Stop any active focus halo immediately
+  if (state.callbacks.stopFocusHalo) {
+    state.callbacks.stopFocusHalo();
+  } else {
+    // Fallback if callback not provided, try global or import if possible, 
+    // but better to rely on callback passed in init or app.js structure.
+    // Actually app.js passes onSearchClose which calls EffectsManager.stopFocusHalo()
+    // So this might be redundant if onSearchClose is called.
+    // But let's ensure it's called here too if we are just clearing highlights without full close?
+    // No, closeSearch calls onSearchClose.
+  }
+
   // Reset active filter buttons
   if (state.elements.searchQuickFilters) {
     const btns = state.elements.searchQuickFilters.querySelectorAll(".quick-filter-btn");
@@ -312,6 +324,15 @@ function handleQuickFilter(type, btn) {
 }
 
 function highlightStickers(matched) {
+  // Stop any existing halo when switching targets/results
+  if (state.callbacks.stopFocusHalo) {
+      state.callbacks.stopFocusHalo();
+  } else {
+      // Try to access EffectsManager directly if possible, or rely on app structure
+      // Since we don't import EffectsManager here, we rely on callbacks.
+      // Let's add stopFocusHalo to init callbacks in app.js
+  }
+
   state.matchedStickers = matched;
   state.currentIndex = -1; // Reset index
   

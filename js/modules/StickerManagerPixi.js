@@ -150,6 +150,10 @@ export function positionStickerNode(node, x, y) {
       useEl.setAttribute("width", "36");
       useEl.setAttribute("height", "36");
     }
+    
+    // Update dataset coordinates for EffectsManager (Shimmer, etc.)
+    node.dataset.cx = x.toFixed(2);
+    node.dataset.cy = y.toFixed(2);
   }
 }
 

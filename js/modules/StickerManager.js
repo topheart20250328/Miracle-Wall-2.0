@@ -292,22 +292,7 @@ export function attachDragHighlight(node, type = 'marquee') {
   group.appendChild(core);
   
   // Set type-specific attributes
-  if (type === 'marquee') {
-    core.classList.add("marquee-glow");
-    core.style.fill = "url(#marqueeHighlightGradient)";
-
-    // Add Ripple Effect for Marquee (High visibility at zoom)
-    const ripple = document.createElementNS(svgNS, "circle");
-    ripple.setAttribute("r", String(STICKER_RADIUS + 24));
-    ripple.setAttribute("cx", "0");
-    ripple.setAttribute("cy", "0");
-    ripple.classList.add("highlight-glow", "marquee-ripple");
-    ripple.style.fill = "none";
-    ripple.style.stroke = "#ffffff";
-    ripple.style.strokeWidth = "3";
-    ripple.style.opacity = "0.8";
-    group.insertBefore(ripple, core); // Behind core
-  } else if (type === 'valid') {
+  if (type === 'valid') {
     core.classList.add("valid-glow");
     core.style.fill = "url(#validHighlightGradient)";
   } else if (type === 'invalid') {

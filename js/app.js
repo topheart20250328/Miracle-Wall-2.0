@@ -401,6 +401,9 @@ function init() {
     },
     onPanToSticker: (sticker, onComplete, playEffect = true) => {
       if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+        // Stop any existing halo before panning to new one
+        EffectsManager.stopFocusHalo();
+        
         const isMobile = window.innerWidth <= 640;
         const targetZoom = isMobile ? 10 : 5;
         ZoomController.saveState();
@@ -413,6 +416,9 @@ function init() {
       } else if (onComplete) {
         onComplete();
       }
+    },
+    stopFocusHalo: () => {
+      EffectsManager.stopFocusHalo();
     },
     onSearchOpen: () => {
       EffectsManager.setShimmerPaused(true);
@@ -1399,6 +1405,18 @@ async function handleDialogClose() {
   // Only animate if we have a snapshot AND we are not already animating (via closeDialogWithResult)
   if (pendingSnapshot && (pendingSnapshot.node || pendingSnapshot.id) && !state.isAnimatingReturn) {
     try {
+      // If search is active, we might want to skip the "return" animation that zooms back to the original spot?
+      // Actually, animateStickerReturn usually zooms back to the sticker's position on the wall.
+      // If we are in search mode, we are likely already zoomed in on it.
+      // The issue is if animateStickerReturn triggers a zoom reset or if handleDialogClose triggers something else.
+      
+      // Check if we are in search mode
+      const isSearchActive = document.body.classList.contains("search-active");
+      
+      // If search is active, we just want to close the dialog, but NOT restore the global zoom state yet.
+      // StickerManager.animateStickerReturn handles the visual transition of the card back to the sticker.
+      // It does NOT call ZoomController.restoreState().
+      
       await StickerManager.animateStickerReturn(pendingSnapshot, result);
     } catch (error) {
       console.error("Sticker return animation failed", error);
@@ -1411,6 +1429,11 @@ async function handleDialogClose() {
   if (!state.isAnimatingReturn) {
     StickerManager.cleanupZoomOverlay();
   }
+  
+  // Only trigger SearchController cleanup if we are NOT in active search mode.
+  // If search is active, we want to stay in search context (don't reset camera).
+  // However, SearchController.onDialogClosed() currently just hides nav and resets index if !isActive.
+  // We need to ensure it doesn't trigger anything that would reset the camera.
   SearchController.onDialogClosed();
 }
 

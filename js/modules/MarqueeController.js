@@ -181,14 +181,8 @@ function handleDragStart(e) {
 
   // Cleanup any existing drag state (e.g. multi-touch interruption)
   if (marqueeState.dragState.active) {
-    const { highlightedNode, visualsActivated, animation: prevAnimation, track: prevTrack } = marqueeState.dragState;
-    if (visualsActivated) {
-      if (highlightedNode) {
-        StickerManager.removeDragHighlight(highlightedNode);
-        highlightedNode.classList.remove("marquee-highlight");
-      }
-      document.body.classList.remove("marquee-drag-active");
-    }
+    const { animation: prevAnimation, track: prevTrack } = marqueeState.dragState;
+    
     // Resume previous animation if it's a different track
     if (prevAnimation && prevTrack !== track) {
       prevAnimation.play();
@@ -201,15 +195,6 @@ function handleDragStart(e) {
     }
   }
 
-  // Find associated sticker (but don't highlight yet - wait for drag)
-  const line = track.closest(".marquee-line");
-  const stickerId = line?.dataset.stickerId;
-  let highlightedNode = null;
-  
-  if (stickerId) {
-    highlightedNode = document.querySelector(`.sticker-node[data-id="${stickerId}"]`);
-  }
-
   marqueeState.dragState = {
     active: true,
     track: track,
@@ -217,9 +202,7 @@ function handleDragStart(e) {
     startTime: animation.currentTime || 0,
     animation: animation,
     hasMoved: false,
-    visualsActivated: false, // New flag to track if visuals are active
-    originalTarget: e.target,
-    highlightedNode: highlightedNode
+    originalTarget: e.target
   };
   
   animation.pause();
@@ -230,24 +213,8 @@ function handleDragStart(e) {
 function handleDragMove(e) {
   if (!marqueeState.dragState.active) return;
   
-  const { startX, startTime, animation, highlightedNode, visualsActivated } = marqueeState.dragState;
+  const { startX, startTime, animation } = marqueeState.dragState;
   const deltaX = e.clientX - startX;
-  
-  if (Math.abs(deltaX) > 5) {
-    marqueeState.dragState.hasMoved = true;
-
-    // Activate visuals only once when threshold is crossed
-    if (!visualsActivated) {
-      marqueeState.dragState.visualsActivated = true;
-      if (highlightedNode) {
-        StickerManager.attachDragHighlight(highlightedNode, 'marquee');
-        document.body.classList.add("marquee-drag-active");
-        highlightedNode.classList.add("marquee-highlight");
-      }
-    }
-  }
-  
-  // Calculate new time based on drag distance
   
   if (Math.abs(deltaX) > 5) {
     marqueeState.dragState.hasMoved = true;
@@ -265,17 +232,8 @@ function handleDragMove(e) {
 function handleDragEnd(e) {
   if (!marqueeState.dragState.active) return;
   
-  const { track, animation, hasMoved, originalTarget, highlightedNode, visualsActivated } = marqueeState.dragState;
+  const { track, animation, hasMoved, originalTarget } = marqueeState.dragState;
   
-  // Cleanup highlight (only if activated)
-  if (visualsActivated) {
-    if (highlightedNode) {
-      StickerManager.removeDragHighlight(highlightedNode);
-      highlightedNode.classList.remove("marquee-highlight");
-    }
-    document.body.classList.remove("marquee-drag-active");
-  }
-
   track.style.cursor = '';
   if (track.hasPointerCapture(e.pointerId)) {
     track.releasePointerCapture(e.pointerId);

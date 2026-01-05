@@ -800,20 +800,33 @@ export function playStarBurst(x, y) {
 }
 
 export function stopFocusHalo() {
+  if (pixiEffectsLayer) {
+    // Find and remove Pixi halo containers
+    // We can identify them if we stored them, or just clear children if we know they are the only ones.
+    // But pixiEffectsLayer might have other things (shimmer?).
+    // Let's assume we can tag them or just iterate.
+    // Since playPixiFocusHalo creates a container, let's tag it.
+    for (let i = pixiEffectsLayer.children.length - 1; i >= 0; i--) {
+      const child = pixiEffectsLayer.children[i];
+      if (child.name === 'focusHalo') {
+        child.destroy({ children: true });
+      }
+    }
+  }
   if (!elements.effectsLayer) return;
   const existing = elements.effectsLayer.querySelectorAll(".effect-focus-halo");
   existing.forEach(el => el.remove());
 }
 
 export function playFocusHalo(x, y) {
+  // Clear previous focus halos to prevent stacking
+  stopFocusHalo();
+
   if (pixiEffectsLayer) {
     playPixiFocusHalo(x, y);
     return;
   }
   if (!elements.effectsLayer) return;
-  
-  // Clear previous focus halos to prevent stacking
-  stopFocusHalo();
 
   ensureRevealGradient();
 
@@ -897,6 +910,113 @@ export function playFocusHalo(x, y) {
       
   } else {
     setTimeout(() => { if (group.isConnected) group.remove(); }, 1400 * 4);
+  }
+}
+
+function playPixiFocusHalo(x, y) {
+  if (!pixiEffectsLayer) return;
+
+  // Create a container for the halo effect
+  const container = new PIXI.Container();
+  container.name = 'focusHalo'; // Tag for cleanup
+  container.x = x;
+  container.y = y;
+  pixiEffectsLayer.addChild(container);
+
+  // 1. Core Glow (White Circle with blur)
+  const glow = new PIXI.Graphics();
+  glow.beginFill(0xFFFFFF, 0.9);
+  glow.drawCircle(0, 0, STICKER_DIAMETER * 0.5); // Initial size
+  glow.endFill();
+  // Add blur filter for soft edges
+  const blurFilter = new PIXI.BlurFilter();
+  blurFilter.blur = 10;
+  glow.filters = [blurFilter];
+  container.addChild(glow);
+
+  // 2. Sharp Ring
+  const ring = new PIXI.Graphics();
+  ring.lineStyle(4, 0xFFFFFF, 1);
+  ring.drawCircle(0, 0, STICKER_DIAMETER * 0.8);
+  ring.alpha = 0;
+  container.addChild(ring);
+
+  // 3. Outer Ripple
+  const ripple = new PIXI.Graphics();
+  ripple.lineStyle(2, 0xFFFFFF, 1);
+  ripple.drawCircle(0, 0, STICKER_DIAMETER * 1.2);
+  ripple.alpha = 0;
+  container.addChild(ripple);
+
+  if (window.anime) {
+    const timeline = window.anime.timeline({
+      easing: "easeOutExpo",
+      loop: 4,
+      complete: () => {
+        container.destroy({ children: true });
+      }
+    });
+
+    // Glow Animation
+    timeline.add({
+      targets: glow.scale,
+      x: [0, 6], // Scale up
+      y: [0, 6],
+      duration: 1400,
+      easing: "easeOutExpo"
+    }, 0);
+    timeline.add({
+      targets: glow,
+      alpha: [0.9, 0],
+      duration: 1400,
+      easing: "easeOutExpo"
+    }, 0);
+
+    // Ring Animation
+    timeline.add({
+      targets: ring.scale,
+      x: [1, 2.75], // Scale relative to initial draw
+      y: [1, 2.75],
+      duration: 1000,
+      easing: "easeOutQuad"
+    }, 0);
+    timeline.add({
+      targets: ring,
+      alpha: [1, 0],
+      duration: 1000,
+      easing: "easeOutQuad"
+    }, 0);
+    // Note: strokeWidth animation is tricky in Pixi Graphics without redrawing. 
+    // We simulate thinning by fading out faster or just accepting constant width.
+    // Or we could redraw in an update loop, but that's heavy. 
+    // Fading alpha is usually enough visually.
+
+    // Ripple Animation
+    timeline.add({
+      targets: ripple.scale,
+      x: [1, 2.9],
+      y: [1, 2.9],
+      duration: 1200,
+      delay: 100,
+      easing: "easeOutQuad"
+    }, 0);
+    timeline.add({
+      targets: ripple,
+      alpha: [0.6, 0],
+      duration: 1200,
+      delay: 100,
+      easing: "easeOutQuad"
+    }, 0);
+
+    timeline.add({
+      duration: 800
+    });
+
+  } else {
+    // Fallback cleanup
+    setTimeout(() => {
+      if (!container.destroyed) container.destroy({ children: true });
+    }, 1400 * 4);
   }
 }
 
@@ -1186,7 +1306,10 @@ export function scheduleAmbientGlowRefresh() {
 }
 
 const shimmerState = {
-  paused: false
+  paused: false,
+  recentStickers: [],
+  currentIndex: 0,
+  lastUpdate: 0
 };
 
 export function setShimmerPaused(paused) {
@@ -1213,38 +1336,44 @@ export function initShimmerSystem(stickersMap, state) {
       return;
     }
 
-    const stickers = Array.from(stickersMap.values());
-    if (stickers.length > 0) {
-      // Max 3 concurrent shimmers
-      const currentShimmers = document.querySelectorAll('.sticker-node.shimmering').length;
-      
-      if (currentShimmers < 3) {
-        // Filter stickers from the last 24 hours
-        const now = Date.now();
+    const now = Date.now();
+    
+    // Update recent list every 10 seconds or if empty
+    if (now - shimmerState.lastUpdate > 10000 || shimmerState.recentStickers.length === 0) {
+        const stickers = Array.from(stickersMap.values());
         const twentyFourHoursMs = 24 * 60 * 60 * 1000;
-        
-        const recentStickers = stickers.filter(s => {
-          if (!s.created_at) return false;
-          const created = new Date(s.created_at).getTime();
-          return !Number.isNaN(created) && (now - created) < twentyFourHoursMs;
-        });
-
-        // Only use recent stickers (last 24h). If none, do nothing.
-        if (recentStickers.length > 0) {
-          const randomRecord = recentStickers[Math.floor(Math.random() * recentStickers.length)];
-          
-          if (randomRecord && randomRecord.node && 
-              state.pending?.id !== randomRecord.id &&
-              state.drag?.node !== randomRecord.node &&
-              !randomRecord.node.classList.contains("pending") &&
-              !randomRecord.node.classList.contains("shimmering")) {
-            triggerShimmer(randomRecord.node);
-          }
+        shimmerState.recentStickers = stickers.filter(s => {
+            if (!s.created_at) return false;
+            const created = new Date(s.created_at).getTime();
+            return !Number.isNaN(created) && (now - created) < twentyFourHoursMs;
+        }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at)); // Newest first
+        shimmerState.lastUpdate = now;
+        // Reset index if out of bounds
+        if (shimmerState.currentIndex >= shimmerState.recentStickers.length) {
+            shimmerState.currentIndex = 0;
         }
-      }
     }
-    // Schedule next run between 1s and 5s
-    setTimeout(runLoop, 1000 + Math.random() * 4000);
+
+    if (shimmerState.recentStickers.length > 0) {
+        // Pick next sticker (Round Robin)
+        const record = shimmerState.recentStickers[shimmerState.currentIndex];
+        shimmerState.currentIndex = (shimmerState.currentIndex + 1) % shimmerState.recentStickers.length;
+
+        if (record) {
+             // Check validity
+             const isPending = state.pending?.id === record.id;
+             // Note: drag.node might be null in Pixi, but we check if it matches
+             const isDragging = state.drag?.node && state.drag.node === record.node; 
+             
+             if (!isPending && !isDragging) {
+                 // Trigger
+                 triggerShimmer(record.node || { dataset: { cx: record.x, cy: record.y, id: record.id } });
+             }
+        }
+    }
+
+    // Schedule next run. Faster frequency for "obvious" effect.
+    setTimeout(runLoop, 1200 + Math.random() * 800);
   };
   runLoop();
 }
@@ -1253,11 +1382,18 @@ function triggerShimmer(node) {
   if (!node) return;
   
   // 1. Animate the sticker itself (brightness/scale)
-  node.classList.add("shimmering");
+  if (node.classList) node.classList.add("shimmering");
 
   // 2. Create the cross shine in the effects layer (to avoid clipping by eagle edge)
-  const cx = parseFloat(node.dataset.cx);
-  const cy = parseFloat(node.dataset.cy);
+  let cx, cy;
+  if (node.dataset) {
+      cx = parseFloat(node.dataset.cx);
+      cy = parseFloat(node.dataset.cy);
+  } else {
+      // Fallback if node is a plain object
+      cx = node.dataset?.cx;
+      cy = node.dataset?.cy;
+  }
 
   if (pixiEffectsLayer && Number.isFinite(cx) && Number.isFinite(cy)) {
       playPixiShimmer(cx, cy, node);
@@ -3032,105 +3168,86 @@ function playPixiPlacementImpact(cx, cy) {
   }, 320);
 }
 
-function playPixiFocusHalo(x, y) {
-  const container = new PIXI.Container();
-  container.x = x;
-  container.y = y;
-  
-  // 1. Glow
-  const glow = new PIXI.Graphics();
-  glow.beginFill(0xFFFFFF);
-  glow.drawCircle(0, 0, STICKER_DIAMETER * 3);
-  glow.endFill();
-  glow.alpha = 0.9;
-  glow.scale.set(0);
-  
-  // 2. Ring
-  const ring = new PIXI.Graphics();
-  ring.lineStyle(4, 0xFFFFFF);
-  ring.drawCircle(0, 0, STICKER_DIAMETER * 2.2);
-  ring.alpha = 0;
-  ring.scale.set(STICKER_DIAMETER * 0.8 / (STICKER_DIAMETER * 2.2));
-  
-  // 3. Ripple
-  const ripple = new PIXI.Graphics();
-  ripple.lineStyle(2, 0xFFFFFF);
-  ripple.drawCircle(0, 0, STICKER_DIAMETER * 3.5);
-  ripple.alpha = 0;
-  ripple.scale.set(STICKER_DIAMETER * 1.2 / (STICKER_DIAMETER * 3.5));
-  
-  container.addChild(glow, ring, ripple);
-  pixiEffectsLayer.addChild(container);
-  
-  const timeline = registerAnime(window.anime.timeline({
-      easing: "easeOutExpo",
-      loop: 4,
-      complete: () => {
-          container.destroy({ children: true });
-      }
-  }));
-  
-  timeline
-  .add({
-      targets: glow,
-      alpha: [0.9, 0],
-      scale: 1,
-      duration: 1400
-  }, 0)
-  .add({
-      targets: ring,
-      alpha: [1, 0],
-      scale: 1,
-      duration: 1000,
-      easing: "easeOutQuad"
-  }, 0)
-  .add({
-      targets: ripple,
-      alpha: [0.6, 0],
-      scale: 1,
-      duration: 1200,
-      delay: 100,
-      easing: "easeOutQuad"
-  }, 0)
-  .add({
-      duration: 800
-  });
-}
+
 
 function playPixiShimmer(cx, cy, node) {
+  if (!pixiEffectsLayer) return;
+
   const container = new PIXI.Container();
   container.x = cx;
   container.y = cy;
-  
-  // 1. Core
-  const core = new PIXI.Graphics();
-  core.beginFill(0xFFFFFF);
-  core.drawCircle(0, 0, 12);
-  core.endFill();
-  
-  // 2. Rays
-  const rays = new PIXI.Graphics();
-  rays.beginFill(0xFFFFFF);
-  // "M0,-90 C2,-20 20,-2 90,0 C20,2 2,20 0,90 C-2,20 -20,2 -90,0 C-20,-2 -2,-20 0,-90 Z"
-  // Simplified to polygon for Pixi
-  rays.drawPolygon([
-      0, -90, 5, -20, 20, -5, 90, 0, 20, 5, 5, 20, 0, 90, -5, 20, -20, 5, -90, 0, -20, -5, -5, -20
-  ]);
-  rays.endFill();
-  
-  container.addChild(core, rays);
+  container.zIndex = 50; // Ensure it's on top of stickers
   pixiEffectsLayer.addChild(container);
   
-  // Cleanup
-  let safetyTimer = null;
-  const cleanup = () => {
-      if (safetyTimer) clearTimeout(safetyTimer);
-      node.classList.remove("shimmering");
-      container.destroy({ children: true });
-      node.removeEventListener("animationend", cleanup);
-  };
+  // 1. Star Shape (Bright White)
+  const star = new PIXI.Graphics();
+  star.beginFill(0xFFFFFF);
+  // Draw a 4-point star
+  star.drawPolygon([
+      0, -20, 
+      5, -5, 
+      20, 0, 
+      5, 5, 
+      0, 20, 
+      -5, 5, 
+      -20, 0, 
+      -5, -5
+  ]);
+  star.endFill();
+  star.scale.set(0);
+  star.rotation = Math.random() * Math.PI;
   
-  node.addEventListener("animationend", cleanup);
-  safetyTimer = setTimeout(cleanup, 3000);
+  // 2. Glow Circle (Soft)
+  const glow = new PIXI.Graphics();
+  glow.beginFill(0xFFFFFF, 0.6);
+  glow.drawCircle(0, 0, 15);
+  glow.endFill();
+  const blur = new PIXI.BlurFilter();
+  blur.blur = 8;
+  glow.filters = [blur];
+  glow.scale.set(0);
+
+  container.addChild(glow, star);
+
+  if (window.anime) {
+      const timeline = window.anime.timeline({
+          complete: () => {
+              if (node.classList) node.classList.remove("shimmering");
+              container.destroy({ children: true });
+          }
+      });
+
+      // Pop in
+      timeline
+      .add({
+          targets: [star.scale, glow.scale],
+          x: 1.5,
+          y: 1.5,
+          duration: 400,
+          easing: 'easeOutBack'
+      }, 0)
+      .add({
+          targets: star,
+          rotation: star.rotation + Math.PI / 2,
+          duration: 1200,
+          easing: 'linear'
+      }, 0)
+      // Fade out
+      .add({
+          targets: container,
+          alpha: 0,
+          duration: 500,
+          delay: 700, // Hold for a bit
+          easing: 'easeInQuad'
+      }, 0);
+  } else {
+      // Fallback
+      star.scale.set(1);
+      glow.scale.set(1);
+      setTimeout(() => {
+          if (node.classList) node.classList.remove("shimmering");
+          container.destroy({ children: true });
+      }, 1000);
+  }
 }
 
