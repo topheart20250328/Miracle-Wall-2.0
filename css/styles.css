@@ -1057,7 +1057,8 @@ main::before {
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s ease;
-  z-index: 2000;
+  z-index: 10001; /* Ensure always above flying sticker */
+  transform: translateZ(10px); /* Ensure physically separated in Z-space */
   padding: 0;
 }
 
@@ -1105,8 +1106,8 @@ main::before {
     /* Move buttons to screen edges using fixed positioning */
     position: fixed;
     top: 50%;
-    transform: translateY(-50%);
-    z-index: 2000; /* Ensure above dialog content */
+    transform: translateY(-50%) translateZ(10px); /* Keep Z-separation */
+    z-index: 10001; /* Ensure above dialog content and flying cards */
     /* Ensure buttons are clickable even if they overlap the card */
     pointer-events: auto;
   }

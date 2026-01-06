@@ -3251,3 +3251,135 @@ function playPixiShimmer(cx, cy, node) {
   }
 }
 
+export function playPixiMistExplosion(cx, cy) {
+  if (!pixiEffectsLayer) return;
+
+  const container = new PIXI.Container();
+  container.x = cx;
+  container.y = cy;
+  container.zIndex = 40; 
+  pixiEffectsLayer.addChild(container);
+
+  // Configuration for "Stronger & Realistic" effect
+  // Removed sharp ring1 as requested
+
+  // 1. Soft Shockwave (Mist ring)
+  const ring2 = new PIXI.Graphics();
+  ring2.lineStyle(8, 0xFFFFFF, 0.3);
+  ring2.drawCircle(0, 0, 5);
+  const ring2Blur = new PIXI.BlurFilter();
+  ring2Blur.blur = 4;
+  ring2.filters = [ring2Blur];
+
+  container.addChild(ring2);
+
+  // 2. Smoke/Mist Particles (Cloud-like)
+  const particles = [];
+  const particleCount = 12; // More puffs
+  
+  for (let i = 0; i < particleCount; i++) {
+      const p = new PIXI.Graphics();
+      // Draw a soft "puff" using a circle with blur
+      const size = 10 + Math.random() * 15;
+      p.beginFill(0xFFFFFF, 0.4 + Math.random() * 0.3); // Varying opacity
+      p.drawCircle(0, 0, size);
+      p.endFill();
+      
+      const pBlur = new PIXI.BlurFilter();
+      pBlur.blur = 5 + Math.random() * 5; // Heavy blur for smoke look
+      p.filters = [pBlur];
+      
+      const angle = (Math.random() * Math.PI * 2);
+      // Particles start near center
+      p.x = Math.cos(angle) * (Math.random() * 10);
+      p.y = Math.sin(angle) * (Math.random() * 10);
+      p.rotation = Math.random() * Math.PI;
+      p.scale.set(0.5); // Start small
+      
+      // Store individual trajectories
+      p._angle = angle;
+      p._speed = 30 + Math.random() * 40; // Travel distance
+      
+      container.addChild(p);
+      particles.push(p);
+  }
+
+  // 4. Tiny Debris/Sparks (Crisp dots)
+  const sparks = [];
+  const sparkCount = 8;
+  for (let i = 0; i < sparkCount; i++) {
+     const s = new PIXI.Graphics();
+     s.beginFill(0xFFE4BC); // Slightly warm white
+     s.drawCircle(0,0, 2);
+     s.endFill();
+     
+     const angle = (Math.random() * Math.PI * 2);
+     s._angle = angle;
+     s._dist = 40 + Math.random() * 30;
+     
+     container.addChild(s);
+     sparks.push(s);
+  }
+
+  if (window.anime) {
+      const timeline = window.anime.timeline({
+          complete: () => {
+              container.destroy({ children: true });
+          }
+      });
+
+      // Ring 2 (Soft Shockwave)
+      timeline.add({
+          targets: ring2.scale,
+          x: 4, y: 4,
+          duration: 600,
+          easing: 'easeOutQuad'
+      }, 0)
+      .add({
+          targets: ring2,
+          alpha: 0,
+          duration: 600,
+          easing: 'easeOutQuad'
+      }, 0);
+
+      // Smoke Puff Expansion
+      particles.forEach((p) => {
+          timeline.add({
+              targets: p.scale,
+              x: 1.5 + Math.random(), // Puff up
+              y: 1.5 + Math.random(),
+              duration: 800,
+              easing: 'easeOutCubic'
+          }, 0);
+
+          timeline.add({
+              targets: p,
+              x: p.x + Math.cos(p._angle) * p._speed,
+              y: p.y + Math.sin(p._angle) * p._speed,
+              alpha: 0,
+              duration: 800 + Math.random() * 200,
+              easing: 'easeOutQuad'
+          }, 0);
+      });
+      
+      // Sparks
+      sparks.forEach((s) => {
+          timeline.add({
+              targets: s,
+              x: Math.cos(s._angle) * s._dist,
+              y: Math.sin(s._angle) * s._dist,
+              alpha: [1, 0],
+              scale: [1, 0],
+              duration: 500,
+              easing: 'easeOutExpo'
+          }, 0);
+      });
+
+  } else {
+      setTimeout(() => {
+          container.destroy({ children: true });
+      }, 1000);
+  }
+}
+
+

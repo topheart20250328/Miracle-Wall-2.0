@@ -323,23 +323,10 @@ function handleQuickFilter(type, btn) {
   highlightStickers(matched);
 }
 
-function highlightStickers(matched) {
-  // Stop any existing halo when switching targets/results
-  if (state.callbacks.stopFocusHalo) {
-      state.callbacks.stopFocusHalo();
-  } else {
-      // Try to access EffectsManager directly if possible, or rely on app structure
-      // Since we don't import EffectsManager here, we rely on callbacks.
-      // Let's add stopFocusHalo to init callbacks in app.js
-  }
-
-  state.matchedStickers = matched;
-  state.currentIndex = -1; // Reset index
-  
+function updateStickerVisualsOnly(matched) {
   const stickersMap = state.callbacks.getStickers ? state.callbacks.getStickers() : new Map();
-
   const hasMatches = matched.length > 0;
-  const matchedSet = new Set(matched); // Optimization: O(1) lookup
+  const matchedSet = new Set(matched); 
   
   stickersMap.forEach(s => {
     const isMatch = hasMatches && matchedSet.has(s);
@@ -374,6 +361,21 @@ function highlightStickers(matched) {
       }
     }
   });
+}
+
+function highlightStickers(matched) {
+  // Stop any existing halo when switching targets/results
+  if (state.callbacks.stopFocusHalo) {
+      state.callbacks.stopFocusHalo();
+  } else {
+  }
+
+  state.matchedStickers = matched;
+  state.currentIndex = -1; // Reset index
+  
+  updateStickerVisualsOnly(matched);
+
+  const hasMatches = matched.length > 0;  // Re-declare for panning scope
 
   // Pan to newest match
   if (hasMatches && state.callbacks.onPanToSticker) {
@@ -461,6 +463,9 @@ export function onDialogClosed() {
   if (!state.isActive) {
     state.currentIndex = -1;
     state.matchedStickers = [];
+  } else {
+    // If search IS active, ensure sticker visuals are consistent (e.g. after returning from flight)
+    updateStickerVisualsOnly(state.matchedStickers);
   }
 }
 

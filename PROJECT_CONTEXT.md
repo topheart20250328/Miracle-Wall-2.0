@@ -58,15 +58,24 @@
 
 *(Last Updated: 2026-01-06)*
 
-- **Status:** Maintenance & Optimization.
-- **Recent Actions:**
-  - Analyzed project structure for AI context continuity.
-  - Added JSDoc documentation to key modules (`app.js`, `ZoomController`, `StickerManagerPixi`, `MarqueeController`) to assist AI understanding.
-  - Established `PROJECT_CONTEXT.md` as the single source of truth.
+- **Status:** Polishing & Bug Fixing phase.
+- **Recent Actions (Session: UX & Realtime Polish):**
+  - **Realtime / Ghost Stickers:**
+    - **Fixed Clipping:** Added padding to offscreen canvas in `GhostCanvas.js` to prevent sticker stroke from being cut off.
+    - **Fixed Sync:** Updated `syncGhosts` logic to correctly handle Supabase presence array (finding latest session) to solve "missing ghost on reload".
+  - **Search UX:**
+    - **Fixed Visual State Persistence:** Ensured non-highlighted stickers remain dimmed after viewing/closing a sticker details dialog.
+  - **Visual Polish (Previous in Session):**
+    - **Palette Button:** Enhanced "Shake/Jump" animation feedback.
+    - **Interaction:** Blocked `Escape` key and Swipes during critical transitions to prevent UI lockups.
+    - **Flight Animation:** Fixed PixiJS coordinate lookup to restore "Flight" transition effect.
+  
 - **Active Tasks:**
-  - [x] Standardize code documentation for AI readability.
+  - [x] Fix "Ghost Sticker" clipping and sync issues.
+  - [x] Fix Search Filter visual state reset bug.
+  - [x] Restore Flight Animation pathways for Pixi.
+  - [ ] Monitor Realtime performance with multiple users.
   - [ ] Verify Mobile Safari performance (Pinch-to-zoom smoothness).
-  - [ ] Monitor Admin Panel functionality.
 
 ## 6. Database Schema Summary
 

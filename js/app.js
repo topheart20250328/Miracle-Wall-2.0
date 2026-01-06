@@ -329,6 +329,17 @@ function init() {
   cancelModalBtn.addEventListener("click", handleCancelAction);
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
+  // Add aggressive protection against Escape key during transitions
+  noteDialog.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      if (state.isTransitioning || (state.flipAnimation && !state.flipAnimation.completed)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        console.log("Escape blocked during transition");
+      }
+    }
+  });
+
   noteDialog.addEventListener("click", (event) => {
     // Allow closing when clicking on dialog backdrop OR the form container (padding area)
     // Also allow closing if clicking the "corners" of the flip card (which fall through to container)
@@ -387,6 +398,20 @@ function init() {
       setPlacementMode("idle");
     }
   });
+  // Protection: Block button clicks during animation to prevent SearchController index desync
+  // 增加保護: 當動畫進行時攔截按鈕點擊，避免 SearchController 索引脫節
+  [document.getElementById("dialogPrevBtn"), document.getElementById("dialogNextBtn")].forEach(btn => {
+    if (btn) {
+      btn.addEventListener("click", (e) => {
+         // Only block if strictly transitioning (Flight/Open/Close), allow Flip
+         if (state.isTransitioning) {
+           e.stopImmediatePropagation(); // Block other listeners
+           e.preventDefault();
+         }
+      }, { capture: true }); // Capture phase ensures this runs first
+    }
+  });
+
   SearchController.initSearchController({
     searchBtn: document.getElementById("searchBtn"),
     searchBar: document.getElementById("searchBar"),
@@ -408,6 +433,10 @@ function init() {
       }
     },
     onNavigateSticker: (sticker, direction) => {
+      // Prevent navigation only if transitioning (Flight)
+      // 僅在飛行轉場時鎖定，允許翻頁動畫中切換
+      if (state.isTransitioning) return;
+
       // Only navigate content if dialog is open
       if (noteDialog && noteDialog.open) {
         handleStickerNavigation(sticker, direction);
@@ -1066,6 +1095,24 @@ function activatePaletteDrag(event) {
   // ghost.classList.toggle("valid", drag.valid); // Removed: handled by external highlight
   // ghost.classList.toggle("invalid", !drag.valid); // Removed: handled by external highlight
   setPlacementMode("drag");
+
+  // [Visual Effect] Simulate "Pulling" sticker out of the button
+  if (paletteSticker && window.anime) {
+    // 1. Force remove CSS animation class to allow JS override
+    const paletteContainer = document.querySelector(".drag-palette");
+    if (paletteContainer) paletteContainer.classList.remove("palette-highlight");
+    
+    // 2. JS Animation
+    window.anime.remove(paletteSticker);
+    window.anime({
+      targets: paletteSticker,
+      translateY: [0, -35, 0], // Jump up and fall back
+      scale: [1, 1.15, 1],
+      duration: 450,
+      easing: 'easeOutElastic(1, .5)'
+    });
+  }
+
   return true;
 }
 
@@ -1146,6 +1193,10 @@ function handleGlobalKeyDown(event) {
   if (event.key !== "Escape") {
     return;
   }
+  // Ignore global escape if transitioning
+  if (state.isTransitioning) {
+    return;
+  }
   if (noteDialog?.open) {
     return;
   }
@@ -1187,6 +1238,43 @@ function setPlacementMode(mode, options = {}) {
   }
   if (paletteSticker) {
     paletteSticker.setAttribute("aria-pressed", normalized === "click" ? "true" : "false");
+
+    // [Visual Effect] Mode Switch Feedback
+    if (window.anime) {
+       // Force remove CSS animation class to allow JS override
+       const paletteContainer = document.querySelector(".drag-palette");
+       if (paletteContainer) paletteContainer.classList.remove("palette-highlight");
+
+       if (normalized === "click") {
+          // ENTER Click Mode: Strong shake and scale up
+          window.anime.remove(paletteSticker);
+          window.anime({
+             targets: paletteSticker,
+             scale: [1, 1.25], // Stay large
+             rotate: [0, -15, 15, -10, 10, 0], // Shake
+             filter: ['brightness(1)', 'brightness(1.3)'], // Flash
+             duration: 600,
+             easing: 'easeOutElastic(1, .5)',
+             complete: () => {
+                paletteSticker.style.transform = "scale(1.2)"; // Maintain 'Active' size
+                paletteSticker.style.filter = "brightness(1.1)"; // Maintain slight glow
+             }
+          });
+       } else if (normalized === "idle" && mode !== "drag") {
+          // EXIT Click Mode: Return to normal (But ignore if entering drag)
+          // Use 'mode' param to differentiate explicitly entering drag vs returning to idle
+          window.anime.remove(paletteSticker);
+          window.anime({
+             targets: paletteSticker,
+             scale: 1,
+             rotate: 0,
+             translateY: 0,
+             filter: 'brightness(1)',
+             duration: 300,
+             easing: 'easeOutQuad'
+          });
+       }
+    }
   }
   updatePlacementHint(true);
 }
@@ -1349,7 +1437,9 @@ function focusDialog(originNode, options = {}) {
         // 3. Get Start Rect & Texture
         let startRect = paletteRect;
         if (!startRect && StickerManager.getStickerRect) {
-            startRect = StickerManager.getStickerRect(originNode);
+            // Pass potential ID for Pixi lookup
+            const sid = originNode?.dataset?.id || state.pending?.id;
+            startRect = StickerManager.getStickerRect(originNode, sid);
         }
 
         let textureUrl = null;
@@ -1388,6 +1478,11 @@ function focusDialog(originNode, options = {}) {
                  ZoomController.setInteractionLocked(false);
              }).catch((error) => {
                  console.error("Flight animation failed", error);
+                 // Recover from failure
+                 openModal(true);
+                 if (originNode) StickerManager.setStickerInFlight(originNode, true); // Keep hidden or show? Usually show.
+                 // Actually if flight failed, we should probably just show the dialog standard.
+                 // openModal(true) resets opacity/events.
                  state.isTransitioning = false;
                  ZoomController.setInteractionLocked(false);
                  StickerManager.setStickerInFlight(originNode, false);
@@ -1405,6 +1500,17 @@ function focusDialog(originNode, options = {}) {
                  }
                  if (flipCardInner) flipCardInner.style.transform = '';
              });
+        } else {
+          // Fallback if flight setup failed (e.g. invalid rect)
+          console.warn("Flight setup failed, falling back to standard open");
+          state.isTransitioning = false;
+          ZoomController.setInteractionLocked(false);
+          openModal(true);
+          
+          if (originNode) {
+             // Ensure it's not hidden
+             StickerManager.setStickerInFlight(originNode, false);
+          }
         }
       });
     });
@@ -1446,7 +1552,8 @@ async function handleDialogClose() {
          targetRect = StickerManager.getPaletteTargetRect();
       } else {
          // Existing sticker or saved: Go back to wall position
-         targetRect = StickerManager.getStickerRect(pendingSnapshot.node); 
+         const snId = pendingSnapshot.id || pendingSnapshot.node?.dataset?.id;
+         targetRect = StickerManager.getStickerRect(pendingSnapshot.node, snId); 
          // If getStickerRect failed or returned default center, try Pixi lookup directly via logic
          if (!targetRect || (targetRect.width === 0 && targetRect.left === window.innerWidth/2)) {
              // Try to use preserved x/y from snapshot
@@ -1670,7 +1777,8 @@ async function closeDialogWithResult(result) {
         } else {
              // Go back to wall position
              // StickerManager will use Pixi logic if active, or SVG logic via fallback
-             targetRect = StickerManager.getStickerRect(pendingSnapshot.node);
+             const snId = pendingSnapshot.id || pendingSnapshot.node?.dataset?.id;
+             targetRect = StickerManager.getStickerRect(pendingSnapshot.node, snId);
         }
     }
 
@@ -2066,10 +2174,50 @@ function resetFlipCard() {
     state.flipAnimation.pause();
     state.flipAnimation = null;
   }
+  
+  // 1. Reset Inner State
   flipCardInner.dataset.state = "front";
   flipCardInner.style.transform = "rotateY(0deg)";
   flipFront?.setAttribute("aria-hidden", "false");
   flipBack?.setAttribute("aria-hidden", "true");
+  
+  // 2. Reset Outer Card Styles (Flight Mode Cleanup)
+  const card = document.querySelector(".flip-card");
+  if (card) {
+    card.style.position = '';
+    card.style.zIndex = '';
+    card.style.margin = '';
+    card.style.left = '';
+    card.style.top = '';
+    card.style.width = '';
+    card.style.height = '';
+    card.style.transform = '';
+    card.style.transition = '';
+  }
+  
+  // 3. Remove Spacer (if any)
+  // Spacer is inserted before card
+  if (card && card.previousElementSibling) {
+    const prev = card.previousElementSibling;
+    // Simple heuristic: if it's a div, hidden, and has inline width/height matching what we set
+    if (prev.tagName === 'DIV' && prev.style.visibility === 'hidden' && prev.style.flex === '0 0 auto') {
+        prev.remove();
+    }
+  }
+
+  // 4. Ensure UI elements are visible (in case they were faded out)
+  const uiElements = [
+      document.querySelector(".dialog-header"),
+      document.querySelector(".dialog-actions"),
+      document.querySelector(".note-timestamp"),
+      document.querySelector(".dialog-search-counter")
+  ].filter(el => el);
+  uiElements.forEach(el => el.style.opacity = "");
+
+  // 5. Unlock Zoom Interaction (Safety Valve)
+  ZoomController.setInteractionLocked(false);
+  state.isTransitioning = false;
+  state.isAnimatingReturn = false;
 }
 
 function playFlipReveal(options = {}) {
@@ -2145,7 +2293,7 @@ function playFlipReveal(options = {}) {
           });
 
           card.style.position = 'fixed';
-          card.style.zIndex = '9999';
+          card.style.zIndex = '500'; // High enough to cover dialog content, but below nav buttons (z-10001)
           card.style.margin = '0';
           // Set dimensions to TARGET size immediately
           card.style.left = `${targetRect.left}px`;
@@ -2186,7 +2334,15 @@ function playFlipReveal(options = {}) {
           });
           state.flipAnimation = timeline;
 
-          // Animate Card (Move & Scale) - "Flying"
+          // [Visual Effect] Trigger Mist Explosion at start position (Takeoff)
+          const startCX = startRect.left + startRect.width / 2;
+          const startCY = startRect.top + startRect.height / 2;
+          const worldPos = ZoomController.clientToSvg(startCX, startCY, viewBox);
+          if (worldPos) {
+            EffectsManager.playPixiMistExplosion(worldPos.x, worldPos.y);
+          }
+
+          // Animate Card (Move & Scale & Rotate) - "Flying"
           // We animate FROM current values (set above) TO the target values
           timeline.add({
             targets: card,
@@ -2437,6 +2593,19 @@ function playFlipReturn(options = {}) {
           }, 0);
 
           const finalize = () => {
+              // [Visual Effect] Trigger Mist Explosion at landing position
+              // Modified: Skip mist effect if returning to palette (cancelled new sticker)
+              const isReturningToPalette = pendingSnapshot && pendingSnapshot.isNew && result !== "saved";
+              
+              if (!isReturningToPalette) {
+                const landCX = targetRect.left + targetRect.width / 2;
+                const landCY = targetRect.top + targetRect.height / 2;
+                const worldPos = ZoomController.clientToSvg(landCX, landCY, viewBox);
+                if (worldPos) {
+                   EffectsManager.playPixiMistExplosion(worldPos.x, worldPos.y);
+                }
+              }
+              
               if (state.flipAnimation === timeline) {
                   state.flipAnimation = null;
               }
@@ -2661,12 +2830,20 @@ function updateDialogSubtitle(isLocked, reason = null) {
 }
 
 function initDialogSwipe() {
-  let touchStartX = 0;
-  let touchStartY = 0;
+  let touchStartX = null;
+  let touchStartY = null;
 
   if (!noteDialog) return;
 
   noteDialog.addEventListener("touchstart", (e) => {
+    // Prevent interaction if transitioning (opening/closing)
+    // 檢查 state.isTransitioning (如果有的話)
+    if (state.isTransitioning) {
+      touchStartX = null;
+      touchStartY = null;
+      return;
+    }
+
     if (e.touches.length > 0) {
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
@@ -2675,6 +2852,8 @@ function initDialogSwipe() {
 
   // Prevent native gestures (like swipe back) if user is swiping horizontally
   noteDialog.addEventListener("touchmove", (e) => {
+    if (touchStartX === null || touchStartY === null) return;
+
     if (e.touches.length > 0) {
       const touchCurrentX = e.touches[0].clientX;
       const touchCurrentY = e.touches[0].clientY;
@@ -2691,10 +2870,17 @@ function initDialogSwipe() {
   }, { passive: false });
 
   noteDialog.addEventListener("touchend", (e) => {
+    // If start was blocked, ignore end
+    if (touchStartX === null || touchStartY === null) return;
+
     if (e.changedTouches.length > 0) {
       const touchEndX = e.changedTouches[0].clientX;
       const touchEndY = e.changedTouches[0].clientY;
       handleDialogSwipe(touchStartX, touchStartY, touchEndX, touchEndY);
+
+      // Reset
+      touchStartX = null;
+      touchStartY = null;
     }
   }, { passive: false });
 }

@@ -195,7 +195,10 @@ export function clientToSvg(clientX, clientY, viewBox) {
 
 export function panToPoint(svgX, svgY, viewBox, minScale = null, onComplete = null, options = {}) {
   if (!elements.wallSvg || !viewBox) return;
-  if (interactionLocked) return;
+  
+  // Allow panning if we are merely interrupting our own existing auto-pan (resetAnimation)
+  // Otherwise, respect external interaction locks (like manual drag)
+  if (interactionLocked && !resetAnimation) return;
   
   // Calculate center of viewBox
   const centerX = viewBox.x + viewBox.width / 2;

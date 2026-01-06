@@ -3,6 +3,7 @@ const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 const VIEWBOX_WIDTH = 3500;
 const VIEWBOX_HEIGHT = 1779.31;
+const GHOST_PADDING = 4; // Add padding to avoid clipping stroke
 
 let canvas = null;
 let ctx = null;
@@ -15,7 +16,7 @@ let isVisible = true;
 let ghostImage = null;
 
 function createGhostImage() {
-  const size = STICKER_DIAMETER * 2; // Draw at 2x resolution for sharpness
+  const size = (STICKER_DIAMETER * 2) + (GHOST_PADDING * 2); // Draw at 2x resolution + padding
   const offscreen = document.createElement('canvas');
   offscreen.width = size;
   offscreen.height = size;
@@ -124,7 +125,23 @@ export function syncGhosts(presenceState, currentDeviceId) {
     if (key === currentDeviceId) continue;
 
     const presences = presenceState[key];
-    const presence = presences[0]; 
+    let presence = null;
+
+    // Supabase returns an array of presence objects for each key.
+    // We iterate to find the one with active typing location (in case of multiple tabs).
+    if (Array.isArray(presences)) {
+      for (const p of presences) {
+        if (p.typingLocation) {
+           // Should pick the latest one if multiple exist
+           if (!presence || (p.typingLocation.timestamp > (presence?.typingLocation?.timestamp || 0))) {
+             presence = p;
+           }
+        }
+      }
+    } else {
+       // Fallback
+       presence = presences;
+    }
     
     if (presence && presence.typingLocation) {
       const { x, y, timestamp } = presence.typingLocation;
@@ -238,13 +255,14 @@ function render() {
     }
 
     // Draw
-    // We draw the pre-rendered image centered at screenX, screenY
-    // The image is 2x size, so we draw it at 0.5 scale * current zoom scale?
-    // No, the sticker size should scale with the zoom.
-    // The sticker diameter in SVG units is STICKER_DIAMETER (36).
-    // So on screen it is 36 * scale.
+    // Calculate draw size including padding
+    // We want the circle content to match STICKER_DIAMETER * scale
+    // Image Ratio = TotalWidth / ContentWidth
+    const contentWidth = STICKER_DIAMETER * 2;
+    const totalWidth = contentWidth + (GHOST_PADDING * 2);
+    const ratio = totalWidth / contentWidth;
     
-    const drawSize = STICKER_DIAMETER * scale;
+    const drawSize = (STICKER_DIAMETER * scale) * ratio;
     
     ctx.drawImage(
       ghostImage, 
