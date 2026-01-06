@@ -1,9 +1,19 @@
 /**
+ * @file app.js
+ * @description 應用程式入口點 (Entry Point) 與主控制器。
+ * @role Orchestrator
+ * @responsibilities
+ * - 初始化各功能模組 (Audio, Pixi, Realtime...)。
+ * - 處理全域 UI 事件 (Zoom Slider, Settings Dialog)。
+ * - 根據 URL 參數 `?engine=svg` 決定渲染引擎。
+ * - 協調模組間的通訊 (例如: 縮放時通知 Pixi 重繪)。
+ * 
  * CRITICAL: CROSS-PLATFORM COMPATIBILITY
  * 
  * All features must be compatible with:
  * - LINE In-App Browser
  * - Mobile Safari (iOS) & Chrome (Android)
+ * - WeChat In-App Browser (Secondary)
  * 
  * Ensure robust handling of:
  * - Touch events (pointerdown/move/up/cancel)
@@ -357,12 +367,16 @@ function init() {
     if (stickerId) {
       const sticker = state.stickers.get(stickerId);
       if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
+        // Parallel Pan & Activation
+        // Reduced Zoom to 4 (mobile) / 2.5 (desktop) for better context
         const isMobile = window.innerWidth <= 640;
-        const targetZoom = isMobile ? 10 : 5;
+        const targetZoom = isMobile ? 4 : 2.5; 
+        
         ZoomController.saveState();
-        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, () => {
-          StickerManager.handleStickerActivation(stickerId);
-        }, { duration: 500, easing: 'easeOutCubic' });
+        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, null, { duration: 600, easing: 'easeOutQuart' });
+        
+        // Immediate Activation (Don't wait for pan)
+        StickerManager.handleStickerActivation(stickerId);
       } else {
         StickerManager.handleStickerActivation(stickerId);
       }
@@ -404,15 +418,18 @@ function init() {
         // Stop any existing halo before panning to new one
         EffectsManager.stopFocusHalo();
         
+        // Reduced Zoom to 4 (mobile) / 2.5 (desktop)
         const isMobile = window.innerWidth <= 640;
-        const targetZoom = isMobile ? 10 : 5;
+        const targetZoom = isMobile ? 4 : 2.5;
+        
         ZoomController.saveState();
-        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, () => {
-          if (playEffect) {
-            EffectsManager.playFocusHalo(sticker.x, sticker.y);
-          }
-          if (onComplete) onComplete();
-        }, { duration: 500, easing: 'easeOutCubic' });
+        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, null, { duration: 600, easing: 'easeOutQuart' });
+
+        if (playEffect) {
+          EffectsManager.playFocusHalo(sticker.x, sticker.y);
+        }
+        // Execute onComplete immediately to allow parallel action
+        if (onComplete) onComplete();
       } else if (onComplete) {
         onComplete();
       }
@@ -778,7 +795,7 @@ function handleStickerNavigation(sticker, direction = 1) {
   const timeline = window.anime.timeline({
     targets: flipCardInner,
     easing: "easeInOutCubic",
-    duration: 600,
+    duration: 350,
   });
   state.flipAnimation = timeline;
 
@@ -789,7 +806,7 @@ function handleStickerNavigation(sticker, direction = 1) {
   timeline
     .add({ 
       rotateY: midAngle, 
-      duration: 250,
+      duration: 150,
       complete: () => {
         // Swap content while hidden
         updateDialogContent(record, lockReason);
@@ -797,7 +814,7 @@ function handleStickerNavigation(sticker, direction = 1) {
     })
     .add({ 
       rotateY: "180deg", 
-      duration: 350, 
+      duration: 160, 
       easing: "easeOutCubic" 
     });
     
@@ -1292,10 +1309,9 @@ function focusDialog(originNode, options = {}) {
   };
 
   // Allow animation if originNode is connected OR if we are in Pixi mode (originNode is null but we have an ID)
-  if (canAnimate && ((originNode && originNode.isConnected) || (!originNode && state.pending?.id))) {
+  if (canAnimate && ((originNode && originNode.isConnected) || (!originNode && state.pending?.id) || paletteRect)) {
     state.isTransitioning = true;
     ZoomController.setInteractionLocked(true);
-    // StickerManager.setStickerInFlight(originNode, true); // Moved inside RAF to prevent flicker
 
     // 1. Open invisibly to measure layout
     try {
@@ -1307,10 +1323,7 @@ function focusDialog(originNode, options = {}) {
     // Use double RAF to ensure layout is stable before measuring
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // Hide sticker just before animation starts
-        StickerManager.setStickerInFlight(originNode, true);
-
-        // 2. Measure the actual card position
+        // 2. Measure the actual card position (Target)
         let targetRect = null;
         const card = document.querySelector(".flip-card");
         if (card) {
@@ -1325,7 +1338,7 @@ function focusDialog(originNode, options = {}) {
           }
         }
 
-        // Fallback if measurement failed (e.g. display:none or layout not ready)
+        // Fallback if measurement failed
         if (!targetRect || targetRect.width === 0) {
           const size = StickerManager.computeZoomTargetSize();
           const left = (window.innerWidth - size) / 2;
@@ -1333,46 +1346,66 @@ function focusDialog(originNode, options = {}) {
           targetRect = { left, top, width: size, height: size };
         }
 
-        StickerManager.animateStickerZoom(originNode, { 
-          sourceRect: paletteRect ?? undefined,
-          targetRect: targetRect 
-        })
-          .then(() => {
-            state.isTransitioning = false;
-            ZoomController.setInteractionLocked(false);
-            
-            // 3. Make visible and play flip
-            noteDialog.style.opacity = "1";
-            noteDialog.style.pointerEvents = "auto";
-            noteDialog.classList.remove("measuring");
-            noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
-            requestAnimationFrame(() => playFlipReveal());
-          })
-          .catch((error) => {
-            state.isTransitioning = false;
-            ZoomController.setInteractionLocked(false);
-            console.error("Sticker zoom animation failed", error);
-            StickerManager.setStickerInFlight(originNode, false);
-            StickerManager.cleanupZoomOverlay();
-            try {
-              // Ensure it's visible if animation failed
-              noteDialog.style.opacity = "";
-              noteDialog.style.pointerEvents = "";
-              noteDialog.classList.remove("measuring");
-              noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
-              if (!noteDialog.open) openModal(true);
-              else {
-                 // If already open but hidden
-                 noteDialog.style.opacity = "1";
-                 noteDialog.style.pointerEvents = "auto";
-                 noteDialog.classList.remove("measuring");
-                 noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
-                 requestAnimationFrame(() => playFlipReveal());
-              }
-            } catch (openError) {
-              console.error("Failed to open note dialog", openError);
-            }
-          });
+        // 3. Get Start Rect & Texture
+        let startRect = paletteRect;
+        if (!startRect && StickerManager.getStickerRect) {
+            startRect = StickerManager.getStickerRect(originNode);
+        }
+
+        let textureUrl = null;
+        const stickerId = originNode?.dataset?.id || state.pending?.id;
+        if (stickerId && StickerManager.getStickerTextureUrl) {
+            textureUrl = StickerManager.getStickerTextureUrl(stickerId);
+        } else if (usePaletteSource) {
+             // If coming from palette, use palette image? 
+             // Currently palette sticker is static.
+        }
+
+        // 4. Setup DOM Flight
+        if (card && startRect) {
+             // Hide original sticker
+             StickerManager.setStickerInFlight(originNode, true);
+
+             // Set Image (if available)
+             if (textureUrl) {
+                 const frontImg = card.querySelector(".flip-sticker");
+                 if (frontImg) frontImg.src = textureUrl;
+             }
+             
+             // Make visible immediately
+             noteDialog.style.opacity = "1";
+             noteDialog.style.pointerEvents = "auto";
+             noteDialog.classList.remove("measuring");
+             noteDialog.classList.add("backdrop-active"); // Trigger backdrop fade-in
+
+             // Play Animation (Flight + Reveal)
+             playFlipReveal({ 
+                 isFlight: true, 
+                 startRect, 
+                 targetRect 
+             }).then(() => {
+                 state.isTransitioning = false;
+                 ZoomController.setInteractionLocked(false);
+             }).catch((error) => {
+                 console.error("Flight animation failed", error);
+                 state.isTransitioning = false;
+                 ZoomController.setInteractionLocked(false);
+                 StickerManager.setStickerInFlight(originNode, false);
+                 // Ensure reset
+                 const card = document.querySelector(".flip-card");
+                 if(card) {
+                     card.style.position = '';
+                     card.style.zIndex = '';
+                     card.style.margin = '';
+                     card.style.left = '';
+                     card.style.top = '';
+                     card.style.width = '';
+                     card.style.height = '';
+                     card.style.transform = '';
+                 }
+                 if (flipCardInner) flipCardInner.style.transform = '';
+             });
+        }
       });
     });
   } else {
@@ -1405,30 +1438,51 @@ async function handleDialogClose() {
   // Only animate if we have a snapshot AND we are not already animating (via closeDialogWithResult)
   if (pendingSnapshot && (pendingSnapshot.node || pendingSnapshot.id) && !state.isAnimatingReturn) {
     try {
-      // If search is active, we might want to skip the "return" animation that zooms back to the original spot?
-      // Actually, animateStickerReturn usually zooms back to the sticker's position on the wall.
-      // If we are in search mode, we are likely already zoomed in on it.
-      // The issue is if animateStickerReturn triggers a zoom reset or if handleDialogClose triggers something else.
+      state.isAnimatingReturn = true;
       
-      // Check if we are in search mode
-      const isSearchActive = document.body.classList.contains("search-active");
+      // Determine Target Rect
+      let targetRect = null;
+      if (pendingSnapshot.isNew && result !== "saved") {
+         targetRect = StickerManager.getPaletteTargetRect();
+      } else {
+         // Existing sticker or saved: Go back to wall position
+         targetRect = StickerManager.getStickerRect(pendingSnapshot.node); 
+         // If getStickerRect failed or returned default center, try Pixi lookup directly via logic
+         if (!targetRect || (targetRect.width === 0 && targetRect.left === window.innerWidth/2)) {
+             // Try to use preserved x/y from snapshot
+             // This is tricky because we need screen coords, but snapshot only has SVG/World coords?
+             // Actually app.js assumes StickerManager can find it.
+         }
+      }
+
+      if (targetRect) {
+          // Use DOM Flight Return
+          await playFlipReturn({ 
+              isFlight: true, 
+              targetRect, 
+              result,
+              pendingSnapshot
+          });
+      } else {
+          // Fallback
+          await playFlipReturn(); 
+      }
       
-      // If search is active, we just want to close the dialog, but NOT restore the global zoom state yet.
-      // StickerManager.animateStickerReturn handles the visual transition of the card back to the sticker.
-      // It does NOT call ZoomController.restoreState().
-      
-      await StickerManager.animateStickerReturn(pendingSnapshot, result);
+      StickerManager.finalizeReturnWithoutAnimation(pendingSnapshot.node, Boolean(pendingSnapshot.isNew && result !== "saved"), pendingSnapshot.id);
+
     } catch (error) {
       console.error("Sticker return animation failed", error);
       StickerManager.finalizeReturnWithoutAnimation(pendingSnapshot.node, Boolean(pendingSnapshot.isNew && result !== "saved"), pendingSnapshot.id);
+    } finally {
+        state.isAnimatingReturn = false;
     }
+  } else {
+      resetFlipCard();
   }
-  resetFlipCard();
   
   // Only cleanup overlay if NOT animating
-  if (!state.isAnimatingReturn) {
-    StickerManager.cleanupZoomOverlay();
-  }
+  // (We handled animation above, so cleanup now)
+  StickerManager.cleanupZoomOverlay();
   
   // Only trigger SearchController cleanup if we are NOT in active search mode.
   // If search is active, we want to stay in search context (don't reset camera).
@@ -1589,9 +1643,12 @@ async function closeDialogWithResult(result) {
   }
   state.closing = true;
   state.isTransitioning = true;
+  state.isAnimatingReturn = true; // Flag to protect animation from handleDialogClose usage
+
   ZoomController.setInteractionLocked(true);
   noteDialog.classList.add("closing");
-  noteDialog.classList.remove("backdrop-active"); // Ensure fade-in class is removed so fade-out takes over
+  // We do NOT remove backdrop-active yet, as we want the background to stay while the card flies
+  // noteDialog.classList.remove("backdrop-active"); 
 
   // Hide navigation buttons immediately before animation
   const prevBtn = document.getElementById("dialogPrevBtn");
@@ -1601,57 +1658,64 @@ async function closeDialogWithResult(result) {
   const counter = document.getElementById("dialogSearchCounter");
   if (counter) counter.hidden = true;
 
+  const pendingSnapshot = state.pending;
+
   try {
-    // 1. Flip Back
-    await playFlipReturn().catch((error) => {
-      console.error("Flip return animation failed", error);
-    });
-
-    // 2. Start Return Animation (Create Overlay) BEFORE closing dialog
-    const pendingSnapshot = state.pending;
-    let returnAnimPromise = null;
-    
-    // Allow animation if we have a node OR if we have an ID (Pixi mode existing sticker)
+    // 1. Determine Target Rect for Return Flight
+    let targetRect = null;
     if (pendingSnapshot && (pendingSnapshot.node || pendingSnapshot.id)) {
-        // Recalculate current card position to ensure accuracy after keyboard/scroll shifts
-        const card = document.querySelector(".flip-card");
-        let currentCardRect = null;
-        if (card) {
-          const rect = card.getBoundingClientRect();
-          if (rect.width && rect.height) {
-            currentCardRect = {
-              left: rect.left,
-              top: rect.top,
-              width: rect.width,
-              height: rect.height
-            };
-          }
+        if (pendingSnapshot.isNew && result !== "saved") {
+             // If new and not saved, fly back to palette
+             targetRect = StickerManager.getPaletteTargetRect();
+        } else {
+             // Go back to wall position
+             // StickerManager will use Pixi logic if active, or SVG logic via fallback
+             targetRect = StickerManager.getStickerRect(pendingSnapshot.node);
         }
-
-        // Create overlay immediately to cover the gap
-        returnAnimPromise = StickerManager.animateStickerReturn(pendingSnapshot, result, currentCardRect);
-        state.isAnimatingReturn = true; // Flag to protect animation from handleDialogClose cleanup
     }
 
-    // 3. Close Dialog (Hide original card)
+    // 2. Execute Flight Return (Unified Animation)
+    // This creates a spacer, moves card to fixed, and animates it to targetRect
+    await playFlipReturn({ 
+        isFlight: true, // Force flight mode if targetRect is found
+        targetRect, 
+        result,
+        pendingSnapshot
+    });
+
+    // 3. Ensure Original Sticker is Visible (Explicitly via ID) or Removed (if cancelled new)
+    if (pendingSnapshot) {
+        // If it was a new sticker AND we are NOT saving, remove it.
+        const isCancelledNew = pendingSnapshot.isNew && result !== "saved";
+        if (isCancelledNew) {
+            // Remove the temporary node/sprite
+            if (pendingSnapshot.node && pendingSnapshot.node.remove) {
+                pendingSnapshot.node.remove();
+            }
+            // Ensure Pixi cleanup if needed (StickerManagerPixi handles this inside node.remove() patch)
+        } else {
+            // Restore visibility for existing or saved stickers
+            StickerManager.setStickerInFlight(pendingSnapshot.node, false, pendingSnapshot.id);
+        }
+    }
+
+    // 4. Close Dialog (Hide original card wrapper)
     if (noteDialog.open) {
       try {
-        // Clear pending so handleDialogClose doesn't try to animate again
-        state.pending = null;
+        state.pending = null; // Clear now
         noteDialog.close(result);
       } catch (error) {
         console.error("Failed to close note dialog", error);
       }
     }
 
-    // 4. Wait for animation to finish
-    if (returnAnimPromise) {
-        await returnAnimPromise;
-    }
-
     // 5. Restore Zoom State (if saved)
     await ZoomController.restoreState();
 
+  } catch (err) {
+      console.error("Close Animation Failed", err);
+      // Fallback close
+      if (noteDialog.open) noteDialog.close(result);
   } finally {
     noteDialog.classList.remove("closing");
     state.closing = false;
@@ -2008,29 +2072,225 @@ function resetFlipCard() {
   flipBack?.setAttribute("aria-hidden", "true");
 }
 
-function playFlipReveal() {
+function playFlipReveal(options = {}) {
+  // Support legacy boolean argument
+  if (typeof options === "boolean") {
+      options = { fromContinuation: options };
+  }
+  const { isFlight = false, startRect, targetRect, fromContinuation = false } = options;
+
   if (!flipCardInner) {
     noteInput.focus({ preventScroll: true });
-    return;
+    return Promise.resolve();
   }
   flipCardInner.dataset.state = "transition";
   flipFront?.setAttribute("aria-hidden", "false");
   flipBack?.setAttribute("aria-hidden", "true");
-  if (!window.anime) {
-    finalizeFlipReveal();
-    return;
+
+  if (!window.anime || typeof window.anime.timeline !== "function") {
+    resetFlipCard();
+    return Promise.resolve();
   }
   if (state.flipAnimation) {
     state.flipAnimation.pause();
   }
+
+  // === Mode 1: Full Flight Sync (Start -> Center + Flip) ===
+  if (isFlight && startRect && targetRect) {
+      const card = document.querySelector(".flip-card");
+      if (!card) return Promise.resolve();
+
+      return new Promise((resolve) => {
+          // Mode 1: Full Flight Sync with TRANSFORM SCALE (No Layout Thrashing)
+          
+          // 1. Calculate Transforms
+          // We set the card to the FINAL size immediately to ensure internal layout (text box) is correct.
+          // Then we scale it down to match the start size.
+          const scaleX = startRect.width / targetRect.width;
+          const scaleY = startRect.height / targetRect.height;
+          // Use the smaller scale to ensure it fits (assume uniform scaling for circle->circle)
+          const startScale = Math.min(scaleX, scaleY);
+          
+          const startCenterX = startRect.left + startRect.width / 2;
+          const startCenterY = startRect.top + startRect.height / 2;
+          const targetCenterX = targetRect.left + targetRect.width / 2;
+          const targetCenterY = targetRect.top + targetRect.height / 2;
+          
+          const translateX = startCenterX - targetCenterX;
+          const translateY = startCenterY - targetCenterY;
+
+          // 2. Apply Initial State (Fixed at Target, but transformed to Start)
+          
+          // [Fix Layout Jumps]: Insert a spacer to hold the layout structure
+          // so header/footer don't collapse when card goes fixed.
+          const spacer = document.createElement("div");
+          spacer.style.width = `${targetRect.width}px`;
+          spacer.style.height = `${targetRect.height}px`;
+          spacer.style.flex = "0 0 auto"; // Keep exact size in flex column
+          spacer.style.visibility = "hidden";
+          card.parentNode.insertBefore(spacer, card);
+
+          // [Fix Early Text]: Fade in other UI elements (header, footer, timestamp)
+          // instead of having them sit there.
+          const uiElements = [
+              document.querySelector(".dialog-header"),
+              document.querySelector(".dialog-actions"),
+              document.querySelector(".note-timestamp"),
+              document.querySelector(".dialog-search-counter")
+          ].filter(el => el);
+          
+          uiElements.forEach(el => {
+              el.style.opacity = "0";
+              // We'll animate them in near the end
+          });
+
+          card.style.position = 'fixed';
+          card.style.zIndex = '9999';
+          card.style.margin = '0';
+          // Set dimensions to TARGET size immediately
+          card.style.left = `${targetRect.left}px`;
+          card.style.top = `${targetRect.top}px`;
+          card.style.width = `${targetRect.width}px`;
+          card.style.height = `${targetRect.height}px`;
+          
+          // Disable CSS transitions
+          card.style.transition = 'none'; 
+          flipCardInner.style.transition = 'none';
+          const faces = card.querySelectorAll(".flip-face");
+          faces.forEach(f => f.style.transition = 'none');
+          
+          // Isolate transform origin to ensure scaling works from center
+          card.style.transformOrigin = "center center";
+
+          // Initial Transforms: Use anime.set to ensure internal state matches
+          // We do NOT use card.style.transform = `translate(...)` string manually
+          // to avoid conflicts with how Anime.js appends transforms.
+          if (window.anime.set) {
+              window.anime.set(card, {
+                  translateX: translateX,
+                  translateY: translateY,
+                  scale: startScale
+              });
+              window.anime.set(flipCardInner, {
+                  rotateY: 0
+              });
+          } else {
+             // Fallback if .set is missing (older versions), though unlikely
+             card.style.transform = `translateX(${translateX}px) translateY(${translateY}px) scale(${startScale})`;
+             flipCardInner.style.transform = "rotateY(0deg)";
+          }
+
+          const timeline = window.anime.timeline({
+            easing: "easeOutQuart", // Smooth landing
+            duration: 600,
+          });
+          state.flipAnimation = timeline;
+
+          // Animate Card (Move & Scale) - "Flying"
+          // We animate FROM current values (set above) TO the target values
+          timeline.add({
+            targets: card,
+            translateX: 0, // Animate to 0 (Target position)
+            translateY: 0,
+            scale: 1,      // Grow to full size
+            duration: 600
+          }, 0);
+
+          // Animate Inner (Rotate) - "Flipping"
+          timeline.add({
+            targets: flipCardInner,
+            rotateY: [0, 180],
+            easing: "easeOutCubic", // Less aggressive than Expo, distributed over flight
+            duration: 600
+          }, 0);
+          
+          // Fade in UI elements at the end (last 200ms)
+          timeline.add({
+              targets: uiElements,
+              opacity: [0, 1],
+              easing: "linear",
+              duration: 200
+          }, "-=200"); // Start 200ms before end
+
+          const finalize = () => {
+              if (state.flipAnimation === timeline) {
+                  state.flipAnimation = null;
+              }
+              // Remove Spacer
+              if (spacer.parentNode) {
+                  spacer.parentNode.removeChild(spacer);
+              }
+              
+              // Ensure UI elements are visible
+              uiElements.forEach(el => el.style.opacity = "");
+
+              // Reset Card Styles to Flow layout (Dialog Center)
+              if (state.flipAnimation === timeline) {
+                  state.flipAnimation = null;
+              }
+              // Reset Card Styles to Flow layout (Dialog Center)
+              card.style.position = '';
+              card.style.zIndex = '';
+              card.style.margin = '';
+              card.style.left = '';
+              card.style.top = '';
+              card.style.width = '';
+              card.style.height = '';
+              card.style.transform = ''; // Removes scale/translate
+              card.style.transition = ''; 
+              
+              faces.forEach(f => f.style.transition = '');
+              
+              // Keep rotation at 180 (Back visible)
+              flipCardInner.style.transform = "rotateY(180deg)";
+              flipCardInner.style.transition = '';
+              
+              // CRITICAL: Update state to enable pointer-events (see CSS)
+              flipCardInner.dataset.state = "back";
+              
+              flipFront?.setAttribute("aria-hidden", "true");
+              flipBack?.setAttribute("aria-hidden", "false");
+              
+              // Focus input after animation for accessibility and UX
+              if(noteInput) {
+                  requestAnimationFrame(() => noteInput.focus({ preventScroll: true }));
+              }
+
+              resolve();
+          };
+
+          if (timeline.finished && typeof timeline.finished.then === "function") {
+             timeline.finished.then(finalize);
+          } else {
+             setTimeout(finalize, 600);
+          }
+      });
+  }
+  
+  // === Mode 2: Legacy / Relay (Pivot Flip) ===
+
+  // If continuing from Zoom fly animation (which ends at 90deg), start from 90deg
+  const startAngle = fromContinuation ? "90deg" : "0deg";
+  if (fromContinuation) {
+      flipCardInner.style.transform = startAngle;
+  }
+
   const timeline = window.anime.timeline({
     targets: flipCardInner,
-    easing: "easeInOutCubic",
-    duration: 520,
+    easing: "easeOutCubic", // Quicker easing
+    duration: 350,
   });
-  timeline
-    .add({ rotateY: "90deg", duration: 220 })
-    .add({ rotateY: "180deg", duration: 240, easing: "easeOutCubic" });
+  
+  if (fromContinuation) {
+    // Only do the second half: 90 -> 180
+    timeline.add({ rotateY: "180deg", duration: 250 });
+  } else {
+    // Standard full flip: 0 -> 90 -> 180 (Legacy fallback)
+    timeline
+      .add({ rotateY: "90deg", duration: 150 })
+      .add({ rotateY: "180deg", duration: 160 });
+  }
+
   state.flipAnimation = timeline;
   if (timeline.finished && typeof timeline.finished.then === "function") {
     timeline.finished
@@ -2068,7 +2328,9 @@ function finalizeFlipReveal() {
   requestAnimationFrame(() => noteInput.focus({ preventScroll: true }));
 }
 
-function playFlipReturn() {
+function playFlipReturn(options = {}) {
+  const { isFlight = false, targetRect, result, pendingSnapshot } = options;
+
   if (!flipCardInner) {
     return Promise.resolve();
   }
@@ -2076,6 +2338,152 @@ function playFlipReturn() {
     state.flipAnimation.pause();
     state.flipAnimation = null;
   }
+
+  // === Mode 1: Flight Return (Center -> Wall/Palette) ===
+  if (isFlight && targetRect) {
+      return new Promise((resolve) => {
+          const card = document.querySelector(".flip-card");
+          if (!card) return resolve();
+
+          // 1. Capture Start State (Current Dialog Layout)
+          const startRect = card.getBoundingClientRect();
+          
+          // 2. Setup Spacer to hold dialog layout
+          const spacer = document.createElement("div");
+          spacer.style.width = `${startRect.width}px`;
+          spacer.style.height = `${startRect.height}px`;
+          spacer.style.flex = "0 0 auto";
+          spacer.style.visibility = "hidden";
+          card.parentNode.insertBefore(spacer, card);
+
+          // 3. Fade Out UI Elements immediately
+          const uiElements = [
+              document.querySelector(".dialog-header"),
+              document.querySelector(".dialog-actions"),
+              document.querySelector(".note-timestamp"),
+              document.querySelector(".dialog-search-counter")
+          ].filter(el => el);
+          uiElements.forEach(el => el.style.opacity = "0");
+
+          // 4. Set Card to Fixed and Prepare Animation
+          card.style.position = 'fixed';
+          card.style.zIndex = '9999';
+          card.style.margin = '0';
+          card.style.left = `${startRect.left}px`;
+          card.style.top = `${startRect.top}px`;
+          card.style.width = `${startRect.width}px`;
+          card.style.height = `${startRect.height}px`;
+          
+          // Ensure transforms operate from center
+          card.style.transformOrigin = "center center";
+
+          // CRITICAL: Set state to transition so both faces are visible/ready
+          flipCardInner.dataset.state = "transition"; 
+          
+          // Disable transitions
+          card.style.transition = 'none';
+          flipCardInner.style.transition = 'none';
+          const faces = card.querySelectorAll(".flip-face");
+          faces.forEach(f => f.style.transition = 'none');
+
+          // Ensure starting state is clean (no scale)
+          if (window.anime.set) {
+              window.anime.set(card, { translateX: 0, translateY: 0, scale: 1 });
+              window.anime.set(flipCardInner, { rotateY: 180 }); // Start from back
+          } else {
+             card.style.transform = `scale(1)`;
+          }
+
+          // Calculate Deltas matching the logic in Reveal
+          // We want to scale DOWN to the target size
+          // The targetRect is usually a sticker (small)
+          
+          // startRect (Big Dialog) -> targetRect (Small Sticker)
+          // We calculate the scale factor relative to the Big Dialog
+          const scaleX = targetRect.width / startRect.width;
+          const scaleY = targetRect.height / startRect.height;
+          const endScale = Math.min(scaleX, scaleY);
+          
+          const startCenterX = startRect.left + startRect.width / 2;
+          const startCenterY = startRect.top + startRect.height / 2;
+          const targetCenterX = targetRect.left + targetRect.width / 2;
+          const targetCenterY = targetRect.top + targetRect.height / 2;
+          
+          const translateX = targetCenterX - startCenterX;
+          const translateY = targetCenterY - startCenterY;
+
+          const timeline = window.anime.timeline({
+            easing: "easeInQuart", // Accelerate out
+            duration: 500,
+          });
+          state.flipAnimation = timeline;
+
+          // Animate Card (Move & Scale Down)
+          timeline.add({
+            targets: card,
+            translateX: translateX,
+            translateY: translateY,
+            scale: endScale,
+            duration: 500
+          }, 0);
+
+          // Animate Flip (Back -> Front)
+          // It should finish flipping just before landing or exactly at landing
+          timeline.add({
+            targets: flipCardInner,
+            rotateY: [180, 0], // Flip back to front (0deg)
+            easing: "easeInCubic", // Accelerate spin
+            duration: 500
+          }, 0);
+
+          const finalize = () => {
+              if (state.flipAnimation === timeline) {
+                  state.flipAnimation = null;
+              }
+              // Cleanup Spacer
+              if (spacer.parentNode) spacer.parentNode.removeChild(spacer);
+              
+              // Reset UI Opacity? No, because we are closing the dialog anyway.
+              // But just in case, we reset if we were to reopen.
+              // Actually, handleDialogClose will remove .dialog-open class and hide everything.
+
+              // Reset Card Styles
+              card.style.position = '';
+              card.style.zIndex = '';
+              card.style.margin = '';
+              card.style.left = '';
+              card.style.top = '';
+              card.style.width = '';
+              card.style.height = '';
+              card.style.transform = '';
+              card.style.transition = '';
+              faces.forEach(f => f.style.transition = '');
+              
+              flipCardInner.style.transform = "rotateY(0deg)"; // Reset to front
+              flipCardInner.style.transition = '';
+              
+              flipFront?.setAttribute("aria-hidden", "false");
+              flipBack?.setAttribute("aria-hidden", "true");
+              
+              // Trigger Starburst if saved
+              if (pendingSnapshot && (pendingSnapshot.isNew || pendingSnapshot._wasNew) && result === "saved") {
+                 if (Number.isFinite(pendingSnapshot.x) && Number.isFinite(pendingSnapshot.y)) {
+                     EffectsManager.playStarBurst(pendingSnapshot.x, pendingSnapshot.y);
+                 }
+              }
+
+              resolve();
+          };
+
+          if (timeline.finished && typeof timeline.finished.then === "function") {
+             timeline.finished.then(finalize);
+          } else {
+             setTimeout(finalize, 500);
+          }
+      });
+  }
+
+  // === Mode 2: Legacy In-Place Flip ===
   const currentState = flipCardInner.dataset.state;
   if (currentState !== "back") {
     resetFlipCard();

@@ -1,4 +1,15 @@
 
+/**
+ * @module StickerManagerPixi
+ * @description 使用 PixiJS 作為渲染引擎，繪製神蹟貼紙 (Stickers)。
+ * @role Renderer (Primary)
+ * @responsibilities
+ * - 初始化 Pixi Application 並掛載到 DOM。
+ * - 管理 Sprite 資源加載與快取。
+ * - 處理貼紙的點擊交互 (打開詳情彈窗)。
+ * - 優化大量貼紙的渲染性能。
+ * @note 這是專案的主要渲染器，SVG 版本 (`StickerManager.js`) 僅作為備用。
+ */
 import { supabase, isSupabaseConfigured } from "../supabase-config.js";
 import * as EffectsManager from "./EffectsManager.js";
 import * as AudioManager from "./AudioManager.js";
@@ -647,65 +658,71 @@ export function setStickerInFlight(node, isInFlight, id = null) {
 // Map to store sprites by ID for quick access
 // const spriteMap = new Map(); // Moved to top level scope
 
+export function getStickerRect(originNode) {
+  let startRect = null;
+  if (originNode) {
+    if (originNode._pixiSprite) {
+       const bounds = originNode._pixiSprite.getBounds();
+       // Pixi's getBounds() returns global screen coordinates if stage is correctly transformed?
+       // Usually Pixi getBounds returns coordinate relative to the renderer/stage if not projected.
+       // But assuming the passed originNode came from interaction it works.
+       // Actually, we must ensure we get screen coordinates including canvas position? 
+       // Pixi's getBounds() is typically world bounds. 
+       // If the canvas is full screen, they match client coordinates.
+       startRect = {
+         left: bounds.x,
+         top: bounds.y,
+         width: bounds.width,
+         height: bounds.height
+       };
+    } else if (originNode.getBoundingClientRect) {
+      startRect = originNode.getBoundingClientRect();
+    }
+  }
+
+  if (!startRect && globalState.pending && globalState.pending.id) {
+    const sprite = spriteMap.get(globalState.pending.id);
+    if (sprite) {
+      const wasVisible = sprite.visible;
+      sprite.visible = true;
+      const bounds = sprite.getBounds();
+      startRect = {
+        left: bounds.x,
+        top: bounds.y,
+        width: bounds.width,
+        height: bounds.height
+      };
+      sprite.visible = wasVisible;
+    }
+  }
+
+  // Fallback
+  if (!startRect) {
+     const cx = window.innerWidth / 2;
+     const cy = window.innerHeight / 2;
+     startRect = { left: cx, top: cy, width: 0, height: 0 };
+  }
+  return startRect;
+}
+
+export function getStickerTextureUrl(id) {
+  const sprite = spriteMap.get(id);
+  if (sprite && sprite.texture && sprite.texture.baseTexture) {
+      // Try to find the image source URL
+       if (sprite.texture.baseTexture.resource && sprite.texture.baseTexture.resource.src) {
+           return sprite.texture.baseTexture.resource.src;
+       }
+       // Fallback for some Pixi versions or loaders
+       if(sprite.texture.textureCacheIds && sprite.texture.textureCacheIds.length > 0) {
+           return sprite.texture.textureCacheIds[0];
+       }
+  }
+  return null;
+}
+
 export function animateStickerZoom(originNode, options) {
   return new Promise((resolve, reject) => {
-    let startRect = options.sourceRect;
-    
-    // 1. Determine Start Rect
-    if (!startRect) {
-      if (originNode) {
-        // Priority 1: Check for attached Pixi Sprite (most accurate for placement)
-        if (originNode._pixiSprite) {
-           const bounds = originNode._pixiSprite.getBounds();
-           startRect = {
-             left: bounds.x,
-             top: bounds.y,
-             width: bounds.width,
-             height: bounds.height
-           };
-        } 
-        // Priority 2: Check for <use> element (if DOM node)
-        else if (originNode.querySelector) {
-           const useEl = originNode.querySelector("use");
-           if (useEl) {
-             startRect = useEl.getBoundingClientRect();
-           } else if (originNode.getBoundingClientRect) {
-             startRect = originNode.getBoundingClientRect();
-           }
-        }
-        // Priority 3: Standard DOM node
-        else if (originNode.getBoundingClientRect) {
-          startRect = originNode.getBoundingClientRect();
-        }
-      } 
-      
-      if (!startRect && globalState.pending && globalState.pending.id) {
-        // Pixi Sprite lookup by ID
-        const sprite = spriteMap.get(globalState.pending.id);
-        if (sprite) {
-          // Ensure visible for measurement (Pixi getBounds might return 0 if invisible)
-          const wasVisible = sprite.visible;
-          sprite.visible = true;
-          
-          const bounds = sprite.getBounds();
-          startRect = {
-            left: bounds.x,
-            top: bounds.y,
-            width: bounds.width,
-            height: bounds.height
-          };
-          
-          sprite.visible = wasVisible;
-        }
-      }
-    }
-
-    if (!startRect) {
-      // Fallback to center if nothing found
-      const cx = window.innerWidth / 2;
-      const cy = window.innerHeight / 2;
-      startRect = { left: cx, top: cy, width: 0, height: 0 };
-    }
+    let startRect = options.sourceRect || getStickerRect(originNode);
 
     const targetRect = options.targetRect;
     
@@ -715,14 +732,20 @@ export function animateStickerZoom(originNode, options) {
 
     // 3. Animate
     if (window.anime) {
+      // Add rotation to the overlay to simulate flip start
+      // We want it to look like it starts flipping as it arrives
+      overlay.style.transformStyle = "preserve-3d";
+      overlay.style.perspective = "1000px";
+
       window.anime({
         targets: overlay,
         left: targetRect.left,
         top: targetRect.top,
         width: targetRect.width,
         height: targetRect.height,
-        duration: 500,
-        easing: 'easeOutExpo',
+        rotateY: [0, 90], // Rotate halfway to 90deg (seamlessly transition to flip-card which starts at 90deg)
+        duration: 400,
+        easing: 'easeOutQuart',
         complete: () => {
           // Remove overlay immediately to prevent double-sticker artifact
           // The dialog (with flip card) will take over rendering

@@ -1,4 +1,12 @@
 
+/**
+ * @module ZoomController
+ * @description 負責神蹟牆的無限畫布互動邏輯，包含平移 (Pan) 與縮放 (Zoom)。
+ * @core-logic
+ * - 處理 Pointer Events (滑鼠/觸控) 實現拖曳與雙指縮放 (Pinch-to-zoom)。
+ * - 維護 Viewport 狀態 (offset, scale)。
+ * - 提供座標轉換 (螢幕座標 <-> SVG/Canvas 座標)。
+ */
 import { clampNumber } from "./Utils.js";
 
 const zoomState = {
@@ -158,7 +166,7 @@ export function initZoomController(domElements, forceRedraw) {
     elements.zoomSlider.min = String(sliderMin);
     elements.zoomSlider.max = String(sliderMax);
     elements.zoomSlider.value = String(zoomState.scale * 100);
-    elements.zoomSlider.step = "5";
+    elements.zoomSlider.step = "1";
     elements.zoomSlider.addEventListener("input", handleZoomSliderInput);
   }
   elements.zoomResetBtn?.addEventListener("click", resetZoomView);
@@ -249,8 +257,8 @@ export function panToPoint(svgX, svgY, viewBox, minScale = null, onComplete = nu
           offsetX: targetOffsetX,
           offsetY: targetOffsetY,
           scale: targetScale,
-          duration: options.duration || 600,
-          easing: options.easing || 'easeOutExpo',
+          duration: options.duration || 500,
+          easing: options.easing || 'easeOutQuart',
           update: () => {
               viewportState.offsetX = targets.offsetX;
               viewportState.offsetY = targets.offsetY;
@@ -530,8 +538,9 @@ function invalidateStickerRendering() {
 
 function updateZoomIndicator() {
   if (elements.zoomIndicator) {
-    const percentage = Math.round(zoomState.scale * 100);
-    elements.zoomIndicator.textContent = `${percentage}%`;
+    // Show as multiplier (e.g. 1.0x) instead of percentage to save space
+    const multiplier = zoomState.scale.toFixed(1);
+    elements.zoomIndicator.textContent = `${multiplier}x`;
   }
   syncZoomSlider();
   updateZoomResetState();

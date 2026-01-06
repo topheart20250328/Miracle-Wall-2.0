@@ -1,4 +1,13 @@
 
+/**
+ * @module MarqueeController
+ * @description 控制頂部跑馬燈的動畫邏輯。
+ * @responsibilities
+ * - 從 DOM 或 Supabase 獲取最新審核通過的留言。
+ * - 使用 CSS Transforms 或 JS 動畫實現飛行文字效果。
+ * - 管理軌道 (Tracks) 避免文字重疊。
+ * - 在行動裝置上動態調整顯示數量以優化效能。
+ */
 import { clampNumber } from "./Utils.js";
 import * as StickerManager from "./StickerManager.js";
 

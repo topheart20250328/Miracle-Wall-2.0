@@ -1008,3 +1008,18 @@ export function cleanupReviewSettingsSubscription() {
     }
 }
 
+export function getStickerRect(node) {
+  if (node && node.getBoundingClientRect) {
+    const rect = node.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+  }
+  return null;
+}
+
