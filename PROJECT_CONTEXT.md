@@ -58,23 +58,22 @@
 
 *(Last Updated: 2026-01-08)*
 
-- **Status:** Polishing & Bug Fixing phase (Zoom/Camera/Mobile UX).
-- **Recent Actions (Session: Zoom Stability & Mobile UX):**
-  - **ZoomController Stability (Critical Fix):**
-    - **Fixed UI Freeze:** Solved a race condition where rapidly interrupting animations (e.g., clicking stickers quickly) caused the UI to lock up. Implemented a `pendingResolve` pattern to ensure promises always resolve even if animations are canceled.
-    - **Removed Aggressive Locks:** Reverted "aggressive" interaction locking that was causing side effects.
-  - **Mobile Experience:**
-    - **Zoom Level:** Increased mobile auto-focus zoom level to **10x** (Desktop remains 3x) to ensure text is legible on small screens.
-    - **Zoom Indicator Protection:** Added `touch-action: manipulation` and JS-based `dblclick` prevention to `.zoom-indicator` to stop accidental native browser zooming when tapping the UI.
-  - **Camera & Search UX:**
-    - **Conditional Restore:** Modified `app.js` to *skip* restoring the camera view if **Search Mode** is active when closing a sticker. This keeps the user focused on the search result context instead of jumping back to the whole wall.
-    - **Codebase:** Added `isSearchActive()` export to `SearchController.js`.
-
+- **Status:** Polishing & Bug Fixing phase.
+- **Recent Actions (Session: Stability & Mobile UX):**
+  - **Critical Stability Fix (ZoomController):**
+    - **Fixed UI Freeze:** Solved a race condition where `restoreState()` would hang indefinitely if an animation was interrupted (e.g., fast Search Exit). Implemented `pendingResolve` pattern in `ZoomController.js` to force-resolve promises on interruption.
+    - **Cleaned Up:** Removed unnecessary aggressive event blocking that was temporarily added during debugging.
+  - **Mobile UX Refinements:**
+    - **Increased Zoom:** Adjusted `onPanToSticker` (Mobile) to use `targetZoom = 10` (was lower), making stickers much easier to read/tap on phones.
+    - **Search Navigation:** Modified `app.js` to check `SearchController.isSearchActive()` before auto-returning the camera. This prevents the camera from annoying "pulling back" to overview when the user is still browsing search results.
+  - **Realtime / Ghost Stickers (Previous):**
+    - **Fixed Clipping:** Added padding to offscreen canvas in `GhostCanvas.js`.
+    - **Fixed Sync:** Updated `syncGhosts` logic for Supabase presence.
+  
 - **Active Tasks:**
-  - [x] Fix ZoomController "freeze" on rapid clicks.
-  - [x] Increase Mobile Zoom depth.
-  - [x] Refine Camera behavior during Search navigation.
-  - [x] Prevent Zoom Indicator double-tap triggering native zoom.
+  - [x] Fix "UI Freeze" on fast interaction (Race condition).
+  - [x] Increase Mobile Zoom level (10x).
+  - [x] Improve Search/Camera return logic.
   - [ ] Monitor Realtime performance with multiple users.
   - [ ] Verify Mobile Safari performance (Pinch-to-zoom smoothness).
 

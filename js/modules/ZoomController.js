@@ -227,15 +227,6 @@ export function initZoomController(domElements, forceRedraw) {
     elements.zoomSlider.addEventListener("input", handleZoomSliderInput);
   }
   elements.zoomResetBtn?.addEventListener("click", resetZoomView);
-
-  // Prevent double-click zoom behavior on the indicator text
-  if (elements.zoomIndicator) {
-    elements.zoomIndicator.addEventListener("dblclick", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-  }
-
   updateZoomStageMetrics();
 }
 
