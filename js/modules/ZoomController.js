@@ -44,8 +44,37 @@ let elements = {
 };
 let requiresStickerForceRedraw = false;
 let resetAnimation = null;
+let currentAnimationTimer = null; // Track safety timer for restoreState
+let pendingResolve = null; // Track pending promise resolve for restoreState
 let interactionElement = null;
 let interactionLocked = false;
+
+export function stopAnimation() {
+  if (currentAnimationTimer) {
+    clearTimeout(currentAnimationTimer);
+    currentAnimationTimer = null;
+  }
+  
+  if (resetAnimation) {
+    resetAnimation.pause();
+    resetAnimation = null;
+  }
+  
+  // Ensure we unlock if we forced a stop
+  if (interactionLocked) {
+    setInteractionLocked(false);
+  }
+
+  // Resolve any pending promise so await-ers don't hang
+  if (pendingResolve) {
+    pendingResolve();
+    pendingResolve = null;
+  }
+}
+
+export function isLocked() {
+  return interactionLocked;
+}
 
 export function setInteractionLocked(locked) {
   interactionLocked = Boolean(locked);
@@ -86,18 +115,32 @@ export function restoreState(duration = 600) {
   const targetState = { ...savedState };
   savedState = null;
 
+  // Resolve previous promise if exists
+  if (pendingResolve) {
+    pendingResolve();
+    pendingResolve = null;
+  }
+
+  // Stop any existing animation/timer
+  if (currentAnimationTimer) clearTimeout(currentAnimationTimer);
+  if (resetAnimation) resetAnimation.pause();
+
   return new Promise((resolve) => {
+    pendingResolve = resolve;
+
     // Safety timeout to ensure promise resolves even if animation hangs
-    const safetyTimer = setTimeout(() => {
+    currentAnimationTimer = setTimeout(() => {
       if (interactionLocked) {
         setInteractionLocked(false);
-        resolve();
       }
+      if (pendingResolve) {
+        pendingResolve();
+        pendingResolve = null;
+      }
+      currentAnimationTimer = null;
     }, duration + 200);
 
     if (window.anime) {
-        if (resetAnimation) resetAnimation.pause();
-        
         setInteractionLocked(true);
 
         const targets = { 
@@ -121,7 +164,10 @@ export function restoreState(duration = 600) {
                 updateZoomIndicator();
             },
             complete: () => {
-                clearTimeout(safetyTimer);
+                if (currentAnimationTimer) {
+                    clearTimeout(currentAnimationTimer);
+                    currentAnimationTimer = null;
+                }
                 resetAnimation = null;
                 setInteractionLocked(false);
                 viewportState.offsetX = targetState.offsetX;
@@ -129,17 +175,28 @@ export function restoreState(duration = 600) {
                 zoomState.scale = targetState.scale;
                 applyZoomTransform(true);
                 updateZoomIndicator();
-                resolve();
+                
+                if (pendingResolve) {
+                    pendingResolve();
+                    pendingResolve = null;
+                }
             }
         });
     } else {
-        clearTimeout(safetyTimer);
+        if (currentAnimationTimer) {
+             clearTimeout(currentAnimationTimer);
+             currentAnimationTimer = null;
+        }
         viewportState.offsetX = targetState.offsetX;
         viewportState.offsetY = targetState.offsetY;
         zoomState.scale = targetState.scale;
         applyZoomTransform();
         updateZoomIndicator();
-        resolve();
+        
+        if (pendingResolve) {
+            pendingResolve();
+            pendingResolve = null;
+        }
     }
   });
 }
@@ -170,6 +227,15 @@ export function initZoomController(domElements, forceRedraw) {
     elements.zoomSlider.addEventListener("input", handleZoomSliderInput);
   }
   elements.zoomResetBtn?.addEventListener("click", resetZoomView);
+
+  // Prevent double-click zoom behavior on the indicator text
+  if (elements.zoomIndicator) {
+    elements.zoomIndicator.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+  }
+
   updateZoomStageMetrics();
 }
 

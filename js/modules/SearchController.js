@@ -9,6 +9,11 @@ const state = {
   callbacks: {}
 };
 
+// Export isActive getter for external checks
+export function isSearchActive() {
+  return state.isActive;
+}
+
 export function initSearchController(elements, callbacks) {
   state.elements = elements;
   state.callbacks = callbacks;

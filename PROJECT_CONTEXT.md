@@ -56,24 +56,25 @@
 
 ## 5. Current Status & Active Tasks
 
-*(Last Updated: 2026-01-06)*
+*(Last Updated: 2026-01-08)*
 
-- **Status:** Polishing & Bug Fixing phase.
-- **Recent Actions (Session: UX & Realtime Polish):**
-  - **Realtime / Ghost Stickers:**
-    - **Fixed Clipping:** Added padding to offscreen canvas in `GhostCanvas.js` to prevent sticker stroke from being cut off.
-    - **Fixed Sync:** Updated `syncGhosts` logic to correctly handle Supabase presence array (finding latest session) to solve "missing ghost on reload".
-  - **Search UX:**
-    - **Fixed Visual State Persistence:** Ensured non-highlighted stickers remain dimmed after viewing/closing a sticker details dialog.
-  - **Visual Polish (Previous in Session):**
-    - **Palette Button:** Enhanced "Shake/Jump" animation feedback.
-    - **Interaction:** Blocked `Escape` key and Swipes during critical transitions to prevent UI lockups.
-    - **Flight Animation:** Fixed PixiJS coordinate lookup to restore "Flight" transition effect.
-  
+- **Status:** Polishing & Bug Fixing phase (Zoom/Camera/Mobile UX).
+- **Recent Actions (Session: Zoom Stability & Mobile UX):**
+  - **ZoomController Stability (Critical Fix):**
+    - **Fixed UI Freeze:** Solved a race condition where rapidly interrupting animations (e.g., clicking stickers quickly) caused the UI to lock up. Implemented a `pendingResolve` pattern to ensure promises always resolve even if animations are canceled.
+    - **Removed Aggressive Locks:** Reverted "aggressive" interaction locking that was causing side effects.
+  - **Mobile Experience:**
+    - **Zoom Level:** Increased mobile auto-focus zoom level to **10x** (Desktop remains 3x) to ensure text is legible on small screens.
+    - **Zoom Indicator Protection:** Added `touch-action: manipulation` and JS-based `dblclick` prevention to `.zoom-indicator` to stop accidental native browser zooming when tapping the UI.
+  - **Camera & Search UX:**
+    - **Conditional Restore:** Modified `app.js` to *skip* restoring the camera view if **Search Mode** is active when closing a sticker. This keeps the user focused on the search result context instead of jumping back to the whole wall.
+    - **Codebase:** Added `isSearchActive()` export to `SearchController.js`.
+
 - **Active Tasks:**
-  - [x] Fix "Ghost Sticker" clipping and sync issues.
-  - [x] Fix Search Filter visual state reset bug.
-  - [x] Restore Flight Animation pathways for Pixi.
+  - [x] Fix ZoomController "freeze" on rapid clicks.
+  - [x] Increase Mobile Zoom depth.
+  - [x] Refine Camera behavior during Search navigation.
+  - [x] Prevent Zoom Indicator double-tap triggering native zoom.
   - [ ] Monitor Realtime performance with multiple users.
   - [ ] Verify Mobile Safari performance (Pinch-to-zoom smoothness).
 

@@ -447,9 +447,9 @@ function init() {
         // Stop any existing halo before panning to new one
         EffectsManager.stopFocusHalo();
         
-        // Reduced Zoom to 4 (mobile) / 2.5 (desktop)
+        // Increased Zoom for better mobile accessibility (Request: 2026-01-08)
         const isMobile = window.innerWidth <= 640;
-        const targetZoom = isMobile ? 4 : 2.5;
+        const targetZoom = isMobile ? 10 : 3;
         
         ZoomController.saveState();
         ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, null, { duration: 600, easing: 'easeOutQuart' });
@@ -879,7 +879,10 @@ function handleEagleClick(event) {
     const stickerId = stickerNode.dataset.id;
     if (!state.pending && stickerId) {
       setPlacementMode("idle");
-      StickerManager.handleStickerActivation(stickerId);
+      // Double check transition state before activating
+      if (!state.isTransitioning) {
+          StickerManager.handleStickerActivation(stickerId);
+      }
     }
     return;
   }
@@ -1398,6 +1401,11 @@ function focusDialog(originNode, options = {}) {
 
   // Allow animation if originNode is connected OR if we are in Pixi mode (originNode is null but we have an ID)
   if (canAnimate && ((originNode && originNode.isConnected) || (!originNode && state.pending?.id) || paletteRect)) {
+    // FORCE STOP any active Zoom/Pan animation (e.g. RestoreState from Search Close)
+    if (ZoomController.stopAnimation) {
+      ZoomController.stopAnimation();
+    }
+    
     state.isTransitioning = true;
     ZoomController.setInteractionLocked(true);
 
@@ -1818,7 +1826,49 @@ async function closeDialogWithResult(result) {
     }
 
     // 5. Restore Zoom State (if saved)
-    await ZoomController.restoreState();
+    // Only restore if we are NOT in active search mode (Request: 2026-01-08)
+    // If search is active, we want to stay lingering on the sticker position
+    if (!SearchController.isSearchActive()) {
+        await ZoomController.restoreState();
+    } else {
+        // If search IS active, we don't restore, BUT we should clear the saved state 
+        // effectively updating the "restore point" to be the current zoomed-in view?
+        // OR: Do we want to keep the ORIGINAL restore point (full wall) for when search closes?
+        // Behavior: 
+        //   1. Open Search -> Save Zoom A (Wall)
+        //   2. Click Sticker -> Save Zoom B (Search View) -> Pan to Sticker
+        //   3. Close Sticker -> restoreState() -> Back to Zoom B?
+        // Actually, onPanToSticker saves state too.
+        
+        // Wait, onPanToSticker: ZoomController.saveState() (pushes current state).
+        // If we don't restore here, "savedState" in ZoomController remains populated with the previous state.
+        // If the user clicks another sticker, onPanToSticker will call saveState() again.
+        // ZoomController.saveState() implementation: "if (!savedState) { savedState = ... }"
+        // It ONLY saves if there is NO saved state.
+        
+        // So:
+        // 1. Enter Search (No Panning yet). No saved state.
+        // 2. Click Sticker 1. onPanToSticker calls saveState(). S1 = Current View (maybe Wall/Search Result View).
+        // 3. Close Sticker 1. We SKIP restoreState(). S1 is STRANDED in savedVariable?
+        //    Actually, if we skip restoreState, savedVariable remains populated in ZoomController.
+        // 4. Click Sticker 2. onPanToSticker calls saveState(). Since savedState is NOT null, it ignores the new save.
+        //    So S1 is preserved as the "return point". 
+        //    This means when we EVENTUALLY call restoreState (on Search Close), it will return to S1.
+        
+        // Is S1 the correct place? 
+        // Usually S1 was captured BEFORE panning to Sticker 1. So it's the "Search Results View".
+        // This seems correct! We want to return to "Search Results View" only when Search Closes?
+        
+        // Wait, the user said: "reverting only when completely exiting search mode".
+        // So hitting "Close" on sticker -> Stay Zoomed at Sticker location? Or go back to Search Results location?
+        // User said: "do not trigger lens auto-return... until fully reset".
+        // This implies: Stay at the specific sticker zoom level?
+        
+        // If we simply SKIP restore, we stay at the sticker close zoom level.
+        // And `savedState` remains the "Pre-Sticker 1" state.
+        // Later, if we close Search, `onSearchClose` calls `restoreState`.
+        // That will restore to "Pre-Sticker 1" state. Correct.
+    }
 
   } catch (err) {
       console.error("Close Animation Failed", err);
