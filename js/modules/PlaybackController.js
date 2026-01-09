@@ -191,8 +191,10 @@ export function startPlayback(stickersMap) {
     updateCounterDisplay(0, state.sortedStickers.length);
   }
   
-  // Reset fire intensity to 0
-  if (state.callbacks.onUpdateIntensity) {
+  // Reset fire intensity to 0 AND force clear all fire
+  if (state.callbacks.onResetFire) {
+    state.callbacks.onResetFire();
+  } else if (state.callbacks.onUpdateIntensity) {
     state.callbacks.onUpdateIntensity(0);
   }
   
@@ -373,6 +375,11 @@ function playbackLoop(timestamp) {
             revealSticker(sticker);
             updateDateDisplay(sticker.created_at);
             updateCounterDisplay(countToShow, state.sortedStickers.length);
+            
+            // Update fire intensity based on current progress
+            if (state.callbacks.onUpdateIntensity) {
+                state.callbacks.onUpdateIntensity(countToShow);
+            }
 
             if (isLast) {
               if (state.callbacks.onPlaybackComplete) {

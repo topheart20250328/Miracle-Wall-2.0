@@ -1,13 +1,11 @@
 # AI Project Context: Miracle Wall 2.0
 
 ## 1. Project Identity
-
 - **Name:** topheart Miracle Wall 2.0 (神蹟牆/見證牆)
 - **Purpose:** Interactive digital wall for church members to post testimonies/miracles.
 - **Organization:** TOP CHURCH
 
 ## 2. Tech Stack (Strict adherence required)
-
 - **Frontend:** Vanilla JavaScript (ES6+ Modules), HTML5, CSS3.
 - **Build System:** None/Native (No Webpack/Vite config found, rely on native ES modules).
 - **Render Engine:**
@@ -19,72 +17,71 @@
   - Supabase JS Client (CDN loaded in `supabase-config.js` or `index.html`)
 
 ## 3. Key Architecture Rules
-
 1. **Mobile First / Compatibility (CRITICAL):**
    - MUST work on **LINE In-App Browser**, **Mobile Safari**, and **WeChat**.
    - Touch events (Pinch/Drag) must be robust (handled in `ZoomController.js`).
    - Prevent native "pull-to-refresh" interfering with wall navigation.
 2. **Modular Design (Flat Structure but Logical Groups):**
    - **Orchestrator:** `js/app.js` (Entry point, initializes all modules).
+     - *Note: `app.js` is currently large and scheduled for refactoring (splitting event handlers).*
    - **Visual/Render:**
-     - `js/modules/StickerManagerPixi.js` (Active Renderer)
-     - `js/modules/StickerManager.js` (Legacy SVG Renderer)
+     - `js/modules/StickerManagerPixi.js` (Active Renderer - Handles Data & Pixi Sprites)
+     - `js/modules/EffectsManager.js` (Visual effects: Mist, Ripple, Fire)
      - `js/modules/GhostCanvas.js` (Background visuals)
-     - `js/modules/EffectsManager.js` (Visual effects)
    - **Interaction/UI:**
      - `js/modules/ZoomController.js` (Infinite canvas logic)
-     - `js/modules/MarqueeController.js` (Flying text headers)
      - `js/modules/SearchController.js` (Filtering stickers)
    - **Logic/Data:**
      - `js/modules/RealtimeController.js` (Supabase subscriptions)
      - `js/modules/AudioManager.js` (Background music/SFX)
-     - `js/modules/Utils.js` (Helpers)
 3. **Data Flow:**
    - **User Action:** Click Wall -> `ZoomController` gets coords -> Open Note Dialog.
    - **Save:** `app.js` Form Submit -> `supabase.from('wall_stickers').insert`.
-   - **Display:** `RealtimeController` hears INSERT -> `StickerManagerPixi` adds Sprite.
+   - **Display:** `StickerManagerPixi` handles fetching strategies (Chunked Loading).
 
 ## 4. Current File Structure Highlights
-
-- `/index.html`: Main user view.
-- `/admin.html`: Moderator view.
+- `/index.html`: Main user view (Now includes `.loader-progress-bar`).
+- `/js/app.js`: Main controller. **Needs Refactoring**.
 - `/js/modules/`:
-  - `StickerManagerPixi.js`: Current active renderer logic.
-  - `ZoomController.js`: Handles the complex pan/zoom logic for the infinite wall.
-  - `MarqueeController.js`: Handles the flying text at the top.
-- `/css/`: Split by feature (`read-mode`, `admin`, `styles`).
+  - `StickerManagerPixi.js`: Now supports chunked loading callbacks.
+  - `EffectsManager.js`: Added `playPixiLiftEffect`.
 
 ## 5. Current Status & Active Tasks
 
-*(Last Updated: 2026-01-08)*
+*(Last Updated: 2026-01-09)*
 
-- **Status:** Polishing & Bug Fixing phase.
-- **Recent Actions (Session: Stability & Mobile UX):**
-  - **Critical Stability Fix (ZoomController):**
-    - **Fixed UI Freeze:** Solved a race condition where `restoreState()` would hang indefinitely if an animation was interrupted (e.g., fast Search Exit). Implemented `pendingResolve` pattern in `ZoomController.js` to force-resolve promises on interruption.
-    - **Cleaned Up:** Removed unnecessary aggressive event blocking that was temporarily added during debugging.
-  - **Mobile UX Refinements:**
-    - **Increased Zoom:** Adjusted `onPanToSticker` (Mobile) to use `targetZoom = 10` (was lower), making stickers much easier to read/tap on phones.
-    - **Search Navigation:** Modified `app.js` to check `SearchController.isSearchActive()` before auto-returning the camera. This prevents the camera from annoying "pulling back" to overview when the user is still browsing search results.
-  - **Realtime / Ghost Stickers (Previous):**
-    - **Fixed Clipping:** Added padding to offscreen canvas in `GhostCanvas.js`.
-    - **Fixed Sync:** Updated `syncGhosts` logic for Supabase presence.
-  
-- **Active Tasks:**
-  - [x] Fix "UI Freeze" on fast interaction (Race condition).
-  - [x] Increase Mobile Zoom level (10x).
-  - [x] Improve Search/Camera return logic.
-  - [ ] Monitor Realtime performance with multiple users.
-  - [ ] Verify Mobile Safari performance (Pinch-to-zoom smoothness).
+- **Status:** Visual Polish & Refactoring Phase.
+- **Recent Actions (Session: Visuals & Stability):**
+  - **Visual Effects (Takeoff vs Landing):**
+    - Implemented distinct effects for sticker flight.
+    - **Landing:** Retained `playPixiMistExplosion` (Heavy Smoke).
+    - **Takeoff:** Created new `playPixiLiftEffect` (Light Ripple/Glow) in `EffectsManager.js`.
+  - **Loading Experience:**
+    - Implemented **Real Progress Bar** in `index.html`.
+    - Modified `StickerManagerPixi.js` to process stickers in chunks (50 per batch) and report progress back to `app.js`.
+    - Fixed UI freeze during initial load by yielding to main thread between chunks.
+  - **UX/Navigation:**
+    - **Zoom Indicator Fix:** Converted `#zoomIndicator` to a `<button>` with `touch-action: manipulation` to fix accidental double-tap zooming issues on Mobile/LINE browser.
+    - **Keyboard Navigation:** Added `ArrowLeft`/`ArrowRight` support in `noteDialog` to switch between stickers.
+    - **Camera Timing:** Reverted logic: Camera now waits for sticker to land before zooming back to overview (Sequential flow).
+  - **Code Health:**
+    - Extracted `handleNoteDialogKeyDown` from `app.js` listener to improve safety.
+    - Identified need to split `app.js` to prevent syntax errors during AI edits.
+    - **Identified Monolithic Files for Future Splitting:**
+      - `js/modules/EffectsManager.js` (~3.3k lines): Mixes Pixi/SVG/Particle logic. Needs splitting by effect type (e.g., `FireEffect.js`, `MistEffect.js`).
+      - `js/admin.js` (~1.2k lines): Mixes Auth, UI, and Data logic.
+      - `js/modules/StickerManagerPixi.js` (~1.2k lines): Growing large with loading strategies and texture management.
+
+- **Active Tasks (Next Session):**
+  - [ ] **Refactor `app.js` (Priority 1):** Split large logic blocks (Event Listeners, Dialog Handlers) into separate modules (e.g., `js/actions/DialogActions.js`).
+  - [ ] **Refactor `EffectsManager.js` (Priority 2):** Break down this massive file into smaller, effect-specific classes.
+  - [ ] **Method 2 Protocol:** Implement strict "componentize first" rule before editing complex logic to avoid syntax errors.
+  - [ ] Monitor performance of the new Chunked Loading on low-end devices.
 
 ## 6. Database Schema Summary
-
 - **Table `wall_stickers`:**
   - `id` (UUID), `x_norm` (0-1), `y_norm` (0-1), `note` (text), `is_approved` (bool), `device_id` (text).
-- **Table `wall_review_settings`:**
-  - Controls global approval switches (Turn moderation on/off).
 
 ---
-
 **Instruction for AI:**
-When starting a new session, read this file first to understand the architectural constraints and current state of the project.
+When resuming work, check "Active Tasks" first. The priority is to refactor `app.js` to safer, smaller modules before adding new features.

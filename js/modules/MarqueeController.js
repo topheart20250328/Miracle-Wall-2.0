@@ -600,3 +600,39 @@ function applyMarqueeText(line, item) {
 function normalizeMarqueeText(text) {
   return (text ?? "").replace(/\s+/g, " ").trim();
 }
+
+export function handleVisibilityChange(isVisible) {
+  if (!isVisible) {
+    // 1. Hidden: Pause everything to prevent accumulation
+    // Clear future triggers
+    clearMarqueeTimeouts();
+    
+    // Pause current animations
+    marqueeState.animations.forEach((anim) => {
+      try {
+        if (anim.playState === 'running') {
+          anim.pause();
+        }
+      } catch (e) { /* ignore */ }
+    });
+  } else {
+    // 2. Visible: Resume
+    
+    // Resume paused animations
+    marqueeState.animations.forEach((anim) => {
+      try {
+        if (anim.playState === 'paused') {
+          anim.play();
+        }
+      } catch (e) { /* ignore */ }
+    });
+
+    // Check if we need to start new lines (fill gaps)
+    // Use immediate=false and seed=false to gently resume normal flow
+    if (marqueeState.initialized && marqueeState.lines.length > 0) {
+      setTimeout(() => {
+        refreshMarqueeFlow(false, false);
+      }, 500); // Slight delay to let resumption settle
+    }
+  }
+}

@@ -42,6 +42,10 @@
     <div class="loader-content">
       <div class="loader-spinner"></div>
       <div class="loader-text">Loading...</div>
+      <div class="loader-progress-container">
+        <div class="loader-progress-bar" id="loaderProgressBar"></div>
+      </div>
+      <div class="loader-status" id="loaderStatus">Initializing...</div>
     </div>
   </div>
   <main>
@@ -216,7 +220,7 @@
           value="100"
           aria-label="縮放百分比"
         >
-        <span id="zoomIndicator" class="zoom-indicator" aria-live="polite">100%</span>
+        <button type="button" id="zoomIndicator" class="zoom-indicator" aria-live="polite" aria-label="目前縮放倍率">100%</button>
         <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
         <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
       </div>
@@ -417,5 +421,16 @@
   <script src="js/libs/pixi.min.js"></script>
   <canvas id="ghostCanvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; touch-action: none;"></canvas>
   <script type="module" src="js/app.js"></script>
+  <script>
+    // Failsafe: Remove loader if app.js fails to initialize within 3 seconds
+    setTimeout(function() {
+      var loader = document.getElementById("initialLoader");
+      if (loader) {
+        console.warn("Loader timeout reached. Forcing removal.");
+        loader.classList.add("hidden");
+        setTimeout(function(){ loader.remove(); }, 600);
+      }
+    }, 4000);
+  </script>
 </body>
 </html>

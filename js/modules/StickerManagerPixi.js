@@ -7,8 +7,10 @@ import * as ZoomController from "./ZoomController.js";
 console.log("🚀 [Pixi] Module Loaded");
 
 let app = null;
+let bgApp = null; // Second Pixi App for Background Effects
 let mainContainer = null;
-let backgroundContainer = null;
+let bgWorldContainer = null; // Moves with zoom (Fire, Sparks)
+let bgStaticContainer = null; // Fixed (Meteors)
 let effectsContainer = null;
 let globalState = {};
 let globalViewBox = {};
@@ -47,6 +49,37 @@ export function getStickerRect(node, id) {
     width: bounds.width,
     height: bounds.height
   };
+}
+
+export function getProjectedStickerRect(node, id) {
+    let cx, cy;
+    const targetId = id || (node ? node.dataset?.id : null);
+    const STICKER_DIAMETER = 36;
+    const STICKER_RADIUS = 18;
+
+    // 1. Try to get logical coordinates from Node attributes
+    if (node && node.dataset && node.dataset.cx && node.dataset.cy) {
+        cx = parseFloat(node.dataset.cx);
+        cy = parseFloat(node.dataset.cy);
+    } 
+    // 2. Fallback to Global State if ID is known (Sprite Map)
+    else if (targetId && globalState.stickers && globalState.stickers.has(targetId)) {
+        const record = globalState.stickers.get(targetId);
+        cx = record.x_norm * globalViewBox.width;
+        cy = record.y_norm * globalViewBox.height;
+    } 
+    
+    // If we failed to get logical coords, fallback to Pixi getStickerRect (visual glitch risk but safe)
+    if (typeof cx !== 'number' || typeof cy !== 'number' || isNaN(cx) || isNaN(cy)) {
+        return getStickerRect(node, id);
+    }
+
+    // 3. Project to Future Screen Coordinates
+    // Convert Center -> Top-Left
+    const x = cx - STICKER_RADIUS;
+    const y = cy - STICKER_RADIUS;
+    
+    return ZoomController.getProjectedLogicRect(x, y, STICKER_DIAMETER, STICKER_DIAMETER);
 }
 
 export function attachDragHighlight(node, type) {
@@ -411,8 +444,11 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
   }
 
   // Create Layers
-  backgroundContainer = new PIXI.Container(); // For Ambient Glow / Fire
-  app.stage.addChild(backgroundContainer);
+  bgStaticContainer = new PIXI.Container(); // Fixed (Meteors)
+  app.stage.addChild(bgStaticContainer);
+
+  bgWorldContainer = new PIXI.Container(); // Moves with zoom (Fire)
+  app.stage.addChild(bgWorldContainer);
 
   mainContainer = new PIXI.Container(); // For Stickers
   mainContainer.sortableChildren = true; // Enable z-index sorting
@@ -422,7 +458,7 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
   app.stage.addChild(effectsContainer);
 
   // Pass Pixi Context to EffectsManager
-  EffectsManager.setPixiContext(app, backgroundContainer, effectsContainer);
+  EffectsManager.setPixiContext(app, bgWorldContainer, bgStaticContainer, effectsContainer);
 
   // 4. Sync Loop (Robust Coordinate System using ZoomController State)
   app.ticker.add(() => {
@@ -478,9 +514,16 @@ export function initStickerManager(domElements, state, viewBox, reviewSettings, 
               
               const matrix = new PIXI.Matrix(finalScale, 0, 0, finalScale, finalTx, finalTy);
               
+              // Apply to Sticker & Effects Containers (Moves with wall)
               mainContainer.transform.setFromMatrix(matrix);
-              backgroundContainer.transform.setFromMatrix(matrix);
               effectsContainer.transform.setFromMatrix(matrix);
+              
+              if (bgWorldContainer) {
+                  bgWorldContainer.transform.setFromMatrix(matrix);
+              }
+
+              // bgStaticContainer (Meteors) STAYS STATIC
+              // No transform applied (Identity matrix)
 
               // --- Culling Optimization ---
               const buffer = 100;
@@ -919,7 +962,8 @@ function createHeartTexture() {
   return _cachedHeartTexture;
 }
 
-export async function loadExistingStickers() {
+export async function loadExistingStickers(onProgressCallback) {
+  if (onProgressCallback) onProgressCallback(5, "Connecting...");
   console.log("🚀 [Pixi] Loading Stickers...");
   console.log("🚀 [Pixi] Global ViewBox:", globalViewBox);
   
@@ -928,6 +972,7 @@ export async function loadExistingStickers() {
     return;
   }
 
+  if (onProgressCallback) onProgressCallback(10, "Fetching data...");
   const { data, error } = await supabase
     .from("wall_stickers")
     .select("id, x_norm, y_norm, note, is_approved, created_at, updated_at, device_id")
@@ -939,67 +984,84 @@ export async function loadExistingStickers() {
   }
 
   console.log(`🚀 [Pixi] Fetched ${data.length} stickers from DB`);
+  if (onProgressCallback) onProgressCallback(40, `Processing ${data.length} stickers...`);
 
   const texture = createHeartTexture();
   const requireApproval = globalReviewSettings.requireStickerApproval;
   const deviceId = globalState.deviceId; // Ensure app.js sets this in state
 
-  // Create Sprites & Populate Global State
-  data.forEach((record, index) => {
-    const x = record.x_norm * globalViewBox.width;
-    const y = record.y_norm * globalViewBox.height;
+  // Create Sprites & Populate Global State (Chunked)
+  const CHUNK_SIZE = 50;
+  const total = data.length;
 
-    // --- 1. Populate Global State (Crucial for Search/Marquee/Click) ---
-    const isOwner = record.device_id && deviceId && record.device_id === deviceId;
-    const canViewNote = !requireApproval || record.is_approved || isOwner;
+  for (let i = 0; i < total; i += CHUNK_SIZE) {
+    const chunk = data.slice(i, i + CHUNK_SIZE);
 
-    const stickerRecord = {
-      id: record.id,
-      x,
-      y,
-      xNorm: record.x_norm,
-      yNorm: record.y_norm,
-      note: record.note ?? "",
-      // node: null, // We don't have a real DOM node for existing stickers in Pixi mode, or we could create dummy ones?
-      // app.js expects 'node' for some operations. If we leave it null, some things might break.
-      // But creating thousands of dummy nodes defeats the purpose of Pixi.
-      // Let's see if we can get away with null or a proxy.
-      created_at: record.created_at,
-      updated_at: record.updated_at,
-      deviceId: record.device_id ?? null,
-      isApproved: Boolean(record.is_approved),
-      canViewNote: canViewNote,
-    };
-    
-    globalState.stickers.set(record.id, stickerRecord);
-    // -------------------------------------------------------------------
+    chunk.forEach((record, chunkIndex) => {
+        const index = i + chunkIndex;
+        const x = record.x_norm * globalViewBox.width;
+        const y = record.y_norm * globalViewBox.height;
 
-    if (index < 5) {
-       console.log(`🚀 [Pixi] Sticker ${index}: x=${x}, y=${y} (norm: ${record.x_norm}, ${record.y_norm})`);
-    }
+        // --- 1. Populate Global State (Crucial for Search/Marquee/Click) ---
+        const isOwner = record.device_id && deviceId && record.device_id === deviceId;
+        const canViewNote = !requireApproval || record.is_approved || isOwner;
 
-    const sprite = new PIXI.Sprite(texture);
-    sprite.anchor.set(0.5);
-    sprite.width = 36;
-    sprite.height = 36;
-    sprite.x = x;
-    sprite.y = y;
-    sprite._stickerId = record.id; // Attach ID for hit testing
-    
-    // Interaction
-    sprite.eventMode = 'static';
-    sprite.cursor = 'pointer';
-    sprite.on('pointertap', () => {
-      console.log("🚀 [Pixi] Sticker Clicked:", record.id);
-      if (managerCallbacks.openStickerModal) {
-        // app.js expects the ID string, not the record object
-        managerCallbacks.openStickerModal(record.id);
-      }
+        const stickerRecord = {
+        id: record.id,
+        x,
+        y,
+        xNorm: record.x_norm,
+        yNorm: record.y_norm,
+        note: record.note ?? "",
+        // node: null, // We don't have a real DOM node for existing stickers in Pixi mode, or we could create dummy ones?
+        // app.js expects 'node' for some operations. If we leave it null, some things might break.
+        // But creating thousands of dummy nodes defeats the purpose of Pixi.
+        // Let's see if we can get away with null or a proxy.
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+        deviceId: record.device_id ?? null,
+        isApproved: Boolean(record.is_approved),
+        canViewNote: canViewNote,
+        };
+        
+        globalState.stickers.set(record.id, stickerRecord);
+        // -------------------------------------------------------------------
+
+        if (index < 5) {
+        console.log(`🚀 [Pixi] Sticker ${index}: x=${x}, y=${y} (norm: ${record.x_norm}, ${record.y_norm})`);
+        }
+
+        const sprite = new PIXI.Sprite(texture);
+        sprite.anchor.set(0.5);
+        sprite.width = 36;
+        sprite.height = 36;
+        sprite.x = x;
+        sprite.y = y;
+        sprite._stickerId = record.id; // Attach ID for hit testing
+        
+        // Interaction
+        sprite.eventMode = 'static';
+        sprite.cursor = 'pointer';
+        sprite.on('pointertap', () => {
+        console.log("🚀 [Pixi] Sticker Clicked:", record.id);
+        if (managerCallbacks.openStickerModal) {
+            // app.js expects the ID string, not the record object
+            managerCallbacks.openStickerModal(record.id);
+        }
+        });
+
+        mainContainer.addChild(sprite);
+        spriteMap.set(record.id, sprite); // Store in map
     });
 
-    mainContainer.addChild(sprite);
-    spriteMap.set(record.id, sprite); // Store in map
-  });
+    // Update Progress
+    const percent = 40 + Math.floor(((i + chunk.length) / total) * 55);
+    if (onProgressCallback) {
+        onProgressCallback(percent, `Rendering... ${Math.floor(percent)}%`);
+        // Yield to UI
+        await new Promise(r => setTimeout(r, 0));
+    }
+  } // End Loop
   
   // Update App Logic
   if (managerCallbacks.updateMarqueePool) {

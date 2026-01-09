@@ -14,6 +14,7 @@ const fireState = {
   animation: null,
   intensity: 0, // 0 to 1
   active: false,
+  paused: false,
 };
 
 const bottomFireState = {
@@ -37,13 +38,31 @@ let mediaPrefersReducedMotion = null;
 // Pixi Context
 let pixiApp = null;
 let pixiBgLayer = null;
+let pixiStaticLayer = null; // New: For untransformed background effects
 let pixiEffectsLayer = null;
 
-export function setPixiContext(app, bgLayer, effectsLayer) {
+export function setPixiContext(app, bgLayer, staticLayer, effectsLayer) {
   pixiApp = app;
   pixiBgLayer = bgLayer;
-  pixiEffectsLayer = effectsLayer;
-  console.log("🚀 [EffectsManager] Pixi Context Set");
+  pixiStaticLayer = staticLayer;
+  
+  // Robustly handle optional staticLayer if only 3 args were passed (legacy support)
+  // If staticLayer looks like a container and effectsLayer is undefined, it might be a shift?
+  // But strictly, we expect the caller (StickerManagerPixi) to pass 4 args.
+  // If caller passes 3 args (app, bg, effects), then staticLayer is effects.
+  if (effectsLayer === undefined && staticLayer) {
+      pixiEffectsLayer = staticLayer; // Shift
+      pixiStaticLayer = null;
+  } else {
+      pixiEffectsLayer = effectsLayer;
+  }
+
+  console.log("🚀 [EffectsManager] Pixi Context Set", { 
+      hasApp: !!pixiApp, 
+      hasBg: !!pixiBgLayer, 
+      hasStatic: !!pixiStaticLayer, 
+      hasEffects: !!pixiEffectsLayer 
+  });
   
   // Re-init ambient/fire if they were waiting
   if (pixiBgLayer) {
@@ -1372,8 +1391,8 @@ export function initShimmerSystem(stickersMap, state) {
         }
     }
 
-    // Schedule next run. Faster frequency for "obvious" effect.
-    setTimeout(runLoop, 1200 + Math.random() * 800);
+    // Schedule next run. Slower frequency for subtle effect.
+    setTimeout(runLoop, 3500 + Math.random() * 1500);
   };
   runLoop();
 }
@@ -1518,6 +1537,12 @@ export function initFireEffect() {
   const spawnFireParticle = () => {
     if (!fireState.active) return;
     
+    // Check if paused (tab hidden), but keep loop alive
+    if (fireState.paused) {
+      setTimeout(spawnFireParticle, 1000);
+      return;
+    }
+
     // Calculate spawn rate based on intensity
     const intensity = fireState.intensity;
 
@@ -1644,6 +1669,85 @@ function createFireParticle(spawnPoints, center, container, intensity, isMobile)
 export function updateFireIntensity(stickersMap) {
   const count = stickersMap.size;
   setFireIntensity(count);
+}
+
+
+export function handleVisibilityChange(isVisible) {
+  // 1. Shimmer Effect
+  setShimmerPaused(!isVisible);
+
+  // 2. Fire Effect (pause spawning)
+  fireState.paused = !isVisible;
+  
+  // 3. Ambient/Glow Animations
+  // If we are using anime.js timelines, we might want to pause them too
+  // ambientState.animation is the timeline for the eagle glow
+  if (ambientState.animation) {
+    if (isVisible) {
+       ambientState.animation.play();
+    } else {
+       ambientState.animation.pause();
+    }
+  }
+
+  // 4. Pixi
+  // Pixi usually handles Ticker automatically if configured, but we can be explicit
+  if (pixiApp && pixiApp.ticker) {
+      if (isVisible) {
+          pixiApp.ticker.start();
+      } else {
+          pixiApp.ticker.stop();
+      }
+  }
+}
+
+export function resetFireEffect() {
+  // 1. Reset intensities
+  fireState.intensity = 0;
+  bottomFireState.intensity = 0;
+
+  // 2. Clear Pixi Fire
+  if (pixiFireSystem.active && pixiFireSystem.particles.length > 0) {
+    // Destroy all existing sprites immediately
+    for (const p of pixiFireSystem.particles) {
+      if (p.sprite && !p.sprite.destroyed) {
+        p.sprite.destroy();
+      }
+    }
+    pixiFireSystem.particles = [];
+  }
+  
+  // 3. Clear SVG Fire
+  if (fireState.active) {
+    // Remove all anime instances handling fire particles
+    // (Note: This is imperfect as we don't track fire-specific anime instances easily,
+    // but cleaning the DOM nodes usually stops the visual part)
+    const group = document.getElementById("fireGroup");
+    if (group) {
+        while (group.firstChild) {
+            group.firstChild.remove();
+        }
+    }
+  }
+  
+  // 4. Clear Doom Fire (Bottom Fire)
+  if (bottomFireState.firePixels) {
+      bottomFireState.firePixels.fill(0);
+      // Force a clear render
+      if (bottomFireState.ctx) {
+          bottomFireState.ctx.clearRect(0, 0, bottomFireState.width, bottomFireState.height);
+      }
+  }
+
+  // 5. Clear Holy Fire
+  if (holyFireState.firePixels) {
+      holyFireState.firePixels.fill(0);
+      holyFireState.intensity = 0;
+      holyFireState.displayIntensity = 0;
+      if (holyFireState.ctx) {
+          holyFireState.ctx.clearRect(0, 0, holyFireState.width, holyFireState.height);
+      }
+  }
 }
 
 export function setFireIntensity(count) {
@@ -3248,6 +3352,72 @@ function playPixiShimmer(cx, cy, node) {
           if (node.classList) node.classList.remove("shimmering");
           container.destroy({ children: true });
       }, 1000);
+  }
+}
+
+export function playPixiLiftEffect(cx, cy) {
+  if (!pixiEffectsLayer) return;
+
+  const container = new PIXI.Container();
+  container.x = cx;
+  container.y = cy;
+  container.zIndex = 40; // Same layer
+  pixiEffectsLayer.addChild(container);
+
+  // 1. Light Ripple (Thin ring)
+  const ripple = new PIXI.Graphics();
+  ripple.lineStyle(2, 0xFFFFFF, 0.5);
+  ripple.drawCircle(0, 0, STICKER_RADIUS);
+  container.addChild(ripple);
+
+  // 2. Soft "Pop" Glow
+  const glow = new PIXI.Graphics();
+  glow.beginFill(0xFFFFFF, 0.3);
+  glow.drawCircle(0, 0, STICKER_RADIUS);
+  glow.endFill();
+  const glowBlur = new PIXI.BlurFilter();
+  glowBlur.blur = 5;
+  glow.filters = [glowBlur];
+  glow.scale.set(0.5);
+  container.addChild(glow);
+
+  if (window.anime) {
+    const timeline = window.anime.timeline({
+      complete: () => {
+        container.destroy({ children: true });
+      }
+    });
+
+    // Ripple expands and fades quickly
+    timeline.add({
+      targets: ripple,
+      alpha: 0,
+      width: STICKER_DIAMETER * 2.0,
+      height: STICKER_DIAMETER * 2.0,
+      duration: 500,
+      easing: 'easeOutQuad'
+    }, 0);
+
+    // Glow expands slightly and fades
+    timeline.add({
+      targets: glow.scale,
+      x: 1.2,
+      y: 1.2,
+      duration: 300,
+      easing: 'easeOutQuad'
+    }, 0)
+    .add({
+      targets: glow,
+      alpha: 0,
+      duration: 300,
+      easing: 'linear'
+    }, 100);
+
+  } else {
+    // Fallback
+    setTimeout(() => {
+        container.destroy({ children: true });
+    }, 500);
   }
 }
 

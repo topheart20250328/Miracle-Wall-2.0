@@ -203,6 +203,13 @@ if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", () => {
     StickerManager.cleanupReviewSettingsSubscription();
   });
+  
+  // Handle Visibility Change (Tab Sleeping)
+  document.addEventListener("visibilitychange", () => {
+    const isVisible = document.visibilityState === "visible";
+    EffectsManager.handleVisibilityChange(isVisible);
+    MarqueeController.handleVisibilityChange(isVisible);
+  });
 }
 
 function init() {
@@ -330,15 +337,7 @@ function init() {
   noteDialog.addEventListener("cancel", handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   // Add aggressive protection against Escape key during transitions
-  noteDialog.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      if (state.isTransitioning || (state.flipAnimation && !state.flipAnimation.completed)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        console.log("Escape blocked during transition");
-      }
-    }
-  });
+  noteDialog.addEventListener("keydown", handleNoteDialogKeyDown);
 
   noteDialog.addEventListener("click", (event) => {
     // Allow closing when clicking on dialog backdrop OR the form container (padding area)
@@ -384,6 +383,11 @@ function init() {
         const targetZoom = isMobile ? 4 : 2.5; 
         
         ZoomController.saveState();
+        
+        // Critical: Set flag to prevent focusDialog (called by handleStickerActivation) 
+        // from stopping this pan animation immediately.
+        state.keepZoomAnimation = true;
+
         ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, null, { duration: 600, easing: 'easeOutQuart' });
         
         // Immediate Activation (Don't wait for pan)
@@ -452,13 +456,23 @@ function init() {
         const targetZoom = isMobile ? 10 : 3;
         
         ZoomController.saveState();
-        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, null, { duration: 600, easing: 'easeOutQuart' });
+
+        // If 'playEffect' is false (Random Mode), set a flag to prevent focusDialog
+        // from stopping the zoom animation. This allows immediate opening + smooth panning.
+        // 如果 'playEffect' 為 false (隨機模式)，設定旗標以防止 focusDialog 中斷縮放動畫。
+        // 這允許「立即開啟對話框」同時保持「平滑鏡頭移動」。
+        if (!playEffect) {
+          state.keepZoomAnimation = true;
+        }
+
+        ZoomController.panToPoint(sticker.x, sticker.y, viewBox, targetZoom, onComplete, { duration: 600, easing: 'easeOutQuart' });
 
         if (playEffect) {
           EffectsManager.playFocusHalo(sticker.x, sticker.y);
+        } else {
+           // Execute onComplete immediately for instant feedback
+           if (onComplete) onComplete();
         }
-        // Execute onComplete immediately to allow parallel action
-        if (onComplete) onComplete();
       } else if (onComplete) {
         onComplete();
       }
@@ -547,6 +561,7 @@ function init() {
     StickerManager: StickerManager, // Pass the active StickerManager (Pixi or SVG)
     getStickers: () => state.stickers,
     onUpdateIntensity: (count) => EffectsManager.setFireIntensity(count),
+    onResetFire: () => EffectsManager.resetFireEffect(),
     onPlaybackStateChange: (isPlaying) => {
       EffectsManager.setShimmerPaused(isPlaying);
       if (isPlaying) {
@@ -601,6 +616,16 @@ function init() {
   
   EffectsManager.initShimmerSystem(state.stickers, state);
 
+// Loader Helper
+  const updateLoader = (percent, text) => {
+    const bar = document.getElementById("loaderProgressBar");
+    const status = document.getElementById("loaderStatus");
+    if (bar) bar.style.width = `${Math.min(100, Math.max(0, percent))}%`;
+    if (status && text) status.textContent = text;
+  };
+
+  updateLoader(5, "Initializing...");
+
   if (isSupabaseConfigured()) {
     StickerManager.loadReviewSettings().catch((error) => console.warn("Failed to load review settings", error));
     StickerManager.subscribeToReviewSettings();
@@ -611,7 +636,8 @@ function init() {
   if (!isSupabaseConfigured()) {
     showToast("請先在 supabase-config.js 填入專案設定", "danger");
   }
-  return StickerManager.loadExistingStickers().then(() => {
+  return StickerManager.loadExistingStickers(updateLoader).then(() => {
+    updateLoader(100, "Ready!");
     MarqueeController.initMarqueeTicker();
     
     // Hide Initial Loader
@@ -1192,6 +1218,24 @@ function handlePaletteKeydown(event) {
   }
 }
 
+function handleNoteDialogKeyDown(e) {
+  // 1. Block Escape during transitions
+  if (e.key === "Escape") {
+    if (state.isTransitioning || (state.flipAnimation && !state.flipAnimation.completed)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      console.log("Escape blocked during transition");
+    }
+  } 
+  // 2. Navigation Shortcuts (Arrow Keys)
+  else if (e.key === "ArrowLeft") {
+      SearchController.navigateDialog(-1);
+  }
+  else if (e.key === "ArrowRight") {
+      SearchController.navigateDialog(1);
+  }
+}
+
 function handleGlobalKeyDown(event) {
   if (event.key !== "Escape") {
     return;
@@ -1402,8 +1446,14 @@ function focusDialog(originNode, options = {}) {
   // Allow animation if originNode is connected OR if we are in Pixi mode (originNode is null but we have an ID)
   if (canAnimate && ((originNode && originNode.isConnected) || (!originNode && state.pending?.id) || paletteRect)) {
     // FORCE STOP any active Zoom/Pan animation (e.g. RestoreState from Search Close)
+    // UNLESS we explicitly requested to keep it (e.g. Random Mode pan)
     if (ZoomController.stopAnimation) {
-      ZoomController.stopAnimation();
+      if (state.keepZoomAnimation) {
+         // Don't stop animation, just reset flag
+         state.keepZoomAnimation = false;
+      } else {
+         ZoomController.stopAnimation();
+      }
     }
     
     state.isTransitioning = true;
@@ -1790,16 +1840,29 @@ async function closeDialogWithResult(result) {
         }
     }
 
-    // 2. Execute Flight Return (Unified Animation)
-    // This creates a spacer, moves card to fixed, and animates it to targetRect
-    await playFlipReturn({ 
-        isFlight: true, // Force flight mode if targetRect is found
-        targetRect, 
-        result,
-        pendingSnapshot
-    });
+// 2. Execute Flight Return
+      // Note: We wait for flight to finish/land BEFORE triggering zoom restore
+      await playFlipReturn({
+          isFlight: true, // Force flight mode if targetRect is found
+          targetRect,
+          result,
+          pendingSnapshot
+      });
 
-    // 3. Ensure Original Sticker is Visible (Explicitly via ID) or Removed (if cancelled new)
+      // 3. Restore Zoom State (After flight lands)
+      let restorePromise = Promise.resolve();
+      if (!SearchController.isSearchActive()) {
+          restorePromise = ZoomController.restoreState();
+      }
+    
+    // Ensure zoom restore finishes (usually it's longer or similar to flight)
+    // Actually, we don't necessarily strictly wait for it to finish before closing dialog logic, 
+    // but practically it helps to keep flow consistent.
+    // However, user wants "Immediate", so letting it run in background is fine.
+    // We await it here just to be safe before unlocking interactions fully if needed?
+    // Let's NOT await it strictly blocking the UI cleanup, but maybe for the 'transitioning' flag.
+    
+    // 4. Ensure Original Sticker is Visible (Explicitly via ID) or Removed (if cancelled new)
     if (pendingSnapshot) {
         // If it was a new sticker AND we are NOT saving, remove it.
         const isCancelledNew = pendingSnapshot.isNew && result !== "saved";
@@ -1827,49 +1890,12 @@ async function closeDialogWithResult(result) {
 
     // 5. Restore Zoom State (if saved)
     // Only restore if we are NOT in active search mode (Request: 2026-01-08)
-    // If search is active, we want to stay lingering on the sticker position
-    if (!SearchController.isSearchActive()) {
-        await ZoomController.restoreState();
-    } else {
-        // If search IS active, we don't restore, BUT we should clear the saved state 
-        // effectively updating the "restore point" to be the current zoomed-in view?
-        // OR: Do we want to keep the ORIGINAL restore point (full wall) for when search closes?
-        // Behavior: 
-        //   1. Open Search -> Save Zoom A (Wall)
-        //   2. Click Sticker -> Save Zoom B (Search View) -> Pan to Sticker
-        //   3. Close Sticker -> restoreState() -> Back to Zoom B?
-        // Actually, onPanToSticker saves state too.
-        
-        // Wait, onPanToSticker: ZoomController.saveState() (pushes current state).
-        // If we don't restore here, "savedState" in ZoomController remains populated with the previous state.
-        // If the user clicks another sticker, onPanToSticker will call saveState() again.
-        // ZoomController.saveState() implementation: "if (!savedState) { savedState = ... }"
-        // It ONLY saves if there is NO saved state.
-        
-        // So:
-        // 1. Enter Search (No Panning yet). No saved state.
-        // 2. Click Sticker 1. onPanToSticker calls saveState(). S1 = Current View (maybe Wall/Search Result View).
-        // 3. Close Sticker 1. We SKIP restoreState(). S1 is STRANDED in savedVariable?
-        //    Actually, if we skip restoreState, savedVariable remains populated in ZoomController.
-        // 4. Click Sticker 2. onPanToSticker calls saveState(). Since savedState is NOT null, it ignores the new save.
-        //    So S1 is preserved as the "return point". 
-        //    This means when we EVENTUALLY call restoreState (on Search Close), it will return to S1.
-        
-        // Is S1 the correct place? 
-        // Usually S1 was captured BEFORE panning to Sticker 1. So it's the "Search Results View".
-        // This seems correct! We want to return to "Search Results View" only when Search Closes?
-        
-        // Wait, the user said: "reverting only when completely exiting search mode".
-        // So hitting "Close" on sticker -> Stay Zoomed at Sticker location? Or go back to Search Results location?
-        // User said: "do not trigger lens auto-return... until fully reset".
-        // This implies: Stay at the specific sticker zoom level?
-        
-        // If we simply SKIP restore, we stay at the sticker close zoom level.
-        // And `savedState` remains the "Pre-Sticker 1" state.
-        // Later, if we close Search, `onSearchClose` calls `restoreState`.
-        // That will restore to "Pre-Sticker 1" state. Correct.
-    }
-
+    // Zoom Logic Update: We already started restorePromise in step 2 if allowed.
+    // If search is active, we intentionally SKIP restoring zoom, keeping user at the sticker/search view.
+    
+    // 6. Cleanup
+    await restorePromise;
+    ZoomController.setInteractionLocked(false);
   } catch (err) {
       console.error("Close Animation Failed", err);
       // Fallback close
@@ -2384,12 +2410,12 @@ function playFlipReveal(options = {}) {
           });
           state.flipAnimation = timeline;
 
-          // [Visual Effect] Trigger Mist Explosion at start position (Takeoff)
+          // [Visual Effect] Trigger Lift/Ripple Effect at start position (Takeoff)
           const startCX = startRect.left + startRect.width / 2;
           const startCY = startRect.top + startRect.height / 2;
           const worldPos = ZoomController.clientToSvg(startCX, startCY, viewBox);
           if (worldPos) {
-            EffectsManager.playPixiMistExplosion(worldPos.x, worldPos.y);
+            EffectsManager.playPixiLiftEffect(worldPos.x, worldPos.y);
           }
 
           // Animate Card (Move & Scale & Rotate) - "Flying"

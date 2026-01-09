@@ -291,28 +291,29 @@ function handleQuickFilter(type, btn) {
       // Special handling for random: 
       // 1. Set state
       state.matchedStickers = matched;
-      state.currentIndex = -1;
+      state.currentIndex = matched.length > 0 ? 0 : -1;
       updateCountDisplay();
       
       // 2. NO HIGHLIGHTS (Reset visuals to normal)
-      const stickersMap = state.callbacks.getStickers ? state.callbacks.getStickers() : new Map();
-      stickersMap.forEach(s => {
+      const stickersMapRef = state.callbacks.getStickers ? state.callbacks.getStickers() : new Map();
+      stickersMapRef.forEach(s => {
         if (s.node) {
           s.node.classList.remove("search-dimmed", "search-highlight");
           if (state.callbacks.resetStickerScale) {
-        if (state.callbacks.updateStickerVisuals && s.id) {
-          state.callbacks.updateStickerVisuals(s.id, 'normal');
-        }
             state.callbacks.resetStickerScale(s.node);
           }
+        }
+        if (state.callbacks.updateStickerVisuals && s.id) {
+          state.callbacks.updateStickerVisuals(s.id, 'normal');
         }
       });
       
       // 3. Auto-open first
       if (matched.length > 0) {
         const target = matched[0];
+        
+        // Pan and Open. Pass false to playEffect to disable signal halo as requested.
         if (state.callbacks.onPanToSticker) {
-          // Pan first, then open
           state.callbacks.onPanToSticker(target, () => {
              if (state.callbacks.onFocusSticker) {
                state.callbacks.onFocusSticker(target);
@@ -453,6 +454,7 @@ export function onStickerOpened(stickerId) {
 export function onDialogClosed() {
   hideDialogNav();
   
+  let randomReset = false;
   // Check if random filter is active, if so, reset search state
   if (state.elements.searchQuickFilters) {
     const randomBtn = state.elements.searchQuickFilters.querySelector('[data-filter="random"]');
@@ -460,6 +462,7 @@ export function onDialogClosed() {
       randomBtn.classList.remove("active");
       // Reset search state (assuming input is empty, which it should be for quick filters)
       handleInput(); 
+      randomReset = true;
     }
   }
 
@@ -468,9 +471,14 @@ export function onDialogClosed() {
   if (!state.isActive) {
     state.currentIndex = -1;
     state.matchedStickers = [];
-  } else {
+  } else if (!randomReset) {
     // If search IS active, ensure sticker visuals are consistent (e.g. after returning from flight)
-    updateStickerVisualsOnly(state.matchedStickers);
+    // BUT only if we didn't just reset the layout via handleInput() above (which clears matches)
+    // And only if there's actually a query or matches.
+    const query = state.elements.input ? state.elements.input.value.trim() : "";
+    if (state.matchedStickers.length > 0 || query.length > 0) {
+       updateStickerVisualsOnly(state.matchedStickers);
+    }
   }
 }
 
