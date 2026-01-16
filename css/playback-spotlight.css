@@ -1,34 +1,408 @@
+/* Playback Mode - Cinematic Styles */
 
-/* Playback Spotlight */
-.playback-spotlight {
-  pointer-events: none;
-  mix-blend-mode: screen;
-  opacity: 0;
-  transition: opacity 0.3s ease;
+/* 1. Cinematic Bars (Black borders top/bottom) */
+.cinematic-bar {
+    position: fixed;
+    left: 0;
+    width: 100%;
+    height: 0;
+    background-color: #000;
+    z-index: 1000; /* Below zoom-controls (1400) */
+    transition: height 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: none;
+}
+.cinematic-bar.top { top: 0; }
+.cinematic-bar.bottom { bottom: 0; }
+
+body.playback-mode .cinematic-bar {
+    height: 6vh; /* Thinner bars (was 10vh) */
 }
 
-.playback-spotlight.active {
-  opacity: 1;
+/* 2. Flash Effect (White screen flash) */
+#playbackFlash {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: white;
+    z-index: 99999; /* Highest z-index for flash */
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease-out;
+}
+body.flash-active #playbackFlash {
+    opacity: 1;
+    transition: none; /* Instant on */
 }
 
-.playback-spotlight-core {
-  fill: #ffffff;
-  filter: blur(12px);
-  opacity: 0.8;
+/* 3. Counter (Top Right) */
+#playbackCounter {
+    position: fixed;
+    top: 8vh; /* Slightly higher to match thinner bars */
+    right: 5vw;
+    text-align: right;
+    color: #fff;
+    font-family: 'Noto Sans TC', sans-serif;
+    z-index: 2000; /* Above regular UI */
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: all 0.8s ease-out;
+    pointer-events: none;
 }
 
-.playback-spotlight-ring {
-  fill: none;
-  stroke: #ffffff;
-  stroke-width: 2;
-  stroke-dasharray: 10 10;
-  opacity: 0.5;
-  animation: spotlight-spin 8s linear infinite;
-  transform-origin: center;
-  transform-box: fill-box;
+body.playback-mode #playbackCounter {
+    opacity: 1;
+    transform: translateY(0);
 }
 
-@keyframes spotlight-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+#playbackCounter .count {
+    font-size: 5.5rem;
+    font-weight: 800;
+    line-height: 1;
+    display: block;
+    
+    /* Modern "Champagne Gold" - Less yellow, more metallic/premium */
+    background: linear-gradient(
+        180deg, 
+        #ffffff 0%, 
+        #fcefc0 35%, 
+        #cba35c 65%, 
+        #e6c886 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent; /* Fallback */
+    
+    /* Elegant Shadow - Crisp, not fuzzy */
+    filter: drop-shadow(0 4px 0px rgba(0,0,0,0.4)) drop-shadow(0 0 10px rgba(230, 200, 134, 0.3));
+    
+    font-feature-settings: "tnum";
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -3px; /* Tighter tracking for numbers looks more modern */
+    z-index: 2001;
+}
+
+#playbackCounter .label {
+    font-size: 0.9rem;
+    letter-spacing: 0.6em;
+    text-transform: uppercase;
+    /* Brighter White/Silver for clarity */
+    color: #f8fafc; 
+    background: linear-gradient(to bottom, #ffffff 50%, #cbd5e1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: block;
+    margin-top: 10px;
+    margin-right: -0.6em;
+    font-weight: 700;
+    filter: drop-shadow(0 0 5px rgba(255,255,255,0.5));
+    opacity: 1;
+}
+
+/* Counter Finish Animation */
+@keyframes counterFinishPulse {
+    0% { transform: scale(1); filter: drop-shadow(0 4px 0px rgba(0,0,0,0.4)); }
+    50% { transform: scale(1.15); filter: drop-shadow(0 4px 0px rgba(0,0,0,0.4)) drop-shadow(0 0 15px rgba(230, 200, 134, 0.5)); }
+    100% { transform: scale(1.1); filter: drop-shadow(0 4px 0px rgba(0,0,0,0.4)) drop-shadow(0 0 10px rgba(255, 248, 220, 0.4)); }
+}
+
+#playbackCounter .count.finished {
+    animation: counterFinishPulse 1.2s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+    /* Subtler shift: Retain champagne gold but make it brighter/cleaner */
+    background: linear-gradient(180deg, #ffffff 0%, #fffbf0 40%, #e6c886 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* 4. Date/Time Indicators (Bottom Corners) */
+.playback-date-indicator {
+    position: fixed;
+    bottom: 11vh; 
+    font-family: 'Noto Sans TC', sans-serif;
+    font-weight: 300;
+    font-size: 2.8rem;
+    line-height: 1;
+    z-index: 2000;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.8s ease-out;
+    pointer-events: none;
+    
+    /* Matching Champagne Gradient */
+    --gold-gradient: linear-gradient(180deg, #ffffff 0%, #ecd398 50%, #c4a162 100%);
+    background: var(--gold-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    
+    /* Subtle glow */
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+    letter-spacing: 0.05em;
+    
+    /* Flex layout essential for inline grid alignment */
+    display: flex;
+    align-items: center;
+}
+
+/* Ensure ALL children (including nested ones like separators) inherit the gradient text effect */
+.playback-date-indicator span {
+    background: var(--gold-gradient);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+}
+
+.playback-date-indicator.left {
+    left: 5vw;
+    /* Year aligns Left. Adding content (range) before it pushes the old Year to the RIGHT. */
+}
+
+.playback-date-indicator.right {
+    right: 5vw;
+    /* Date aligns Right. */
+    text-align: right;
+    justify-content: flex-end; 
+}
+
+/* Range Reveal Animation */
+.range-reveal {
+    display: inline-grid;
+    /* 
+       Fix: Use minmax(0, 0fr) to force collapsed state.
+       Standard 0fr can be treated as auto/min-content by browsers, causing a jump.
+    */
+    grid-template-columns: minmax(0, 0fr);
+    opacity: 0;
+    overflow: hidden;
+    vertical-align: middle; 
+    
+    /* 
+       Updated Easing: "Luxury Deceleration" using CSS Grid 
+       Transitioning grid-template-columns from 0fr to 1fr ensures the animation 
+       duration maps EXACTLY to the content width. No more "early finish".
+       
+       Curve: cubic-bezier(0.19, 1, 0.22, 1) -> Exponential Ease Out.
+       Effect: Fast start, extremely long, smooth tail braking. 
+       Result: Text reveals quickly but takes a long time to "settle" the last few pixels.
+    */
+    animation: slideInRevealGrid 2.2s cubic-bezier(0.19, 1, 0.22, 1) forwards;
+}
+
+/* CRITICAL FIX for Date (Right Aligned):
+   When pinned to the right, adding content to the left normally just grows the container leftwards,
+   leaving the rightmost text stationary.
+   To create the ILLUSION of sliding, we must animate the MARGIN or TRANSFORM of the NEW content
+   in a way that "pushes" the visual center.
+   
+   Actually, the simplest physics is:
+   The user wants "NOV 19 - JAN 14".
+   "NOV 19 -" appears. 
+   If we want "JAN 14" to move, we can't just expand width.
+   
+   However, let's look at the requirement: "初始的日期在結尾時會是滑到最新貼紙日期字樣的左邊"
+   Translation: The OLD date (JAN 14) slides to be on the LEFT of the NEW date?
+   Wait. "NOV19-JAN14". Left is NOV19. Right is JAN14.
+   User says: "Initial date (JAN 14) slides to LEFT of New Date (NOV 19)."
+   This would result in: [JAN 14] [NOV 19].
+   BUT User also says: "呈現 NOV19-JAN14 的效果".
+   This is a contradiction in my understanding of "Left/Right" vs text order.
+   
+   Let's assume "滑到...左邊" meant "Slides towards the left".
+   If [JAN 14] slides Left, and [NOV 19] appears on its Right? -> [JAN 14][NOV 19].
+   This conflicts with visual "NOV19-JAN14".
+   
+   Let's trust the "Result" description: "NOV19-JAN14".
+   And "Animation": "Initial date slides..."
+   For [JAN 14] to be at the END of [NOV 19 - JAN 14], it is naturally at the right.
+   If it starts at the right, and ends at the right, it doesn't move?
+   UNLESS the whole container moves.
+   
+   Actually, if we just execute the grid animation:
+   Left Side (Year): | [New][Old]   -> [Old] is pushed Right. (Visible Move)
+   Right Side (Date):   [New][Old] | -> [Old] stays at Edge. [New] expands Left.
+   
+   User complains "滑動的對象及方向是有問題的".
+   They likely WANT the Right Date to ALSO move.
+   To make Right Date move, we must UNPIN it from the right edge temporarily?
+   Or imply that the "Reference Point" is the Separator?
+   
+   If we change Flex Direction? No.
+   
+   Let's try to animate the RIGHT DATE specifically with a transform that counteracts the expansion? No.
+   
+   HYPOTHESIS: User wants the Date to behave like the Year.
+   Year: 2026 -> 2025-2026. (Center of mass shifts right).
+   Date: JAN 14 -> NOV 19-JAN 14. (Center of mass should shift right too?)
+   If we simply align flex-end, center shifts Left.
+   
+   Let's try removing `justify-content: flex-end` for the animation duration?
+   No.
+   
+   Let's simply apply a `translateX` to the PARENT container `.right`?
+   If we start with `translateX(0)` and end with `translateX(some_amount)`?
+   Hard to guess amount.
+   
+   Let's look at the DIRECTION variable again.
+   Year: New content [2025-] slides in.
+   Date: New content [NOV19-] slides in.
+   
+   If I set `--slide-from: 20px` (positive), the new content starts 20px to the right (overlapping old text)
+   and moves Left to its position.
+   This looks like it "pushes" out.
+*/
+
+.range-content {
+    min-width: max-content; 
+    padding-right: 2px;
+    padding-left: 2px;
+}
+
+@keyframes slideInRevealGrid {
+    0% {
+        grid-template-columns: minmax(0, 0fr);
+        opacity: 0;
+        /* Start slightly offset to create movement sense */
+        transform: translateX(var(--slide-from, -15px)); 
+    }
+    100% {
+        grid-template-columns: minmax(0, 1fr);
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* Specific Override for Date (Right) to ensure appropriate slide direction */
+/* Since it expands leftwards, we want it to feel like it's sliding out from the right */
+.playback-date-indicator.right .range-reveal {
+    --slide-from: 15px; /* Slide from Right to Left matches expansion */
+}
+
+/* Add styles for the separator to handle spacing gracefully via CSS */
+.range-separator {
+    display: inline-block;
+    margin: 0 0.35em; /* "Slightly loose" constant spacing */
+    opacity: 1; /* Keep full opacity to ensure gradient is visible */
+}
+
+/* REMOVED Old slideInReveal keyframes to avoid confusion */
+
+body.playback-mode .playback-date-indicator {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Mobile Responsive Adjustments */
+@media (max-width: 768px) {
+    #playbackCounter {
+        top: 6vh;
+        right: 5vw;
+    }
+    
+    #playbackCounter .count {
+        font-size: 3.5rem; /* Smaller for mobile */
+    }
+    
+    #playbackCounter .label {
+        font-size: 0.75rem;
+        letter-spacing: 0.4em;
+    }
+
+    /* Move Year to Top Left on Mobile */
+    .playback-date-indicator.left {
+        bottom: auto;
+        top: 8vh;
+        left: 5vw;
+        font-size: 1.8rem;
+        /* Mobile Exit Animation: Move UP when fading out */
+        transform: translateY(-20px); 
+    }
+
+    /* Date stays at Bottom Right, but smaller */
+    .playback-date-indicator.right {
+        bottom: 10vh;
+        right: 5vw;
+        font-size: 1.8rem;
+    }
+    
+    body.playback-mode .cinematic-bar {
+        height: 5vh; /* Thinner bars on mobile */
+    }
+}
+
+/* 4. Hide Defaults & Interaction Blocker */
+body.playback-mode #playbackOverlay {
+    background: transparent !important; 
+    pointer-events: auto; /* Catch clicks to exit */
+    cursor: pointer;
+    z-index: 100; /* Low z-index to allow buttons to be clickable if needed, but above map */
+}
+
+/* Ensure zoom-controls stay visible/accessible */
+/* "Layer height should not exceed button interface" implies buttons layer > black bar layer */
+/* .zoom-controls is usually z-index 1400. .cinematic-bar is 1000. Correct. */
+body.playback-mode .zoom-controls {
+    opacity: 1; /* Keep controls visible */
+    pointer-events: auto; 
+    transition: opacity 0.5s;
+}
+
+/* But hide non-essential buttons if desired? */
+/* User previously asked for movie mode... usually means minimal UI. */
+/* But "圖層高度不要高過按鈕介面" strongly implies the bars shouldn't cover the buttons. */
+/* So I will set z-index of bars to 1000, and buttons are 1400. This satisfies "below". */
+
+
+/* Playback Button (Managed by .zoom-controls in styles.css now) */
+/* The fixed positioning is removed to fit into the zoom toolbar */
+
+
+/* Eagle Sheen Effect (Ending) */
+#eagleSheenGroup {
+    transition: opacity 1s ease;
+}
+
+#eagleSheenGroup.active {
+    opacity: 1 !important; 
+    /* Force visibility. Overlay blend mode requires background color interaction on some browsers. */
+    /* Switch to Normal blending to guarantee visibility */
+    mix-blend-mode: normal; 
+}
+
+#eagleSheenGroup.active .sheen-bar {
+    /* 
+       Total Cycle: 9s (Slower repeat)
+       Scan Action: approx 3.5s - 4s (40%)
+       Pause: 5s (60%)
+       
+       Distance: From x=-1000 to x=5000 (enough to cross the eagle shape)
+       Using cubic-bezier(0.4, 0, 0.2, 1) for that "expensive" feel.
+    */
+    animation: eagleSheenScan 9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes eagleSheenScan {
+    0% {
+        transform: translateX(0); /* Starts at -1000 defined in rect x */
+        opacity: 0;
+    }
+    10% {
+        opacity: 1; /* Fade in quickly */
+    }
+    40% {
+        transform: translateX(5000px); /* Move past the eagle */
+        opacity: 1;
+    }
+    45% {
+        opacity: 0;
+        transform: translateX(5000px);
+    }
+    100% {
+        transform: translateX(5000px); /* Stay there */
+        opacity: 0;
+    }
 }

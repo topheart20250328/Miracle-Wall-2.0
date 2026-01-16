@@ -2234,6 +2234,9 @@ body.marquee-drag-active .sticker-node.shimmering {
   border-radius: 999px;
   cursor: pointer;
   transition: background 160ms ease, color 160ms ease, transform 160ms ease, border-color 160ms ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .zoom-playback:hover,
@@ -2768,3 +2771,6 @@ html.hide-online-status #onlineCountBtn {
  to { transform: rotate(360deg); }
 }
 
+. p l a y b a c k - c o o l d o w n   {   p o i n t e r - e v e n t s :   n o n e   ! i m p o r t a n t ;   } 
+ 
+ 

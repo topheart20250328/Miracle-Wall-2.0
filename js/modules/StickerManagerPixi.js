@@ -1230,20 +1230,66 @@ export async function deleteSticker(pending) {
   return { success: true };
 }
 
-// --- Playback / Review Animation Helpers ---
+// --- Playback / Review Animation Helpers (Revised for App) ---
 
-export function setAllStickersVisibility(visible) {
+export function setAllStickersVisible(visible) {
+  // Instead of completely hiding (visible=false), we just zero alpha
+  // This keeps them in the render tree but invisible
   spriteMap.forEach(sprite => {
-    sprite.visible = visible;
+    // Only affect stickers, not special objects
     sprite.alpha = visible ? 1 : 0;
+    // Mark as handled by playback
+    if (visible) {
+      sprite.renderable = true;
+    }
   });
 }
 
 export function setStickerVisible(id, visible) {
   const sprite = spriteMap.get(id);
   if (sprite) {
-    sprite.visible = visible;
-    sprite.alpha = visible ? 1 : 0;
+    if (visible) {
+         sprite.renderable = true;
+         // Pop effect logic (Simple scaling)
+         const baseScale = sprite.scale.x; 
+         // Force alpha to 0 initially for fade in
+         sprite.alpha = 0;
+         
+         const startTime = Date.now();
+         const duration = 400;
+         
+         // Simple manual tween to avoid anime.js dependency for single properties if possible, 
+         // but if we have anime.js (which we do), use it.
+         if (window.anime) {
+             // Reset scale for pop
+             sprite.scale.set(baseScale * 0.5);
+             
+             window.anime({
+                 targets: sprite,
+                 alpha: [0, 1],
+                 duration: 300,
+                 easing: 'easeOutQuad'
+             });
+             
+             // Scale Pop
+             const scaleObj = { s: baseScale * 0.5 };
+             window.anime({
+                 targets: scaleObj,
+                 s: baseScale,
+                 duration: 600,
+                 easing: 'easeOutElastic(1, .5)',
+                 update: () => {
+                     if (sprite && !sprite.destroyed) {
+                         sprite.scale.set(scaleObj.s); 
+                     }
+                 }
+             });
+         } else {
+             sprite.alpha = 1;
+         }
+    } else {
+         sprite.alpha = 0;
+    }
   }
 }
 

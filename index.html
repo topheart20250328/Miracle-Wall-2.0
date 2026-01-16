@@ -92,9 +92,6 @@
           </div>
         </div>
       </div>
-      <div id="playbackOverlay" class="playback-overlay" aria-hidden="true">
-        <div id="playbackFlash" class="playback-flash"></div>
-      </div>
       <div class="wall-stage" id="wallStage">
         <div class="wall-wrapper" id="wallWrapper">
           <svg id="wallSvg" viewBox="0 0 3500 1779.31" role="img" aria-labelledby="wallTitle" preserveAspectRatio="xMidYMid meet">
@@ -171,6 +168,15 @@
               <stop offset="70%" stop-color="#ff2a2a" stop-opacity="0.4"/>
               <stop offset="100%" stop-color="#ff2a2a" stop-opacity="0"/>
             </radialGradient>
+            
+            <!-- Sheen Gradient for Ending Effect -->
+            <linearGradient id="sheenGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+                <stop offset="30%" stop-color="#ffffff" stop-opacity="0.1" /> <!-- Weaker side -->
+                <stop offset="50%" stop-color="#ffffff" stop-opacity="0.5" /> <!-- Weaker Core (was 0.9) -->
+                <stop offset="70%" stop-color="#ffffff" stop-opacity="0.1" /> <!-- Weaker side -->
+                <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+            </linearGradient>
           </defs>
           </defs>
 
@@ -180,6 +186,12 @@
             <g id="eagleGroup" class="eagle-shape-group">
               <path id="eagleTail" class="eagle-shape" fill="url(#eagleBodyGradient)" d="M2290,1515.06l333.59,146.4-75.49-11.85,47.64,41.78-21.81,12.22-51.66-12.22,13.94,24.11h-25.83v15.99s-136.85-34.1-252.22-108.23l-43.58-19.98h55.54l-69.56-34.07h67.58l-3.88-25.94,25.73-28.21Z"/>
               <path id="eagleBody" class="eagle-shape" fill="url(#eagleBodyGradient)" d="M3096.2,496.89l309.74-164.4s-349.77,131.03-472.05,139.77c-6.07.58-11.56.73-16.46.58-103.3-4.06,287.38-53.75,414.46-246.14,127.12-192.54-30.26-11.01-30.26-11.01l-435.79,225.17,226.38-148.48,111.16-188.44-373.26,316.65-95.35,44.2,103.22-92.28,131.14-168.28,47.64-156.42-222.47,308.79s-126.97,132.17-186.68,144.13c0,0,174.83-192.36,182.84-336.63l-123.13,208.42s-135.09,172.42-166.89,192.39c-31.76,20.05-305.75,120.38-305.75,120.38l-484.49,280.58-194.55,88.15-190.69-3.99-329.57-132.31-162.81-69.01-21.64-15.73-97.44-39.45-52.23-32.89-56.24-32.89-22.62-26.34-174.68-100.33-57.48-34.61-41.88-33.59-214.29-200.37,59.48,176.4-59.48-27.99,29.71,124.19-29.71-28.03,91.3,136.12,162.68,120.38,254.21,60.04,357.45,140.44,170.67,19.98s-103.28,20.05-158.8,28.1c-55.62,8.01-87.38,32.05-87.38,32.05l-19.81,72.19h123.05l194.68,100.11,317.66,220.5,563.8,108.31h23.89l47.71,34.32h67.4l-95.24-70.48,75.41-24.04-39.7-44.09,59.53-40.03v-84.27l31.8-36.04,154.92-80.13h146.91l111.24-140.29,47.57-4.06,170.8-88.15v-46.98l79.44-73.33-119.17-16.02,119.17-12.08,59.53-78.74,123.13-45.45v-16.02l91.44-44.06-31.91-12.07,115.26-52.14-115.26-8.09,154.96-76.11-166.89-7.98,230.41-100.22-309.74,48.15ZM1082.48,1124.38c-23.38,0-50.86-23.46-50.86-23.46l86.61-12.55s-12.29,36-35.75,36Z"/>
+            </g>
+            
+            <!-- Sheen Layer (Hidden by default, triggered by JS) -->
+             <g id="eagleSheenGroup" class="eagle-sheen-group" clip-path="url(#eagleClip)" style="opacity: 0; pointer-events: none;">
+                <!-- Moving bar with gradient -->
+                <rect class="sheen-bar" x="-1000" y="0" width="2000" height="4000" fill="url(#sheenGradient)" style="mix-blend-mode: overlay;" />
             </g>
           </g>
 
@@ -195,75 +207,81 @@
           </svg>
         </div>
       </div>
-      <div class="zoom-controls" role="group" aria-label="縮放控制">
-        <button type="button" id="onlineCountBtn" class="zoom-online" aria-label="在線人數與共鳴" style="display: none;">
-          <svg class="online-heart-light" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-          </svg>
-          <span id="onlineCountNum">1</span>
-        </button>
-        <button type="button" id="playbackBtn" class="zoom-playback" aria-label="播放回顧">▶</button>
-        <button type="button" id="searchBtn" class="zoom-search" aria-label="搜尋留言">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="11" cy="11" r="8"></circle>
-            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-          </svg>
-        </button>
-        <label for="zoomSlider" class="sr-only">縮放百分比</label>
-        <input
-          type="range"
-          id="zoomSlider"
-          class="zoom-slider"
-          min="100"
-          max="1000"
-          step="5"
-          value="100"
-          aria-label="縮放百分比"
-        >
-        <button type="button" id="zoomIndicator" class="zoom-indicator" aria-live="polite" aria-label="目前縮放倍率">100%</button>
-        <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
-        <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
-      </div>
-      <div id="searchBar" class="search-bar" hidden>
-        <div class="search-input-wrapper">
-          <span class="search-icon">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="11" cy="11" r="8"></circle>
-              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
-          </span>
-          <input type="text" id="searchInput" placeholder="搜尋留言..." aria-label="搜尋留言">
-        </div>
-        <div class="search-actions">
-          <span id="searchCount" class="search-count"></span>
-          <div class="search-divider"></div>
-          <button type="button" id="searchCloseBtn" class="search-close-btn" aria-label="關閉搜尋">✕</button>
-        </div>
-      </div>
-      <div id="searchQuickFilters" class="search-quick-filters" hidden>
-        <button type="button" class="quick-filter-btn" data-filter="latest">最新 3 則</button>
-        <button type="button" class="quick-filter-btn" data-filter="month">本月留言</button>
-        <button type="button" class="quick-filter-btn" data-filter="earliest">最早留言</button>
-        <button type="button" class="quick-filter-btn" data-filter="random">隨機留言</button>
-      </div>
-      <div id="playbackDateContainer" class="playback-date-container" aria-hidden="true">
-        <span id="playbackYearDisplay" class="playback-year"></span>
-        <span id="playbackDateDisplay" class="playback-date"></span>
-        <span id="playbackCounterDisplay" class="playback-counter"></span>
-      </div>
-      <div class="drag-palette" aria-label="貼紙工具">
-        <div id="paletteSticker" class="palette-sticker" draggable="false" role="button" aria-pressed="false" tabindex="0" aria-label="貼紙樣本，點擊啟用或拖曳貼上">
-          <svg viewBox="0 0 2000 2000" aria-hidden="true">
-            <use href="#heartSticker"></use>
-          </svg>
-        </div>
-      </div>
-      <div id="statusToast" role="status" aria-live="polite"></div>
-      <div id="loadingSpinner" class="loading-spinner" role="status" aria-label="載入中">
-        <div class="spinner-ring"></div>
-      </div>
+
     </section>
   </main>
+
+  <!-- Global UI Elements (Root Scope for Stacking Context Safety) -->
+  <div id="searchBar" class="search-bar" hidden>
+    <div class="search-input-wrapper">
+      <span class="search-icon">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+      </span>
+      <input type="text" id="searchInput" placeholder="搜尋留言..." aria-label="搜尋留言">
+    </div>
+    <div class="search-actions">
+      <span id="searchCount" class="search-count"></span>
+      <div class="search-divider"></div>
+      <button type="button" id="searchCloseBtn" class="search-close-btn" aria-label="關閉搜尋">✕</button>
+    </div>
+  </div>
+
+  <div id="searchQuickFilters" class="search-quick-filters" hidden>
+    <button type="button" class="quick-filter-btn" data-filter="latest">最新 3 則</button>
+    <button type="button" class="quick-filter-btn" data-filter="month">本月留言</button>
+    <button type="button" class="quick-filter-btn" data-filter="earliest">最早留言</button>
+    <button type="button" class="quick-filter-btn" data-filter="random">隨機留言</button>
+  </div>
+
+  <div class="drag-palette" aria-label="貼紙工具">
+    <div id="paletteSticker" class="palette-sticker" draggable="false" role="button" aria-pressed="false" tabindex="0" aria-label="貼紙樣本，點擊啟用或拖曳貼上">
+      <svg viewBox="0 0 2000 2000" aria-hidden="true">
+        <use href="#heartSticker"></use>
+      </svg>
+    </div>
+  </div>
+
+  <div id="statusToast" role="status" aria-live="polite"></div>
+  <div id="loadingSpinner" class="loading-spinner" role="status" aria-label="載入中">
+    <div class="spinner-ring"></div>
+  </div>
+
+  <div class="zoom-controls" role="group" aria-label="縮放控制">
+    <button type="button" id="onlineCountBtn" class="zoom-online" aria-label="在線人數與共鳴" style="display: none;">
+      <svg class="online-heart-light" viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+      </svg>
+      <span id="onlineCountNum">1</span>
+    </button>
+    <button type="button" id="playbackBtn" class="zoom-playback" aria-label="回顧動畫">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+      </svg>
+    </button>
+    <button type="button" id="searchBtn" class="zoom-search" aria-label="搜尋留言">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"></circle>
+        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+      </svg>
+    </button>
+    <label for="zoomSlider" class="sr-only">縮放百分比</label>
+    <input
+      type="range"
+      id="zoomSlider"
+      class="zoom-slider"
+      min="100"
+      max="1000"
+      step="5"
+      value="100"
+      aria-label="縮放百分比"
+    >
+    <button type="button" id="zoomIndicator" class="zoom-indicator" aria-live="polite" aria-label="目前縮放倍率">100%</button>
+    <button type="button" id="zoomResetBtn" class="zoom-reset" aria-label="重設縮放">⟳</button>
+    <button type="button" id="settingsBtn" class="zoom-settings" aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="開啟設定">⚙</button>
+  </div>
 
   <dialog id="noteDialog" class="note-dialog" aria-labelledby="dialogTitle">
     <form method="dialog" id="noteForm">
@@ -417,6 +435,19 @@
     </div>
   </dialog>
 
+  <!-- Rebuilding Playback Overlay -->
+  <div class="cinematic-bar top"></div>
+  <div class="cinematic-bar bottom"></div>
+  <div id="playbackFlash"></div>
+  <div id="playbackCounter">
+      <span class="count">0</span>
+      <span class="label">Miracles</span>
+  </div>
+  <!-- Date Indicators -->
+  <div id="playbackYear" class="playback-date-indicator left">2026</div>
+  <div id="playbackDate" class="playback-date-indicator right">JAN 01</div>
+  <div id="playbackOverlay" title="點擊任意處退出回顧模式"></div>
+  
   <script src="https://cdn.jsdelivr.net/npm/animejs@3.2.1/lib/anime.min.js" integrity="sha384-fXdIufVbE9aU7STmdk/DWK0imNOozId9fTwzM/gi0NfPjphEIC3gq0M760UnsKVy" crossorigin="anonymous"></script>
   <script src="js/libs/pixi.min.js"></script>
   <canvas id="ghostCanvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; touch-action: none;"></canvas>

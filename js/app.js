@@ -28,6 +28,7 @@ import * as ZoomController from "./modules/ZoomController.js";
 import * as EffectsManager from "./modules/EffectsManager.js";
 import * as StickerManagerSVG from "./modules/StickerManager.js";
 import * as StickerManagerPixi from "./modules/StickerManagerPixi.js";
+import * as DialogActions from "./actions/DialogActions.js";
 
 // Feature Flag: Switch Engine based on URL param ?engine=pixi
 // Modified: Default to Pixi for testing, unless engine=svg is provided
@@ -43,10 +44,10 @@ if (usePixi) {
   console.log("%c [Engine] Using Standard SVG Renderer ", "background: #222; color: #ffffff");
 }
 
-import * as PlaybackController from "./modules/PlaybackController.js";
 import * as SearchController from "./modules/SearchController.js";
 import * as RealtimeController from "./modules/RealtimeController.js";
 import * as GhostCanvas from "./modules/GhostCanvas.js";
+import * as PlaybackController from "./modules/PlaybackController.js";
 
 const svgNS = "http://www.w3.org/2000/svg";
 const wallStage = document.getElementById("wallStage");
@@ -62,13 +63,8 @@ const paletteSticker = document.getElementById("paletteSticker");
 const zoomSlider = document.getElementById("zoomSlider");
 const zoomResetBtn = document.getElementById("zoomResetBtn");
 const jumpToRecentBtn = document.getElementById("jumpToRecentBtn");
-const playbackBtn = document.getElementById("playbackBtn");
 const onlineCountBtn = document.getElementById("onlineCountBtn");
 const onlineCountNum = document.getElementById("onlineCountNum");
-const playbackDateContainer = document.getElementById("playbackDateContainer");
-const playbackYearDisplay = document.getElementById("playbackYearDisplay");
-const playbackDateDisplay = document.getElementById("playbackDateDisplay");
-const playbackCounterDisplay = document.getElementById("playbackCounterDisplay");
 const zoomIndicator = document.getElementById("zoomIndicator");
 const settingsBtn = document.getElementById("settingsBtn");
 const settingsDialog = document.getElementById("settingsDialog");
@@ -227,117 +223,24 @@ function init() {
   const closeReadModeBtn = document.getElementById('closeReadModeBtn');
   const readModeContainer = readModeOverlay?.querySelector('.read-mode-container');
 
-  const openReadMode = (isViewMode) => {
-    if (!readModeOverlay || !readModeInput) return;
-
-    readModeOverlay.showModal();
-    document.body.style.overflow = 'hidden';
-
-    if (isViewMode) {
-      // View Mode: Show div, hide textarea
-      if (readModeContent) {
-        readModeContent.hidden = false;
-        // Wrap text in a container for proper centering with scroll
-        readModeContent.innerHTML = '';
-        const textWrapper = document.createElement('div');
-        textWrapper.className = 'read-mode-text-wrapper';
-        textWrapper.textContent = noteInput.value;
-        readModeContent.appendChild(textWrapper);
-        
-        readModeInput.hidden = true;
-      }
-      // Hide header in view mode to maximize space
-      const header = readModeOverlay.querySelector('.read-mode-header');
-      if (header) header.style.display = 'none';
-      
-      readModeOverlay.dataset.mode = 'view';
-    } else {
-      // Edit Mode: Show textarea, hide div
-      if (readModeContent) {
-        readModeContent.hidden = true;
-        readModeInput.hidden = false;
-      }
-      // Show header in edit mode
-      const header = readModeOverlay.querySelector('.read-mode-header');
-      if (header) header.style.display = '';
-
-      readModeInput.value = noteInput.value;
-      readModeOverlay.dataset.mode = 'edit';
-      // Focus end of text
-      readModeInput.focus();
-      readModeInput.setSelectionRange(readModeInput.value.length, readModeInput.value.length);
-    }
-  };
-
-  const closeReadMode = () => {
-    if (!readModeOverlay) return;
-    
-    // Sync back value if in edit mode
-    if (readModeOverlay.dataset.mode === 'edit' && readModeInput) {
-      noteInput.value = readModeInput.value;
-    }
-
-    readModeOverlay.close();
-    document.body.style.overflow = '';
-    delete readModeOverlay.dataset.mode;
-  };
-
-  // Toggle read mode on input click ONLY if locked (viewing mode)
-  noteInput.addEventListener("click", () => {
-    if (noteInput.classList.contains("locked")) {
-      openReadMode(true);
-    }
+  DialogActions.init({
+    readModeOverlay,
+    readModeInput,
+    readModeContent,
+    closeReadModeBtn,
+    readModeContainer,
+    expandBtn: document.getElementById("expandBtn"),
+    noteInput
+  }, state, {
+    SearchController,
+    closeDialogWithResult
   });
 
-  // Toggle read mode via expand button
-  const expandBtn = document.getElementById("expandBtn");
-  if (expandBtn) {
-    expandBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      // Check if we are in view mode (locked) or edit mode
-      const isViewMode = noteInput.classList.contains("locked");
-      openReadMode(isViewMode);
-    });
-  }
-
-  if (closeReadModeBtn) {
-    closeReadModeBtn.addEventListener('click', closeReadMode);
-  }
-
-  // Overlay Click Handling
-  if (readModeOverlay) {
-    readModeOverlay.addEventListener('click', (e) => {
-      const isViewMode = readModeOverlay.dataset.mode === 'view';
-      
-      if (isViewMode) {
-        // In View Mode: Click anywhere (overlay or container) closes it
-        // We don't need to check target because the event bubbles up
-        closeReadMode();
-      } else {
-        // In Edit Mode: Click on backdrop does NOT close (prevent accidental close)
-        // Only close button works (handled above)
-        // So we do nothing here
-      }
-    });
-
-    // Prevent clicks inside container from closing in Edit Mode
-    // But in View Mode, we WANT clicks inside container to close
-    if (readModeContainer) {
-      readModeContainer.addEventListener('click', (e) => {
-        const isViewMode = readModeOverlay.dataset.mode === 'view';
-        if (!isViewMode) {
-          e.stopPropagation(); // Stop bubbling to overlay in Edit Mode
-        }
-      });
-    }
-  }
-
-  cancelModalBtn.addEventListener("click", handleCancelAction);
-  noteDialog.addEventListener("cancel", handleDialogCancel);
+  cancelModalBtn.addEventListener("click", DialogActions.handleCancelAction);
+  noteDialog.addEventListener("cancel", DialogActions.handleDialogCancel);
   noteDialog.addEventListener("close", handleDialogClose);
   // Add aggressive protection against Escape key during transitions
-  noteDialog.addEventListener("keydown", handleNoteDialogKeyDown);
+  noteDialog.addEventListener("keydown", DialogActions.handleNoteDialogKeyDown);
 
   noteDialog.addEventListener("click", (event) => {
     // Allow closing when clicking on dialog backdrop OR the form container (padding area)
@@ -354,7 +257,7 @@ function init() {
       if (isEditable) {
         return;
       }
-      handleCancelAction();
+      DialogActions.handleCancelAction();
     }
   });
   initDialogSwipe();
@@ -490,11 +393,8 @@ function init() {
       // Restore zoom state if saved
       ZoomController.restoreState();
 
-      // Only resume shimmer if we are NOT entering playback mode
-      // (PlaybackController closes search when starting, which would otherwise resume shimmer)
-      if (!document.body.classList.contains("playback-mode")) {
-        EffectsManager.setShimmerPaused(false);
-      }
+      // Resume shimmer
+      EffectsManager.setShimmerPaused(false);
     },
     resetStickerScale: (node) => {
       StickerManager.resetStickerScale(node);
@@ -550,48 +450,11 @@ function init() {
     });
   }
 
-  PlaybackController.initPlaybackController({
-    playButton: playbackBtn,
-    dateContainer: playbackDateContainer,
-    yearDisplay: playbackYearDisplay,
-    dateDisplay: playbackDateDisplay,
-    counterDisplay: playbackCounterDisplay,
-    wallSvg: wallSvg
-  }, {
-    StickerManager: StickerManager, // Pass the active StickerManager (Pixi or SVG)
-    getStickers: () => state.stickers,
-    onUpdateIntensity: (count) => EffectsManager.setFireIntensity(count),
-    onResetFire: () => EffectsManager.resetFireEffect(),
-    onPlaybackStateChange: (isPlaying) => {
-      EffectsManager.setShimmerPaused(isPlaying);
-      if (isPlaying) {
-        SearchController.closeSearch();
-      } else {
-        if (state.sweepInterval) {
-          clearInterval(state.sweepInterval);
-          state.sweepInterval = null;
-        }
-      }
-    },
-    onStickerReveal: (sticker) => {
-      if (sticker && Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
-        EffectsManager.playRevealBurst(sticker.x, sticker.y);
-      }
-    },
-    onPlaybackNearEnd: () => {
-      EffectsManager.playEagleSweepEffect();
-      
-      // Repeat sweep effect every 8 seconds
-      if (state.sweepInterval) clearInterval(state.sweepInterval);
-      state.sweepInterval = setInterval(() => {
-        EffectsManager.playEagleSweepEffect();
-      }, 8000);
-    },
-    onPlaybackComplete: () => {
-      PlaybackController.finalizePlaybackUI();
-    }
-  });
-  
+  // Initialize Playback Controller
+  if (PlaybackController && PlaybackController.init) {
+    PlaybackController.init(() => state.stickers);
+  }
+
   console.log("🚀 [App] Calling StickerManager.initStickerManager...");
   StickerManager.initStickerManager({
     stickersLayer, loadingSpinner, paletteSticker
@@ -602,8 +465,6 @@ function init() {
     runPopAnimation: EffectsManager.runPopAnimation,
     triggerPendingReviewFeedback,
     openStickerModal: (id) => {
-        // Prevent opening stickers during playback
-        if (PlaybackController.isPlaying && PlaybackController.isPlaying()) return;
         openStickerModal(id);
     },
     playPlacementImpactEffect: EffectsManager.playPlacementImpactEffect
@@ -921,10 +782,7 @@ function handleEagleClick(event) {
     if (document.body.classList.contains("search-active")) {
       return;
     }
-    // Don't show warning if playback is active
-    if (document.body.classList.contains("playback-mode")) {
-      return;
-    }
+
     if (now - state.lastClickWarning > 600) {
       // Animate the palette sticker to draw attention instead of showing a toast
       if (paletteSticker) {
@@ -1215,24 +1073,6 @@ function handlePaletteKeydown(event) {
   } else if (event.key === "Escape" && state.placementMode === "click") {
     event.preventDefault();
     setPlacementMode("idle");
-  }
-}
-
-function handleNoteDialogKeyDown(e) {
-  // 1. Block Escape during transitions
-  if (e.key === "Escape") {
-    if (state.isTransitioning || (state.flipAnimation && !state.flipAnimation.completed)) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      console.log("Escape blocked during transition");
-    }
-  } 
-  // 2. Navigation Shortcuts (Arrow Keys)
-  else if (e.key === "ArrowLeft") {
-      SearchController.navigateDialog(-1);
-  }
-  else if (e.key === "ArrowRight") {
-      SearchController.navigateDialog(1);
   }
 }
 
@@ -1754,17 +1594,6 @@ async function handleDeleteSticker() {
     deleteStickerBtn.disabled = false;
     deleteStickerBtn.textContent = originalLabel;
   }
-}
-
-function handleCancelAction() {
-  if (state.isTransitioning || state.flipAnimation) return;
-  void closeDialogWithResult("cancelled");
-}
-
-function handleDialogCancel(event) {
-  event.preventDefault();
-  if (state.isTransitioning || state.flipAnimation) return;
-  void closeDialogWithResult("cancelled");
 }
 
 function isPositionConflictError(error) {

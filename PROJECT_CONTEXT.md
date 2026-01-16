@@ -48,35 +48,33 @@
 
 ## 5. Current Status & Active Tasks
 
-*(Last Updated: 2026-01-09)*
+*(Last Updated: 2026-01-16 Playback Polish & Visual Effects)*
 
-- **Status:** Visual Polish & Refactoring Phase.
-- **Recent Actions (Session: Visuals & Stability):**
-  - **Visual Effects (Takeoff vs Landing):**
-    - Implemented distinct effects for sticker flight.
-    - **Landing:** Retained `playPixiMistExplosion` (Heavy Smoke).
-    - **Takeoff:** Created new `playPixiLiftEffect` (Light Ripple/Glow) in `EffectsManager.js`.
-  - **Loading Experience:**
-    - Implemented **Real Progress Bar** in `index.html`.
-    - Modified `StickerManagerPixi.js` to process stickers in chunks (50 per batch) and report progress back to `app.js`.
-    - Fixed UI freeze during initial load by yielding to main thread between chunks.
-  - **UX/Navigation:**
-    - **Zoom Indicator Fix:** Converted `#zoomIndicator` to a `<button>` with `touch-action: manipulation` to fix accidental double-tap zooming issues on Mobile/LINE browser.
-    - **Keyboard Navigation:** Added `ArrowLeft`/`ArrowRight` support in `noteDialog` to switch between stickers.
-    - **Camera Timing:** Reverted logic: Camera now waits for sticker to land before zooming back to overview (Sequential flow).
-  - **Code Health:**
-    - Extracted `handleNoteDialogKeyDown` from `app.js` listener to improve safety.
-    - Identified need to split `app.js` to prevent syntax errors during AI edits.
-    - **Identified Monolithic Files for Future Splitting:**
-      - `js/modules/EffectsManager.js` (~3.3k lines): Mixes Pixi/SVG/Particle logic. Needs splitting by effect type (e.g., `FireEffect.js`, `MistEffect.js`).
-      - `js/admin.js` (~1.2k lines): Mixes Auth, UI, and Data logic.
-      - `js/modules/StickerManagerPixi.js` (~1.2k lines): Growing large with loading strategies and texture management.
+- **Status:** Visual Polish & Playback Feature Enhancement.
+- **Recent Actions (Session: Playback Polish):**
+  - **Fixed Critical Bugs:**
+    - Resolved a crash in `PlaybackController.js` caused by duplicated code blocks.
+    - Fixed a visual glitch where the "Year Indicator (2026)" would jump suddenly at the start of animation. (Used CSS Grid `minmax(0, ...)` trick).
+  - **New Features (Visuals):**
+    - **Eagle Sheen Effect:** Implemented a "Prestige Sweep" light effect that slowly scans across the Eagle background at the end of playback (CSS-based, JS-triggered).
+    - **Sticker Reveal Effect (Base):** Added `StickerRevealEffect.js`. Currently renders a **Soft White Gradient Wave** (Hollow center) when stickers appear.
+  - **File Recovery:**
+    - Repaired `css/playback-spotlight.css` which had become corrupted/truncated.
 
 - **Active Tasks (Next Session):**
-  - [ ] **Refactor `app.js` (Priority 1):** Split large logic blocks (Event Listeners, Dialog Handlers) into separate modules (e.g., `js/actions/DialogActions.js`).
-  - [ ] **Refactor `EffectsManager.js` (Priority 2):** Break down this massive file into smaller, effect-specific classes.
-  - [ ] **Method 2 Protocol:** Implement strict "componentize first" rule before editing complex logic to avoid syntax errors.
-  - [ ] Monitor performance of the new Chunked Loading on low-end devices.
+  - [ ] **Playback Animation Expansion (Plan A: Impact/Meteor):**
+      - **Goal:** Upgrade the current "Soft White Wave" into a high-energy "Meteor Strike".
+      - **Phase 1 (Incoming):** A glowing light beam or meteor stream shoots from off-screen (or high altitude) towards the target sticker position.
+      - **Phase 2 (Impact):** Upon contact with the wall, generate a strong "Light Burst" with particle explosion. *(Current Soft Wave is the foundation for this)*.
+      - **Phase 3 (Reveal):** The sticker fades in from the white-hot center of the impact.
+      - **Tech:** Optimize using Pixi particles or sprite animation to maintain 60fps.
+  - [ ] **Admin Feature (Backup/Restore):** Implement "Method 2: PostgreSQL RPC" for safe database restoration.
+    - Create SQL function `restore_schema.sql` (Transaction, Truncate, Insert).
+    - Update `admin.html` UI for file upload.
+    - Update `admin.js` to handle file reading and RPC call.
+  - [ ] **Refactor `app.js` (Pending):** Split large logic blocks (Event Listeners, Dialog Handlers) into separate modules (e.g., `js/actions/DialogActions.js`).
+  - [ ] **Refactor `admin.js`:** Segregate Auth, UI, and Data logic.
+  - [ ] **Refactor `StickerManagerPixi.js`:** Review for potential splitting (Texture management vs Layout logic).
 
 ## 6. Database Schema Summary
 - **Table `wall_stickers`:**

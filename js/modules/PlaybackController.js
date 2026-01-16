@@ -1,691 +1,361 @@
+/**
+ * PlaybackController.js (Rebuild Phase 1)
+ * 負責處理「回顧動畫」的核心邏輯
+ */
+import * as StickerManagerPixi from "./StickerManagerPixi.js";
+import * as EffectsManager from "./EffectsManager.js"; 
 
-import * as Utils from "./Utils.js";
-import * as EffectsManager from "./EffectsManager.js";
+let isPlaying = false;
+let playbackBtn = null;
+let playbackOverlay = null;
+let playbackCounter = null;
+let countEl = null;
+let playbackYear = null;
+let playbackDate = null;
+let getStickersSource = null;
+let playlist = [];
+let animationInterval = null;
+let currentIndex = 0;
+let currentCount = 0; // For number ticker animation
+let playbackInterval = 300;
+let sheenTriggered = false;
 
-const PLAYBACK_SPEED_MS = 100; // Time between stickers (adjustable)
-const MIN_PLAYBACK_DURATION_MS = 5000; // Minimum total duration
-const MAX_PLAYBACK_DURATION_MS = 20000; // Maximum total duration
+/**
+ * 初始化回顧功能
+ * @param {Function} stickerSourceProvider - Function returning the Map of stickers
+ */
+export function init(stickerSourceProvider) {
+    console.log("🎥 [Playback] Initializing...");
+    
+    getStickersSource = stickerSourceProvider;
 
-let dragStartX = 0;
-let dragStartY = 0;
-let isDragInteraction = false;
+    // 綁定 DOM 元素
+    playbackBtn = document.getElementById("playbackBtn");
+    playbackOverlay = document.getElementById("playbackOverlay");
+    playbackCounter = document.getElementById("playbackCounter");
+    if (playbackCounter) {
+        countEl = playbackCounter.querySelector(".count");
+    }
+    playbackYear = document.getElementById("playbackYear");
+    playbackDate = document.getElementById("playbackDate");
 
-const state = {
-  isPlaying: false,
-  isFinished: false,
-  animationFrame: null,
-  sortedStickers: [],
-  currentIndex: 0,
-  lastFrameTime: 0,
-  accumulatedTime: 0,
-  intervalPerSticker: 50,
-  startTimeout: null,
-  sweepTriggered: false,
-  elements: {
-    dateContainer: null,
-    yearDisplay: null,
-    dateDisplay: null,
-    counterDisplay: null,
-    playButton: null,
-    wallSvg: null,
-    flashOverlay: null,
-  },
-  callbacks: {
-    onStop: null,
-    getStickers: null,
-    onUpdateIntensity: null,
-    onPlaybackStateChange: null,
-    onPlaybackNearEnd: null,
-    onPlaybackComplete: null,
-  }
-};
-
-export function initPlaybackController(elements, callbacks) {
-  state.elements = { ...state.elements, ...elements };
-  state.callbacks = { ...state.callbacks, ...callbacks };
-  
-  // Find flash overlay if not provided
-  if (!state.elements.flashOverlay) {
-    state.elements.flashOverlay = document.getElementById("playbackFlash");
-  }
-  
-  if (state.elements.playButton) {
-    state.elements.playButton.addEventListener("click", togglePlayback);
-  }
+    if (playbackBtn) {
+        playbackBtn.addEventListener("click", togglePlayback);
+    }
+    
+    // Click Overlay to Exit (Movie Mode behavior)
+    if (playbackOverlay) {
+        playbackOverlay.addEventListener("click", () => {
+            if (isPlaying) {
+                stopPlayback();
+            }
+        });
+    }
 }
 
-function attachGlobalListeners() {
-  document.addEventListener("click", handleGlobalClick);
-  document.addEventListener("pointerdown", handlePointerDown);
-  document.addEventListener("pointerup", handlePointerUp);
-}
-
-function removeGlobalListeners() {
-  document.removeEventListener("click", handleGlobalClick);
-  document.removeEventListener("pointerdown", handlePointerDown);
-  document.removeEventListener("pointerup", handlePointerUp);
-}
-
-function handlePointerDown(e) {
-  dragStartX = e.clientX;
-  dragStartY = e.clientY;
-  isDragInteraction = false;
-}
-
-function handlePointerUp(e) {
-  const dist = Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY);
-  if (dist > 10) {
-    isDragInteraction = true;
-  }
-}
-
-function handleGlobalClick(e) {
-  if (!state.isPlaying || !state.isFinished) return;
-
-  // If this was a drag interaction, do not stop playback
-  if (isDragInteraction) return;
-
-  // Ignore clicks on controls
-  if (e.target.closest(".zoom-controls")) return;
-
-  // Stop playback if clicked outside
-  stopPlayback();
-}
-
+/**
+ * 切換播放狀態
+ */
 function togglePlayback() {
-  if (state.isPlaying) {
-    stopPlayback();
-  } else {
-    if (state.callbacks.getStickers) {
-      const stickers = state.callbacks.getStickers();
-      startPlayback(stickers);
-    }
-  }
-}
-
-export function isPlaying() {
-    return state.isPlaying;
-}
-
-export function startPlayback(stickersMap) {
-  if (state.isPlaying || !stickersMap || stickersMap.size === 0) return;
-
-  state.isPlaying = true;
-  state.isFinished = false;
-  state.sweepTriggered = false;
-  state.currentIndex = 0;
-  state.lastFrameTime = performance.now();
-  state.accumulatedTime = 0;
-
-  // 1. Sort stickers by date
-  state.sortedStickers = Array.from(stickersMap.values())
-    .filter(s => s.created_at) // Ensure date exists
-    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-
-  if (state.sortedStickers.length === 0) {
-    stopPlayback();
-    return;
-  }
-
-  // Calculate dynamic speed
-  const totalStickers = state.sortedStickers.length;
-  // Target duration between 5s and 20s depending on count
-  const targetDuration = Utils.clampNumber(totalStickers * 100, MIN_PLAYBACK_DURATION_MS, MAX_PLAYBACK_DURATION_MS);
-  state.intervalPerSticker = targetDuration / totalStickers;
-
-  // 2. Prepare UI
-  document.body.classList.add("playback-mode");
-  document.body.classList.remove("playback-finished");
-  
-  // Ensure loading spinner is hidden
-  const spinner = document.getElementById("loadingSpinner");
-  if (spinner) spinner.classList.remove("visible");
-
-  attachGlobalListeners();
-  createSpotlight();
-
-  if (state.elements.playButton) {
-    state.elements.playButton.classList.add("is-playing");
-    state.elements.playButton.textContent = "■"; // Stop symbol
-    state.elements.playButton.setAttribute("aria-label", "停止播放");
-  }
-  
-  // Trigger Start Flash
-  if (state.elements.flashOverlay) {
-    state.elements.flashOverlay.classList.remove("trigger-end");
-    state.elements.flashOverlay.classList.add("trigger-start");
-    setTimeout(() => {
-      if (state.elements.flashOverlay) {
-        state.elements.flashOverlay.classList.remove("trigger-start");
-      }
-    }, 1200);
-  }
-
-  // 3. Hide all stickers initially (with fade out)
-  // Delay hiding stickers to match flash peak (approx 100ms) to create a smooth transition
-  setTimeout(() => {
-    // Check if StickerManager supports bulk visibility (Pixi mode)
-    if (state.callbacks.StickerManager && typeof state.callbacks.StickerManager.setAllStickersVisibility === 'function') {
-        state.callbacks.StickerManager.setAllStickersVisibility(false);
+    if (isPlaying) {
+        stopPlayback();
     } else {
-        // Fallback for SVG mode
-        state.sortedStickers.forEach(s => {
-          if (s.node) {
-            // Fix: Clear any residual animations or inline styles that might block CSS transitions
-            if (window.anime) window.anime.remove(s.node);
-            s.node.classList.remove("pending", "review-pending", "review-blocked", "in-flight");
-            s.node.style.removeProperty("transform");
-            s.node.style.removeProperty("opacity");
-            s.node.style.removeProperty("filter");
-            
-            s.node.classList.add("playback-preparing");
-          }
-        });
+        startPlayback();
     }
-  }, 100);
-
-  // 4. Show Date Display
-  if (state.elements.dateContainer) {
-    state.elements.dateContainer.classList.add("visible");
-    updateDateDisplay(state.sortedStickers[0].created_at);
-    updateCounterDisplay(0, state.sortedStickers.length);
-  }
-  
-  // Reset fire intensity to 0 AND force clear all fire
-  if (state.callbacks.onResetFire) {
-    state.callbacks.onResetFire();
-  } else if (state.callbacks.onUpdateIntensity) {
-    state.callbacks.onUpdateIntensity(0);
-  }
-  
-  // Pause shimmer
-  if (state.callbacks.onPlaybackStateChange) {
-    state.callbacks.onPlaybackStateChange(true);
-  }
-
-  // 5. Start Loop after fade out delay
-  if (state.startTimeout) clearTimeout(state.startTimeout);
-  state.startTimeout = setTimeout(() => {
-    if (!state.isPlaying) return; // Check if stopped during delay
-    
-    // Now actually hide them for the animation logic (SVG Mode only)
-    if (!state.callbacks.StickerManager || typeof state.callbacks.StickerManager.setAllStickersVisibility !== 'function') {
-        state.sortedStickers.forEach(s => {
-          if (s.node) {
-            s.node.classList.remove("playback-preparing");
-            s.node.classList.add("playback-hidden");
-            s.node.style.opacity = "0";
-            s.node.style.transform = "scale(0)";
-          }
-        });
-    }
-    
-    state.lastFrameTime = performance.now();
-    state.animationFrame = requestAnimationFrame(playbackLoop);
-  }, 600);
 }
 
-export function stopPlayback() {
-  if (!state.isPlaying) return;
+/**
+ * 開始播放
+ */
+export function startPlayback() {
+    if (isPlaying) return;
+    
+    // 1. Prepare Data
+    preparePlaylist();
+    if (playlist.length === 0) return;
 
-  state.isPlaying = false;
-  if (state.startTimeout) {
-    clearTimeout(state.startTimeout);
-    state.startTimeout = null;
-  }
-  if (state.animationFrame) {
-    cancelAnimationFrame(state.animationFrame);
-    state.animationFrame = null;
-  }
+    isPlaying = true;
+    console.log("🎥 [Playback] Started");
+    
+    // 2. Playback State UI
+    document.body.classList.add("playback-mode");
+    if (playbackBtn) {
+        playbackBtn.classList.add("is-playing");
+        playbackBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg>`;
+    }
 
-  // Restore UI
-  document.body.classList.remove("playback-mode");
-  document.body.classList.remove("playback-finished");
-  removeGlobalListeners();
-
-  if (state.elements.playButton) {
-    state.elements.playButton.classList.remove("is-playing");
-    state.elements.playButton.textContent = "▶"; // Play symbol
-    state.elements.playButton.setAttribute("aria-label", "播放回顧");
-  }
-
-  if (state.elements.dateContainer) {
-    state.elements.dateContainer.classList.remove("visible");
-  }
-
-  if (state.elements.spotlight) {
-    state.elements.spotlight.classList.remove("active");
-  }
-  
-  // Clear any active effects (projectiles, bursts, etc.)
-  EffectsManager.clearAllEffects();
-  
-  // Trigger End Flash
-  if (state.elements.flashOverlay) {
-    state.elements.flashOverlay.classList.remove("trigger-start");
-    state.elements.flashOverlay.classList.add("trigger-end");
+    // 3. Cinematic Entrance
+    // a. Flash
+    document.body.classList.add("flash-active");
     setTimeout(() => {
-      if (state.elements.flashOverlay) {
-        state.elements.flashOverlay.classList.remove("trigger-end");
-      }
-    }, 1500);
-  }
+        document.body.classList.remove("flash-active");
+    }, 150); // Short flash
 
-  // Show all stickers
-  // Delay showing stickers to match flash peak (approx 200ms) to create a smooth transition
-  setTimeout(() => {
-    if (state.callbacks.StickerManager && typeof state.callbacks.StickerManager.setAllStickersVisibility === 'function') {
-        state.callbacks.StickerManager.setAllStickersVisibility(true);
+    // b. Hide all stickers initially
+    StickerManagerPixi.setAllStickersVisible(false);
+
+    // c. Reset Counter & Effects
+    currentCount = 0;
+    updateCounter(0);
+    // Reset background fire/glow effects to zero intensity instantly
+    EffectsManager.resetFireEffect(); 
+    // Also explicitly set logical intensity to 0 to prevent jump
+    EffectsManager.setFireIntensity(0);
+
+    if (countEl) countEl.classList.remove("finished"); // Reset animation
+
+    // d. Initialize Date Indicators
+    // If playlist has items, show the date of first item
+    if (playlist.length > 0) {
+        updateDateIndicators(playlist[0].created_at);
     } else {
-        state.sortedStickers.forEach(s => {
-          if (s.node) {
-            s.node.classList.remove("playback-preparing");
-            s.node.classList.remove("playback-hidden");
-            s.node.style.removeProperty("opacity");
-            s.node.style.removeProperty("transform");
-            s.node.style.removeProperty("filter");
-          }
-        });
-    }
-  }, 200);
-  
-  // Restore fire intensity to full count
-  if (state.callbacks.onUpdateIntensity) {
-    state.callbacks.onUpdateIntensity(state.sortedStickers.length);
-  }
-  
-  // Resume shimmer
-  if (state.callbacks.onPlaybackStateChange) {
-    state.callbacks.onPlaybackStateChange(false);
-  }
-
-  state.sortedStickers = [];
-}
-
-function playbackLoop(timestamp) {
-  if (!state.isPlaying) return;
-
-  const deltaTime = timestamp - state.lastFrameTime;
-  state.lastFrameTime = timestamp;
-  state.accumulatedTime += deltaTime;
-
-  let itemsToReveal = 0;
-  while (state.accumulatedTime >= state.intervalPerSticker) {
-    itemsToReveal++;
-    state.accumulatedTime -= state.intervalPerSticker;
-  }
-
-  if (itemsToReveal > 0) {
-    // Check for near-end trigger (Sweep Effect)
-    // Trigger when remaining time is close to sweep duration (2.5s)
-    // We use 2600ms to ensure it starts slightly before the very end
-    if (!state.sweepTriggered) {
-      const remainingItems = state.sortedStickers.length - state.currentIndex;
-      const timeRemaining = remainingItems * state.intervalPerSticker;
-      
-      if (timeRemaining <= 1500) {
-        state.sweepTriggered = true;
-        if (state.callbacks.onPlaybackNearEnd) {
-          state.callbacks.onPlaybackNearEnd();
-        }
-      }
+        // Default to today if empty
+        updateDateIndicators(new Date().toISOString());
     }
 
-    for (let i = 0; i < itemsToReveal; i++) {
-      if (state.currentIndex >= state.sortedStickers.length) {
-        // Finished
-        state.isFinished = true;
-        state.animationFrame = null;
-        return; 
-      }
-
-      const sticker = state.sortedStickers[state.currentIndex];
-      const isLast = state.currentIndex === state.sortedStickers.length - 1;
-      
-      // Calculate start position for projectile (Date Display)
-      let startX = 0;
-      let startY = window.innerHeight;
-      if (state.elements.dateContainer) {
-        const rect = state.elements.dateContainer.getBoundingClientRect();
-        startX = rect.left + rect.width / 2;
-        startY = rect.top + rect.height / 2;
-      }
-
-      // Fire projectile
-      let targetX, targetY;
-      
-      // Check Pixi coordinates first
-      if (Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
-          targetX = sticker.x;
-          targetY = sticker.y;
-      } 
-      // Fallback to DOM data attributes
-      else if (sticker.node && sticker.node.dataset.cx && sticker.node.dataset.cy) {
-          targetX = parseFloat(sticker.node.dataset.cx);
-          targetY = parseFloat(sticker.node.dataset.cy);
-      }
-
-      if (Number.isFinite(targetX) && Number.isFinite(targetY)) {
-         
-         // Capture the count for this sticker to show AFTER it lands
-         const countToShow = state.currentIndex + 1;
-
-         // Optimization: Skip projectile animation if playback is too fast
-         if (state.intervalPerSticker < 40) {
-            revealSticker(sticker);
-            updateDateDisplay(sticker.created_at);
-            updateCounterDisplay(countToShow, state.sortedStickers.length);
-            
-            // Update fire intensity based on current progress
-            if (state.callbacks.onUpdateIntensity) {
-                state.callbacks.onUpdateIntensity(countToShow);
-            }
-
-            if (isLast) {
-              if (state.callbacks.onPlaybackComplete) {
-                state.callbacks.onPlaybackComplete();
-              } else {
-                finalizePlaybackUI();
-              }
-            }
-         } else {
-           // Use Pixi Projectile if available (TODO: Implement playPixiProjectile in EffectsManager)
-           // For now, we use the SVG one which overlays everything
-           EffectsManager.playProjectile(startX, startY, targetX, targetY, () => {
-              revealSticker(sticker);
-              updateDateDisplay(sticker.created_at);
-              updateCounterDisplay(countToShow, state.sortedStickers.length);
-  
-              if (isLast) {
-                if (state.callbacks.onPlaybackComplete) {
-                  state.callbacks.onPlaybackComplete();
-                } else {
-                  finalizePlaybackUI();
-                }
-              }
-           });
-         }
-      } else {
-         revealSticker(sticker);
-         updateDateDisplay(sticker.created_at);
-         updateCounterDisplay(state.currentIndex + 1, state.sortedStickers.length);
-
-         if (isLast) {
-            if (state.callbacks.onPlaybackComplete) {
-              state.callbacks.onPlaybackComplete();
-            } else {
-              finalizePlaybackUI();
-            }
-         }
-      }
-
-      state.currentIndex++;
-    }
+    // 4. Start Animation Loop after flash settles
+    currentIndex = 0;
+    const totalDuration = 20000; // 20 seconds max
     
-    // Update fire intensity based on current progress
-    if (state.callbacks.onUpdateIntensity) {
-      state.callbacks.onUpdateIntensity(state.currentIndex);
-    }
-  }
-
-  state.animationFrame = requestAnimationFrame(playbackLoop);
-}
-
-function revealSticker(sticker) {
-  if (!sticker) return;
-  
-  // Pixi Mode
-  if (state.callbacks.StickerManager && typeof state.callbacks.StickerManager.animateStickerReveal === 'function') {
-      state.callbacks.StickerManager.animateStickerReveal(sticker.id);
-      
-      // Update Spotlight Position (Pixi)
-      if (state.elements.spotlight) {
-        state.elements.spotlight.classList.add("active");
-        if (Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
-           state.elements.spotlight.setAttribute("transform", `translate(${sticker.x}, ${sticker.y})`);
-        }
-      }
-      
-      // Trigger lightweight impact effect
-      if (state.callbacks.onStickerReveal) {
-        state.callbacks.onStickerReveal(sticker);
-      }
-      return;
-  }
-
-  // SVG Mode Fallback
-  if (!sticker.node) return;
-  
-  sticker.node.classList.remove("playback-hidden");
-
-  // Update Spotlight Position
-  if (state.elements.spotlight) {
-    state.elements.spotlight.classList.add("active");
-    if (Number.isFinite(sticker.x) && Number.isFinite(sticker.y)) {
-       state.elements.spotlight.setAttribute("transform", `translate(${sticker.x}, ${sticker.y})`);
-    }
-  }
-  
-  // Trigger lightweight impact effect
-  if (state.callbacks.onStickerReveal) {
-    state.callbacks.onStickerReveal(sticker);
-  }
-
-  // Enhanced animation: Large Pop + Elastic Bounce
-  if (window.anime) {
-    // Reset styles first
-    const isMobile = window.innerWidth < 640;
-    const startScale = isMobile ? 2.0 : 3.5; // Reduce scale on mobile to prevent layout issues
-
-    sticker.node.style.opacity = "0";
-    sticker.node.style.transform = `scale(${startScale})`; 
-    sticker.node.style.filter = "brightness(2.5) drop-shadow(0 0 40px rgba(255,255,255,1))"; // Brighter flash with glow
+    // Calculate interval: ensure all stickers show within 20s
+    // Min interval 10ms (for high density), Max interval 300ms (for low density)
+    let interval = totalDuration / Math.max(1, playlist.length);
+    interval = Math.min(300, Math.max(10, interval));
+    playbackInterval = interval; // Store for calculation
     
-    window.anime.timeline({
-      targets: sticker.node,
-    })
-    .add({
-      opacity: [0, 1],
-      scale: [startScale, 1],
-      duration: 850,
-      easing: "easeOutElastic(1, .5)" // Bouncy elastic effect
-    })
-    .add({
-      filter: [
-        "brightness(2.5) drop-shadow(0 0 40px rgba(255,255,255,1))", 
-        "brightness(1) drop-shadow(0 0 0px rgba(255,255,255,0))"
-      ],
-      duration: 600,
-      easing: "easeOutQuad"
-    }, 0); // Run in parallel with scale
-    
-  } else {
-    sticker.node.style.opacity = "1";
-    sticker.node.style.transform = "scale(1)";
-  }
-}
+    // Reset Sheen State
+    sheenTriggered = false;
+    stopSheenEffect();
 
-function updateDateDisplay(dateString) {
-  if (!dateString) return;
-  
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) return;
+    console.log(`🎥 [Playback] Interval: ${interval.toFixed(1)}ms for ${playlist.length} items`);
 
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  
-  if (state.elements.yearDisplay) {
-    state.elements.yearDisplay.textContent = `${yyyy}`;
-  }
-  if (state.elements.dateDisplay) {
-    state.elements.dateDisplay.textContent = `${mm}.${dd}`;
-  }
-}
-
-function updateCounterDisplay(current, total) {
-  if (state.elements.counterDisplay) {
-    // Only show current count, hide total to keep suspense
-    state.elements.counterDisplay.textContent = `${current}`;
-    
-    // Note: Highlight logic moved to finalizePlaybackUI to sync with sweep effect
-    state.elements.counterDisplay.classList.remove("counter-highlight");
-  }
-}
-
-export function finalizePlaybackUI() {
-  document.body.classList.add("playback-finished");
-  
-  // Hide spotlight when finished
-  if (state.elements.spotlight) {
-    state.elements.spotlight.classList.remove("active");
-  }
-
-  showFinishedDateRange();
-  
-  if (state.elements.counterDisplay) {
-    state.elements.counterDisplay.classList.add("counter-highlight");
-  }
-}
-
-function showFinishedDateRange() {
-  if (state.sortedStickers.length === 0) return;
-  
-  const first = state.sortedStickers[0];
-  const last = state.sortedStickers[state.sortedStickers.length - 1];
-  
-  const d1 = new Date(first.created_at);
-  const d2 = new Date(last.created_at);
-  
-  // Format Year
-  const y1 = d1.getFullYear();
-  const y2 = d2.getFullYear();
-  const yearText = y1 === y2 ? `${y1}` : `${y1} - ${y2}`;
-  
-  // Format Date
-  const m1 = String(d1.getMonth() + 1).padStart(2, "0");
-  const dd1 = String(d1.getDate()).padStart(2, "0");
-  const m2 = String(d2.getMonth() + 1).padStart(2, "0");
-  const dd2 = String(d2.getDate()).padStart(2, "0");
-  
-  // Helper function for fade transition
-  const updateWithFade = (element, newText) => {
-    if (!element) return;
-    // If text is same, do nothing
-    if (element.textContent === newText) return;
-
-    // Apply transition
-    element.style.transition = "opacity 2s ease";
-    element.style.opacity = "0";
-    
     setTimeout(() => {
-      element.textContent = newText;
-      element.style.opacity = "1";
-      
-      // Clean up inline styles after transition
-      setTimeout(() => {
-        element.style.removeProperty("transition");
-        element.style.removeProperty("opacity");
-      }, 2000);
-    }, 100); // Short delay before changing text
-  };
+        animationInterval = setInterval(playNextFrame, interval);
+    }, 800);
+}
 
-  // Special handling for year display: Fade in oldest year, keep newest visible
-  if (state.elements.yearDisplay) {
-    const newestYearText = `${y2}`;
-    const oldestYearText = `${y1}`;
-    
-    if (oldestYearText !== newestYearText) {
-      // Construct HTML to fade in the oldest part
-      // We use inline-flex to keep them on the same line
-      // We wrap the oldest part in a span that starts with 0 width
-      // white-space: pre ensures the trailing space is preserved and measured
-      state.elements.yearDisplay.innerHTML = `
-        <span class="year-wrapper" style="display: inline-flex; align-items: baseline;">
-            <span class="oldest-part" style="display: inline-block; overflow: hidden; width: 0; opacity: 0; white-space: pre; transition: width 1.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 1.5s ease;">${oldestYearText} - </span>
-            <span class="newest-part">${newestYearText}</span>
-        </span>`;
-      
-      // Trigger reflow to ensure transition works
-      requestAnimationFrame(() => {
-        const oldestSpan = state.elements.yearDisplay.querySelector(".oldest-part");
+function playNextFrame() {
+    if (!isPlaying) return clearInterval(animationInterval);
+
+    // Check for Sheen Trigger (1 second remaining)
+    const timeRemaining = (playlist.length - currentIndex) * playbackInterval;
+    if (timeRemaining <= 1000 && !sheenTriggered) {
+        startSheenEffect();
+    }
+
+    if (currentIndex >= playlist.length) {
+        // Animation Complete
+        clearInterval(animationInterval);
+        console.log("🎥 [Playback] Sequence Complete");
+        if (countEl) countEl.classList.add("finished"); // Trigger finish effect
         
-        if (oldestSpan) {
-            // Create a clone to measure the natural width
-            const clone = oldestSpan.cloneNode(true);
-            clone.style.width = 'auto';
-            clone.style.position = 'absolute';
-            clone.style.visibility = 'hidden';
-            clone.style.transition = 'none'; // Disable transition on clone
-            state.elements.yearDisplay.appendChild(clone);
-            
-            const targetWidth = clone.offsetWidth;
-            state.elements.yearDisplay.removeChild(clone);
-            
-            // Force reflow
-            oldestSpan.offsetHeight;
-            
-            // Animate
-            oldestSpan.style.width = `${targetWidth}px`;
-            oldestSpan.style.opacity = "1";
-        }
-      });
-    } else {
-      // If years are same, just ensure text is correct (no fade needed if already showing)
-      if (state.elements.yearDisplay.textContent !== newestYearText) {
-        state.elements.yearDisplay.textContent = newestYearText;
-      }
+        // Show Date Ranges (Effect: 2025-2026, NOV19-JAN14)
+        showFinalDateRanges();
+        return;
     }
-  }
-  
-  // Special handling for date display: Fade in oldest date, keep newest visible
-  if (state.elements.dateDisplay) {
-    const newestDateText = `${m2}.${dd2}`;
-    const oldestDateText = `${m1}.${dd1}`;
+
+    const sticker = playlist[currentIndex];
     
-    if (oldestDateText !== newestDateText) {
-      // Construct HTML to fade in the oldest part
-      // Wrap in a span to ensure they stay on the same line within the flex container (which is column)
-      state.elements.dateDisplay.innerHTML = `<span class="date-wrapper"><span class="oldest-part" style="opacity: 0; transition: opacity 2s ease">${oldestDateText} - </span>${newestDateText}</span>`;
-      
-      // Trigger reflow to ensure transition works
-      requestAnimationFrame(() => {
-        const span = state.elements.dateDisplay.querySelector(".oldest-part");
-        if (span) {
-          span.style.opacity = "1";
-        }
-      });
-    } else {
-      // If dates are same, just ensure text is correct (no fade needed if already showing)
-      if (state.elements.dateDisplay.textContent !== newestDateText) {
-        state.elements.dateDisplay.textContent = newestDateText;
-      }
+    // 1. Reveal Sticker
+    StickerManagerPixi.setStickerVisible(sticker.id, true);
+    
+    // 2. Play Reveal Effect (Light Wave)
+    if (sticker.x !== undefined && sticker.y !== undefined) {
+        EffectsManager.playStickerReveal(sticker.x, sticker.y);
     }
-  }
+    
+    // 3. Update Counter
+    currentCount++;
+    updateCounter(currentCount);
+
+    // 4. Update Background Intensity (Real-time reactivity)
+    EffectsManager.setFireIntensity(currentCount);
+
+    // 5. Update Date Indicators
+    if (sticker.created_at) {
+        updateDateIndicators(sticker.created_at);
+    }
+
+    currentIndex++;
 }
 
-function createSpotlight() {
-  if (state.elements.spotlight) return;
-  if (!state.elements.wallSvg) return;
+/**
+ * 更新右上角計數器
+ */
+function updateCounter(val) {
+    if (countEl) {
+        countEl.textContent = val;
+    }
+}
 
-  const svgNS = "http://www.w3.org/2000/svg";
-  const group = document.createElementNS(svgNS, "g");
-  group.classList.add("playback-spotlight");
-  
-  // Core Glow
-  const core = document.createElementNS(svgNS, "circle");
-  core.classList.add("playback-spotlight-core");
-  core.setAttribute("r", "40");
-  group.appendChild(core);
+/**
+ * Update Year and Date display
+ * @param {string} isoDateStr 
+ */
+function updateDateIndicators(isoDateStr) {
+    if (!isoDateStr) return;
+    try {
+        const d = new Date(isoDateStr);
+        if (isNaN(d.getTime())) return;
 
-  // Rotating Ring
-  const ring = document.createElementNS(svgNS, "circle");
-  ring.classList.add("playback-spotlight-ring");
-  ring.setAttribute("r", "28");
-  group.appendChild(ring);
+        // Year (Bottom Left)
+        if (playbackYear) {
+            playbackYear.textContent = d.getFullYear();
+        }
 
-  // Append to wall
-  state.elements.wallSvg.appendChild(group);
-  state.elements.spotlight = group;
+        // Date (Bottom Right)
+        // Format: "JAN 01"
+        if (playbackDate) {
+            const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+            const monthText = months[d.getMonth()];
+            const dayText = d.getDate().toString().padStart(2, '0');
+            playbackDate.textContent = `${monthText} ${dayText}`;
+        }
+    } catch (e) {
+        console.warn("Date parse error", e);
+    }
+}
+
+function showFinalDateRanges() {
+    console.log("🎥 [Playback] Showing Final Date Ranges");
+    if (!playlist || playlist.length === 0) {
+        console.warn("🎥 [Playback] Empty playlist, skipping date range.");
+        return;
+    }
+
+    const startSticker = playlist[0];
+    const endSticker = playlist[playlist.length - 1];
+
+    if (!startSticker || !currentCount) return;
+
+    // Check for created_at
+    if (!startSticker.created_at || !endSticker.created_at) {
+        console.warn("🎥 [Playback] Stickers missing created_at field.");
+        return;
+    }
+
+    console.log(`🎥 [Playback] Range: ${startSticker.created_at} to ${endSticker.created_at}`);
+
+    // 1. Year Range
+    if (playbackYear) {
+        let startYear = new Date(startSticker.created_at).getFullYear();
+        let endYear = new Date(endSticker.created_at).getFullYear();
+        
+        if (isNaN(startYear)) startYear = new Date().getFullYear();
+        if (isNaN(endYear)) endYear = new Date().getFullYear();
+
+        // Only show range if different, per request "2025-2026"
+        if (startYear !== endYear) {
+            console.log("🎥 [Playback] Updating Year Range");
+            // Structure: [New: 2025 -] [Old: 2026]
+            playbackYear.innerHTML = `<span class="range-reveal"><span class="range-content">${startYear}<span class="range-separator">-</span></span></span><span>${endYear}</span>`;
+        }
+    }
+
+    // 2. Date Range
+    if (playbackDate) {
+        const startStr = formatDateText(startSticker.created_at);
+        const endStr = formatDateText(endSticker.created_at);
+        
+        console.log(`🎥 [Playback] Updating Date Range: ${startStr} - ${endStr}`);
+        
+        // Structure: [New: NOV 19 -] [Old: JAN 14]
+        // Alignment is handled by CSS (right-aligned container). 
+        // The New content (Start Date) is prepended, expanding to the LEFT of the Old content (End Date).
+        playbackDate.innerHTML = `<span class="range-reveal"><span class="range-content">${startStr}<span class="range-separator">-</span></span></span><span>${endStr}</span>`;
+    }
+}
+
+function formatDateText(isoStr) {
+    try {
+        const d = new Date(isoStr);
+        const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+        const monthText = months[d.getMonth()];
+        const dayText = d.getDate().toString().padStart(2, '0');
+        return `${monthText} ${dayText}`;
+    } catch (e) {
+        return "";
+    }
+}
+
+/**
+ * 停止播放
+ * 確保清理所有狀態，避免 UI 卡死
+ */
+export function stopPlayback() {
+    if (!isPlaying) return;
+    isPlaying = false;
+    
+    console.log("🎥 [Playback] Stopped");
+    
+    // Stop Loop
+    if (animationInterval) {
+        clearInterval(animationInterval);
+        animationInterval = null;
+    }
+
+    stopSheenEffect();
+
+    // Restore UI
+    document.body.classList.remove("playback-mode");
+
+    if (playbackBtn) {
+        playbackBtn.classList.remove("is-playing");
+        playbackBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>`;
+    }
+
+    // Restore all stickers opacity
+    StickerManagerPixi.setAllStickersVisible(true);
+
+    // Restore Background Intensity to match full playlist
+    if (playlist && playlist.length > 0) {
+        EffectsManager.setFireIntensity(playlist.length);
+    }
+}
+
+function preparePlaylist() {
+    if (!getStickersSource) {
+        console.error("🎥 [Playback] No sticker source provider found!");
+        return;
+    }
+
+    const stickersMap = getStickersSource();
+    if (!stickersMap) {
+        playlist = [];
+        return;
+    }
+
+    // Convert Map to Array and Sort by Date
+    playlist = Array.from(stickersMap.values())
+        .filter(s => s && s.created_at) // Ensure valid record
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+    console.log(`🎥 [Playback] Playlist prepared. Total: ${playlist.length}`);
+}
+
+
+
+export function getIsPlaying() {
+    return isPlaying;
+}
+
+/**
+ * Trigger the Eagle Scanning Sheen Effect
+ */
+function startSheenEffect() {
+    console.log("🎥 [Playback] Starting Eagle Sheen Effect");
+    sheenTriggered = true;
+    const sheenGroup = document.getElementById("eagleSheenGroup");
+    if (sheenGroup) {
+        sheenGroup.classList.add("active");
+        // Animation is handled by CSS infinite loop
+    }
+}
+
+function stopSheenEffect() {
+    const sheenGroup = document.getElementById("eagleSheenGroup");
+    if (sheenGroup) {
+        sheenGroup.classList.remove("active");
+    }
 }
 

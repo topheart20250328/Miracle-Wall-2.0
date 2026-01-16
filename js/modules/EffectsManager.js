@@ -1,14 +1,19 @@
 
+import { ProjectileEffect } from "./effects/ProjectileEffect.js";
+import { FireEffect } from "./effects/FireEffect.js";
+import { AmbientGlowEffect } from "./effects/AmbientGlowEffect.js";
+import { MistEffect } from "./effects/MistEffect.js";
+import { BottomFireEffect } from "./effects/BottomFireEffect.js";
+import { HolyFireEffect } from "./effects/HolyFireEffect.js";
+import { ResonanceEffect } from "./effects/ResonanceEffect.js";
+import { StickerRevealEffect } from "./effects/StickerRevealEffect.js";
+
 const svgNS = "http://www.w3.org/2000/svg";
 const STICKER_DIAMETER = 36;
 const STICKER_RADIUS = STICKER_DIAMETER / 2;
 
-const ambientState = {
-  nodes: [],
-  animation: null,
-  currentCount: 0,
-  resizeTimer: null,
-};
+// ambientState has been moved to AmbientGlowEffect.js
+
 const fireState = {
   nodes: [],
   animation: null,
@@ -17,16 +22,8 @@ const fireState = {
   paused: false,
 };
 
-const bottomFireState = {
-  canvas: null,
-  ctx: null,
-  firePixels: [],
-  width: 0,
-  height: 0,
-  intensity: 0,
-  animationId: null,
-  palette: [],
-};
+// bottomFireState has been moved to BottomFireEffect.js
+
 
 let elements = {
   effectsLayer: null,
@@ -40,6 +37,124 @@ let pixiApp = null;
 let pixiBgLayer = null;
 let pixiStaticLayer = null; // New: For untransformed background effects
 let pixiEffectsLayer = null;
+
+let projectileEffectInstance = null;
+let fireEffectInstance = null;
+let ambientGlowEffectInstance = null;
+let mistEffectInstance = null;
+let bottomFireEffectInstance = null;
+let holyFireEffectInstance = null;
+let resonanceEffectInstance = null;
+let stickerRevealEffectInstance = null;
+
+function getProjectileEffect() {
+    if (!projectileEffectInstance) {
+        projectileEffectInstance = new ProjectileEffect({
+            svgLayer: elements.effectsLayer,
+            pixiLayer: pixiEffectsLayer,
+            pixiApp: pixiApp
+        });
+    } else {
+        // Update context dynamically to handle engine switches or late init
+        projectileEffectInstance.ctx.svgLayer = elements.effectsLayer;
+        projectileEffectInstance.ctx.pixiLayer = pixiEffectsLayer;
+        projectileEffectInstance.ctx.pixiApp = pixiApp;
+    }
+    return projectileEffectInstance;
+}
+
+function getFireEffect() {
+    if (!fireEffectInstance) {
+        fireEffectInstance = new FireEffect({
+            elements: elements,
+            pixiLayer: pixiBgLayer, // Use BG layer for fire
+            pixiApp: pixiApp
+        });
+    } else {
+        fireEffectInstance.ctx.elements = elements;
+        fireEffectInstance.ctx.pixiLayer = pixiBgLayer;
+        fireEffectInstance.ctx.pixiApp = pixiApp;
+    }
+    return fireEffectInstance;
+}
+
+function getAmbientGlowEffect() {
+    if (!ambientGlowEffectInstance) {
+        ambientGlowEffectInstance = new AmbientGlowEffect({
+            elements: elements,
+            pixiLayer: pixiBgLayer,
+            pixiApp: pixiApp
+        });
+    } else {
+        ambientGlowEffectInstance.ctx.elements = elements;
+        ambientGlowEffectInstance.ctx.pixiLayer = pixiBgLayer;
+        ambientGlowEffectInstance.ctx.pixiApp = pixiApp;
+    }
+    return ambientGlowEffectInstance;
+}
+
+function getStickerRevealEffect() {
+    if (!stickerRevealEffectInstance) {
+        stickerRevealEffectInstance = new StickerRevealEffect({
+            pixiLayer: pixiEffectsLayer, // Draw on effects layer (top)
+            pixiApp: pixiApp
+        });
+    } else {
+        stickerRevealEffectInstance.ctx.pixiLayer = pixiEffectsLayer;
+        stickerRevealEffectInstance.ctx.pixiApp = pixiApp;
+    }
+    return stickerRevealEffectInstance;
+}
+
+export function playStickerReveal(x, y) {
+    const effect = getStickerRevealEffect();
+    if (effect) {
+        effect.play(x, y);
+    }
+}
+
+/**
+ * Public API to play a soft white 'pop' visual at (x,y).
+ * Often used when stickers are revealed during playback.
+ */
+export function playSoftPop(x, y) {
+    // Legacy support or delegate to new effect
+    // But user asked for "Light wave", which is StickerRevealEffect.
+    // We can keep playSoftPop for backward compat or just alias it.
+    playStickerReveal(x, y);
+}
+
+function getMistEffect() {
+    if (!mistEffectInstance) {
+        mistEffectInstance = new MistEffect({
+            fireState: fireState // Pass reference to fireState for intensity checking
+        });
+    }
+    return mistEffectInstance;
+}
+
+function getBottomFireEffect() {
+    if (!bottomFireEffectInstance) {
+        bottomFireEffectInstance = new BottomFireEffect();
+    }
+    return bottomFireEffectInstance;
+}
+
+function getHolyFireEffect() {
+    if (!holyFireEffectInstance) {
+        holyFireEffectInstance = new HolyFireEffect();
+    }
+    return holyFireEffectInstance;
+}
+
+function getResonanceEffect() {
+    if (!resonanceEffectInstance) {
+        resonanceEffectInstance = new ResonanceEffect({
+            getHolyFireEffect: getHolyFireEffect
+        });
+    }
+    return resonanceEffectInstance;
+}
 
 export function setPixiContext(app, bgLayer, staticLayer, effectsLayer) {
   pixiApp = app;
@@ -66,7 +181,7 @@ export function setPixiContext(app, bgLayer, staticLayer, effectsLayer) {
   
   // Re-init ambient/fire if they were waiting
   if (pixiBgLayer) {
-      initAmbientGlow();
+      getAmbientGlowEffect().init();
       initFireEffect();
   }
 }
@@ -78,9 +193,9 @@ export function initEffectsManager(domElements, reducedMotion) {
   if (mediaPrefersReducedMotion) {
     const handleMotionPreferenceChange = (event) => {
       if (event.matches) {
-        destroyAmbientGlow();
+        getAmbientGlowEffect().destroy();
       } else {
-        refreshAmbientGlow(true);
+        getAmbientGlowEffect().refresh(true);
       }
     };
     if (typeof mediaPrefersReducedMotion.addEventListener === "function") {
@@ -90,17 +205,19 @@ export function initEffectsManager(domElements, reducedMotion) {
     }
   }
 
-  initAmbientGlow();
+  getAmbientGlowEffect().init();
   
   // Ensure main creates a stacking context for z-index layers
   const main = document.querySelector("main");
   if (main) main.style.isolation = "isolate";
 
   initFireEffect();
-  initBottomFire();
-  initCelebrationMist(); // New effect
-  initHolyFire();
-  initResonanceCanvas();
+  getBottomFireEffect().init();
+  
+  getMistEffect().init();
+  
+  getHolyFireEffect().init();
+  getResonanceEffect().init();
 }
 
 // Track active anime instances
@@ -151,142 +268,11 @@ export function clearAllEffects() {
 }
 
 export function playProjectile(screenX, screenY, targetX, targetY, onComplete) {
-  if (pixiEffectsLayer) {
-    playPixiProjectile(screenX, screenY, targetX, targetY, onComplete);
-    return;
-  }
-  if (!elements.effectsLayer) {
-    if (onComplete) onComplete();
-    return;
-  }
-  
-  const svg = elements.effectsLayer.ownerSVGElement;
-  if (!svg) {
-    if (onComplete) onComplete();
-    return;
-  }
-
-  // 1. Determine Start Position (Top-Left SUPER FAR off-screen)
-  // Concentrated in the far top-left with slight jitter
-  const startScreenX = -window.innerWidth * 0.4 + (Math.random() * 100); 
-  const startScreenY = -window.innerHeight * 0.4 + (Math.random() * 100);
-
-  // Convert Start Screen coords to SVG coords
-  let pt = svg.createSVGPoint();
-  pt.x = startScreenX;
-  pt.y = startScreenY;
-  const ctm = svg.getScreenCTM();
-  if (ctm) {
-    pt = pt.matrixTransform(ctm.inverse());
-  }
-  const startX = pt.x;
-  const startY = pt.y;
-
-  // Calculate angle
-  const angle = Math.atan2(targetY - startY, targetX - startX) * 180 / Math.PI;
-  
-  // Ensure gradient exists
-  ensureProjectileBeamGradient(elements.effectsLayer.ownerSVGElement);
-
-  // Create Wrapper Group (for position)
-  const wrapper = document.createElementNS(svgNS, "g");
-  wrapper.style.pointerEvents = "none";
-  wrapper.style.mixBlendMode = "screen";
-  elements.effectsLayer.appendChild(wrapper);
-
-  // Create Inner Group (for rotation)
-  const inner = document.createElementNS(svgNS, "g");
-  inner.setAttribute("transform", `rotate(${angle})`);
-  wrapper.appendChild(inner);
-
-  // Beam - Outer Glow (Gradient Tail)
-  const glowBeam = document.createElementNS(svgNS, "line");
-  glowBeam.setAttribute("x1", "-120"); // Long tail
-  glowBeam.setAttribute("y1", "0");
-  glowBeam.setAttribute("x2", "0");
-  glowBeam.setAttribute("y2", "0");
-  glowBeam.setAttribute("stroke", "url(#projectileBeamGradient)");
-  glowBeam.setAttribute("stroke-width", "12");
-  glowBeam.setAttribute("stroke-linecap", "round");
-
-  // Beam - Core (Solid Bright)
-  const coreBeam = document.createElementNS(svgNS, "line");
-  coreBeam.setAttribute("x1", "-40"); 
-  coreBeam.setAttribute("y1", "0");
-  coreBeam.setAttribute("x2", "0");
-  coreBeam.setAttribute("y2", "0");
-  coreBeam.setAttribute("stroke", "#ffffff");
-  coreBeam.setAttribute("stroke-width", "3");
-  coreBeam.setAttribute("stroke-opacity", "0.9");
-  coreBeam.setAttribute("stroke-linecap", "round");
-  
-  // Tip (Small glowing point)
-  const tip = document.createElementNS(svgNS, "circle");
-  tip.setAttribute("cx", "0");
-  tip.setAttribute("cy", "0");
-  tip.setAttribute("r", "4");
-  tip.setAttribute("fill", "#ffffff");
-  tip.setAttribute("stroke", "none"); // Ensure no black stroke
-  tip.setAttribute("opacity", "1"); 
-
-  inner.appendChild(glowBeam);
-  inner.appendChild(coreBeam);
-  inner.appendChild(tip);
-
-  if (window.anime) {
-    registerAnime(window.anime({
-      targets: wrapper,
-      translateX: [startX, targetX],
-      translateY: [startY, targetY],
-      easing: 'easeInQuad', // Accelerate into target
-      duration: 750, 
-      complete: () => {
-        if (wrapper.isConnected) wrapper.remove();
-        if (onComplete) onComplete();
-      }
-    }));
-  } else {
-    if (wrapper.isConnected) wrapper.remove();
-    if (onComplete) onComplete();
-  }
+  const effect = getProjectileEffect();
+  effect.play(screenX, screenY, targetX, targetY, onComplete);
 }
 
-function ensureProjectileBeamGradient(svg) {
-  let defs = svg.querySelector("defs");
-  if (!defs) {
-    defs = document.createElementNS(svgNS, "defs");
-    svg.insertBefore(defs, svg.firstChild);
-  }
-  // New ID to avoid conflicts with old cached gradients
-  const id = "projectileBeamGradient";
-  if (document.getElementById(id)) return;
-  
-  const grad = document.createElementNS(svgNS, "linearGradient");
-  grad.id = id;
-  grad.setAttribute("x1", "0%");
-  grad.setAttribute("y1", "0%");
-  grad.setAttribute("x2", "100%");
-  grad.setAttribute("y2", "0%"); 
-  
-  const stop1 = document.createElementNS(svgNS, "stop");
-  stop1.setAttribute("offset", "0%");
-  stop1.setAttribute("stop-color", "#ffffff");
-  stop1.setAttribute("stop-opacity", "0");
-  
-  const stop2 = document.createElementNS(svgNS, "stop");
-  stop2.setAttribute("offset", "100%");
-  stop2.setAttribute("stop-color", "#ffffff");
-  stop2.setAttribute("stop-opacity", "1");
-  
-  grad.appendChild(stop1);
-  grad.appendChild(stop2);
-  defs.appendChild(grad);
-}
-
-// Deprecated but kept to avoid breaking if called elsewhere (though internal)
-function ensureProjectileGradient(svg) {
-  ensureProjectileBeamGradient(svg);
-}
+// ensureProjectileBeamGradient, playPixiProjectile and ensureProjectileGradient have been removed/refactored into ProjectileEffect.js
 
 export function playPlacementPreviewEffect(x, y) {
   if (!elements.effectsLayer) {
@@ -1148,180 +1134,19 @@ export function playEagleSweepEffect(onComplete) {
 }
 
 export function initAmbientGlow() {
-  if (pixiBgLayer) {
-    initPixiAmbientGlow();
-    return;
-  }
-  if (!elements.ambientLayer) {
-    return;
-  }
-  if (mediaPrefersReducedMotion?.matches) {
-    destroyAmbientGlow();
-    return;
-  }
-  if (!window.anime || typeof window.anime.timeline !== "function") {
-    return;
-  }
-  destroyAmbientGlow();
-
-  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
-  const pathEntries = pathNodes
-    .map((path) => {
-      try {
-        const length = path.getTotalLength();
-        if (!Number.isFinite(length) || length <= 0) {
-          return null;
-        }
-        return { path, length };
-      } catch (error) {
-        console.warn("Ambient glow path sampling failed", error);
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  if (!pathEntries.length) {
-    return;
-  }
-
-  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
-  if (!Number.isFinite(combinedLength) || combinedLength <= 0) {
-    return;
-  }
-
-  const isCompactViewport = typeof window !== "undefined"
-    && typeof window.matchMedia === "function"
-    && window.matchMedia("(max-width: 768px)").matches;
-  // Optimized for Desktop: Reduced sparkCount from 22 to 16
-  const sparkCount = isCompactViewport ? 12 : 16;
-  const averageSpacing = combinedLength / sparkCount;
-  const jitterWindow = Math.min(averageSpacing * 0.6, 220);
-
-  for (let i = 0; i < sparkCount; i += 1) {
-    const offset = averageSpacing * i + (Math.random() - 0.5) * jitterWindow;
-    const normalizedCombined = ((offset % combinedLength) + combinedLength) % combinedLength;
-
-    let remaining = normalizedCombined;
-    let targetEntry = pathEntries[0];
-    for (const entry of pathEntries) {
-      if (remaining <= entry.length) {
-        targetEntry = entry;
-        break;
-      }
-      remaining -= entry.length;
-    }
-
-    let point;
-    try {
-      point = targetEntry.path.getPointAtLength(Math.max(0, remaining));
-    } catch (error) {
-      continue;
-    }
-    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-      continue;
-    }
-
-    const jitterX = window.anime.random(-28, 28);
-    const jitterY = window.anime.random(-26, 26);
-    const maxRadius = window.anime.random(18, 36);
-    const maxOpacity = window.anime.random(55, 88) / 100;
-    const strokeWidth = window.anime.random(12, 26) / 10;
-
-    const spark = document.createElementNS(svgNS, "circle");
-    spark.classList.add("ambient-spark");
-    spark.setAttribute("cx", (point.x + jitterX).toFixed(2));
-    spark.setAttribute("cy", (point.y + jitterY).toFixed(2));
-    spark.setAttribute("r", "0");
-    spark.setAttribute("opacity", "0");
-    spark.setAttribute("fill", "url(#eagleGlowGradient)");
-    spark.setAttribute("stroke", "rgba(255, 228, 188, 0.6)");
-    spark.setAttribute("stroke-width", strokeWidth.toFixed(2));
-    spark.dataset.maxRadius = maxRadius.toFixed(2);
-    spark.dataset.maxOpacity = maxOpacity.toFixed(2);
-    elements.ambientLayer.appendChild(spark);
-    ambientState.nodes.push(spark);
-  }
-
-  ambientState.currentCount = ambientState.nodes.length;
-  if (!ambientState.currentCount) {
-    return;
-  }
-
-  const startDelay = window.anime.random(0, 360);
-  const timeline = window.anime.timeline({ loop: true, autoplay: true });
-  timeline
-    .add({
-      targets: ambientState.nodes,
-      r: (el) => Number(el.dataset.maxRadius ?? 24),
-      opacity: (el) => Number(el.dataset.maxOpacity ?? 0.7),
-      translateY: -40,
-      duration: 2200,
-      easing: "easeOutSine",
-      delay: window.anime.stagger(220, { start: startDelay }),
-    })
-    .add({
-      targets: ambientState.nodes,
-      r: 0,
-      opacity: 0,
-      translateY: -80,
-      duration: 2200,
-      easing: "easeInSine",
-      delay: window.anime.stagger(220, { direction: "reverse" }),
-    });
-
-  ambientState.animation = timeline;
+  getAmbientGlowEffect().init();
 }
 
 function destroyAmbientGlow() {
-  if (ambientState.animation && typeof ambientState.animation.pause === "function") {
-    ambientState.animation.pause();
-  }
-  ambientState.animation = null;
-  ambientState.nodes.forEach((node) => {
-    if (node?.isConnected) {
-      node.remove();
-    }
-  });
-  ambientState.nodes.length = 0;
-  ambientState.currentCount = 0;
-  if (ambientState.resizeTimer) {
-    clearTimeout(ambientState.resizeTimer);
-    ambientState.resizeTimer = null;
-  }
+  getAmbientGlowEffect().destroy();
 }
 
 export function refreshAmbientGlow(force = false) {
-  if (!elements.ambientLayer) {
-    destroyAmbientGlow();
-    return;
-  }
-  if (mediaPrefersReducedMotion?.matches) {
-    destroyAmbientGlow();
-    return;
-  }
-  if (!force) {
-    const isCompactViewport = typeof window !== "undefined"
-      && typeof window.matchMedia === "function"
-      && window.matchMedia("(max-width: 768px)").matches;
-    const desiredCount = isCompactViewport ? 12 : 22;
-    if (ambientState.currentCount === desiredCount) {
-      return;
-    }
-  }
-  initAmbientGlow();
+  getAmbientGlowEffect().refresh(force);
 }
 
 export function scheduleAmbientGlowRefresh() {
-  if (!elements.ambientLayer) {
-    return;
-  }
-  if (ambientState.resizeTimer) {
-    clearTimeout(ambientState.resizeTimer);
-  }
-  ambientState.resizeTimer = window.setTimeout(() => {
-    ambientState.resizeTimer = null;
-    refreshAmbientGlow();
-  }, 260);
+  getAmbientGlowEffect().scheduleRefresh();
 }
 
 const shimmerState = {
@@ -1468,207 +1293,20 @@ function triggerShimmer(node) {
 }
 
 export function initFireEffect() {
-  if (pixiBgLayer) {
-    initPixiFireEffect();
-    return;
-  }
-  if (!elements.ambientLayer) return;
-  if (mediaPrefersReducedMotion?.matches) return;
-  if (!window.anime || typeof window.anime.timeline !== "function") return;
-
-  // Reuse eagle paths for fire emission
-  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
-  const pathEntries = pathNodes
-    .map((path) => {
-      try {
-        const length = path.getTotalLength();
-        if (!Number.isFinite(length) || length <= 0) return null;
-        return { path, length };
-      } catch (error) {
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  if (!pathEntries.length) return;
-
-  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
-  
-  // Pre-calculate spawn points to avoid getPointAtLength in loop
-  const spawnPoints = [];
-  const sampleResolution = 3; // Sample every 3px
-  
-  pathEntries.forEach(entry => {
-    const steps = Math.floor(entry.length / sampleResolution);
-    for (let i = 0; i <= steps; i++) {
-      try {
-        const point = entry.path.getPointAtLength(i * sampleResolution);
-        spawnPoints.push({ x: point.x, y: point.y });
-      } catch (e) { /* ignore */ }
-    }
-  });
-
-  if (spawnPoints.length === 0) return;
-
-  // Calculate center of mass for outward dispersion
-  let totalX = 0, totalY = 0;
-  spawnPoints.forEach(p => { totalX += p.x; totalY += p.y; });
-  const center = { x: totalX / spawnPoints.length, y: totalY / spawnPoints.length };
-
-  // Create a dedicated group for fire if not exists
-  let fireGroup = document.getElementById("fireGroup");
-  if (!fireGroup) {
-    fireGroup = document.createElementNS(svgNS, "g");
-    fireGroup.id = "fireGroup";
-    // Insert before stickersLayer to be behind stickers
-    if (elements.stickersLayer && elements.stickersLayer.parentNode) {
-      elements.stickersLayer.parentNode.insertBefore(fireGroup, elements.stickersLayer);
-    } else {
-      elements.ambientLayer.appendChild(fireGroup);
-    }
-  }
-
-  fireState.active = true;
-  
-  // Check for mobile device to optimize performance
-  const isMobile = window.innerWidth < 768;
-
-  // Start the fire loop
-  const spawnFireParticle = () => {
-    if (!fireState.active) return;
-    
-    // Check if paused (tab hidden), but keep loop alive
-    if (fireState.paused) {
-      setTimeout(spawnFireParticle, 1000);
-      return;
-    }
-
-    // Calculate spawn rate based on intensity
-    const intensity = fireState.intensity;
-
-    // If intensity is effectively zero, don't spawn particles, just check again later
-    if (intensity <= 0.01) {
-      setTimeout(spawnFireParticle, 500);
-      return;
-    }
-    
-    // Performance throttling for mobile:
-    // To support longer particle life without killing performance, we MUST reduce spawn rate.
-    // We increase delays and reduce batch sizes to keep total concurrent nodes stable.
-    // Optimized for Desktop: Increased delayBase from 200 to 300 to reduce DOM load
-    let delayBase = isMobile ? 350 : 300; // Slower spawn loop
-    let delayMin = isMobile ? 150 : 100;
-    
-    // Spawn delay: decreases as intensity increases
-    const delay = delayBase - (intensity * (delayBase - delayMin));
-    
-    // Batch size: Reduced to compensate for longer life
-    // Optimized for Desktop: Reduced maxBatch from 3 to 2
-    let maxBatch = isMobile ? 2 : 2; 
-    const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
-
-    for (let i = 0; i < batchSize; i++) {
-      createFireParticle(spawnPoints, center, fireGroup, intensity, isMobile);
-    }
-
-    setTimeout(spawnFireParticle, delay);
-  };
-
-  spawnFireParticle();
+  getFireEffect().init();
 }
 
-function createFireParticle(spawnPoints, center, container, intensity, isMobile) {
-  try {
-    // Pick a random pre-calculated point
-    const point = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
-    if (!point) return;
-
-    const particle = document.createElementNS(svgNS, "circle");
-    particle.classList.add("fire-particle");
-    particle.style.mixBlendMode = "screen";
-    
-    // Randomize position slightly
-    const jitter = 15 + (intensity * 25);
-    const startX = point.x + (Math.random() - 0.5) * jitter;
-    const startY = point.y + (Math.random() - 0.5) * jitter;
-
-    particle.setAttribute("cx", startX.toFixed(2));
-    particle.setAttribute("cy", startY.toFixed(2));
-    
-    // Visual Refinement:
-    // 1. Size: Further reduced as requested (2px - 6px range)
-    // Mobile still gets a slight boost to compensate for lower particle count
-    const mobileScale = isMobile ? 1.5 : 1;
-    const baseSize = (2 + (intensity * 4)) * mobileScale; // 2px to 6px base
-    const size = baseSize * (0.8 + Math.random() * 0.4); 
-    particle.setAttribute("r", size.toFixed(2));
-
-    // 2. Color: Hotter, more vibrant colors
-    // Mix of Yellow/White (hot core) and Orange/Red (flames)
-    const startHue = 40 + Math.random() * 15; // Yellow/Gold
-    
-    particle.style.fill = `hsl(${startHue}, 100%, 80%)`;
-    // Start invisible, fade in handled by anime.js
-    particle.style.opacity = 0;
-
-    container.appendChild(particle);
-
-    // 3. Motion: Outward dispersion with Upward Bias
-    // Extended duration as requested (2.5s - 4.5s)
-    // We can afford this because we reduced the spawn rate in the loop
-    const duration = 2500 + Math.random() * 2000; 
-    
-    // Calculate vector from center
-    const dx = startX - center.x;
-    const dy = startY - center.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    let dirX = dx / dist;
-    let dirY = dy / dist;
-
-    // Add strong upward bias to simulate heat rising
-    // This ensures top particles float UP instead of just OUT
-    dirY -= 0.8; 
-
-    // Re-normalize to maintain consistent slow speed
-    const newDist = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
-    dirX /= newDist;
-    dirY /= newDist;
-
-    // Speed magnitude (Reduced slightly to match longer duration)
-    const speed = 15 + (intensity * 25) + (Math.random() * 10);
-    
-    const travelX = dirX * speed;
-    const travelY = dirY * speed;
-
-    // 4. Animation: "Puff" effect (Grow then Shrink)
-    window.anime({
-      targets: particle,
-      opacity: [
-        { value: 0, duration: 0 },
-        { value: 0.9, duration: duration * 0.15 }, // Fade in fast
-        { value: 0, duration: duration * 0.85, easing: 'easeInQuad' } // Fade out
-      ],
-      translateY: travelY,
-      translateX: travelX,
-      scale: [
-        { value: 0.3, duration: 0 },
-        { value: 1.4, duration: duration * 0.4, easing: 'easeOutQuad' }, // Puff up
-        { value: 0, duration: duration * 0.6, easing: 'easeInQuad' } // Shrink away
-      ],
-      easing: 'easeOutQuad',
-      duration: duration,
-      complete: () => {
-        if (particle.isConnected) particle.remove();
-      }
-    });
-  } catch (err) {
-    console.warn("Error creating fire particle", err);
-  }
-}
+// Deprecated / Moved functions for Fire Effect
+function createFireParticle() {} 
 
 export function updateFireIntensity(stickersMap) {
   const count = stickersMap.size;
   setFireIntensity(count);
+}
+
+// Deprecated / Moved functions for Mist Effect
+function initCelebrationMist() {
+  getMistEffect().init();
 }
 
 
@@ -1677,20 +1315,15 @@ export function handleVisibilityChange(isVisible) {
   setShimmerPaused(!isVisible);
 
   // 2. Fire Effect (pause spawning)
-  fireState.paused = !isVisible;
+  getFireEffect().setPaused(!isVisible);
   
   // 3. Ambient/Glow Animations
-  // If we are using anime.js timelines, we might want to pause them too
-  // ambientState.animation is the timeline for the eagle glow
-  if (ambientState.animation) {
-    if (isVisible) {
-       ambientState.animation.play();
-    } else {
-       ambientState.animation.pause();
-    }
-  }
+  getAmbientGlowEffect().setPaused(!isVisible);
 
-  // 4. Pixi
+  // 4. Mist Effect
+  getMistEffect().setPaused(!isVisible);
+
+  // 5. Pixi
   // Pixi usually handles Ticker automatically if configured, but we can be explicit
   if (pixiApp && pixiApp.ticker) {
       if (isVisible) {
@@ -1702,62 +1335,27 @@ export function handleVisibilityChange(isVisible) {
 }
 
 export function resetFireEffect() {
-  // 1. Reset intensities
-  fireState.intensity = 0;
-  bottomFireState.intensity = 0;
-
-  // 2. Clear Pixi Fire
-  if (pixiFireSystem.active && pixiFireSystem.particles.length > 0) {
-    // Destroy all existing sprites immediately
-    for (const p of pixiFireSystem.particles) {
-      if (p.sprite && !p.sprite.destroyed) {
-        p.sprite.destroy();
-      }
-    }
-    pixiFireSystem.particles = [];
-  }
-  
-  // 3. Clear SVG Fire
-  if (fireState.active) {
-    // Remove all anime instances handling fire particles
-    // (Note: This is imperfect as we don't track fire-specific anime instances easily,
-    // but cleaning the DOM nodes usually stops the visual part)
-    const group = document.getElementById("fireGroup");
-    if (group) {
-        while (group.firstChild) {
-            group.firstChild.remove();
-        }
-    }
-  }
-  
-  // 4. Clear Doom Fire (Bottom Fire)
-  if (bottomFireState.firePixels) {
-      bottomFireState.firePixels.fill(0);
-      // Force a clear render
-      if (bottomFireState.ctx) {
-          bottomFireState.ctx.clearRect(0, 0, bottomFireState.width, bottomFireState.height);
-      }
-  }
+  getFireEffect().reset();
+  getBottomFireEffect().reset();
+  getMistEffect().reset();
 
   // 5. Clear Holy Fire
-  if (holyFireState.firePixels) {
-      holyFireState.firePixels.fill(0);
-      holyFireState.intensity = 0;
-      holyFireState.displayIntensity = 0;
-      if (holyFireState.ctx) {
-          holyFireState.ctx.clearRect(0, 0, holyFireState.width, holyFireState.height);
-      }
-  }
+  getHolyFireEffect().reset();
 }
 
 export function setFireIntensity(count) {
   // 0 to 700 stickers maps to 0 to 1 intensity
   const maxStickers = 700;
-  const minIntensity = 0.0; // Changed to 0 so 0 stickers = no fire
+  const minIntensity = 0.0; 
   const progress = Math.min(count / maxStickers, 1);
   
-  fireState.intensity = minIntensity + (progress * (1 - minIntensity));
-  bottomFireState.intensity = fireState.intensity;
+  const val = minIntensity + (progress * (1 - minIntensity));
+  
+  // Critical: Update shared state for MistEffect
+  fireState.intensity = val;
+
+  getFireEffect().setIntensity(val);
+  getBottomFireEffect().setIntensity(val);
 }
 
 export function runPopAnimation(node) {
@@ -1803,745 +1401,25 @@ export function runPulseAnimation(node) {
 }
 
 export function getResonanceHeat() {
-  return resonanceState.heat;
+  return getResonanceEffect().getHeat();
 }
 
 export function playResonanceEffect(remoteHeat = null) {
-  // Sync: If remote heat is higher, catch up immediately
-  if (remoteHeat !== null && typeof remoteHeat === "number") {
-    if (remoteHeat > resonanceState.heat) {
-      resonanceState.heat = remoteHeat;
-    }
-  }
-
-  // Add heat on click
-  resonanceState.heat = Math.min(HEAT_CONFIG.maxHeat, resonanceState.heat + HEAT_CONFIG.gain);
-  
-  // Performance Protection:
-  // If too many particles, reduce emission or skip
-  const currentParticles = resonanceState.particles.length;
-  if (currentParticles > 500) return; // Hard cap
-  
-  // Add particles
-  // Always spawn 1 particle per click to avoid clutter
-  let count = 1;
-  
-  // Throttle count if heavy load
-  if (currentParticles > 300) count = Math.max(1, Math.floor(count / 2));
-
-  for (let i = 0; i < count; i++) {
-    // Size increases slightly with heat
-    const baseSize = 10 + (resonanceState.heat / 20); 
-    const size = baseSize + Math.random() * 10;
-    
-    const x = (5 + Math.random() * 90) * resonanceState.width / 100;
-    const y = resonanceState.height + 40;
-    
-    // Gradual Color Transition with Jitter
-    // Uses LOCAL heat state, so high-heat users see high-heat colors even from low-heat users
-    const color = getHeatColor(resonanceState.heat);
-
-    resonanceState.particles.push({
-      x,
-      y,
-      size,
-      color,
-      vx: (Math.random() - 0.5) * 1.0,
-      vy: -(2 + Math.random() * 2 + (resonanceState.heat / 25)), 
-      life: 1,
-      decay: 0.005 + Math.random() * 0.01
-    });
-  }
-}
-
-// New Resonance State (Canvas & Heat)
-const resonanceState = {
-  canvas: null,
-  ctx: null,
-  particles: [],
-  heat: 0,
-  width: 0,
-  height: 0,
-  lastTime: 0,
-  onlineCount: 1
-};
-
-const HEAT_CONFIG = {
-  baseDecay: 5,        // 基礎衰減：每秒降 5% (確保單人難以維持滿熱度)
-  decayPerPerson: 0.3, // 人數加成：每人每秒多降 0.3% (人多時需要更多互動)
-  gain: 0.5,           // 點擊增益：每下增加 0.5% (正常難度)
-  maxHeat: 100
-};
-
-function getHeatColor(heat) {
-  // Interpolate between Red (#ff5d5d) and Soft Warm Yellow (#ffeeb4)
-  // Red: 255, 93, 93
-  // Soft Yellow: 255, 238, 180
-  
-  // Clamp heat to 0-100
-  const h = Math.max(0, Math.min(100, heat));
-  const t = h / 100; // 0.0 to 1.0
-  
-  // Non-linear interpolation
-  const easeT = t * t; 
-  
-  const baseR = 255;
-  const baseG = 93 + (238 - 93) * easeT;
-  const baseB = 93 + (180 - 93) * easeT;
-  
-  // Add random variation to avoid uniformity
-  // Reduced jitter range for cleaner colors
-  const jitter = (Math.random() - 0.5) * 40; 
-  const r = Math.min(255, Math.max(180, baseR + jitter)); 
-  const g = Math.min(255, Math.max(0, baseG + jitter));
-  const b = Math.min(255, Math.max(0, baseB + jitter));
-
-  return `rgb(${Math.round(r)}, ${Math.round(g)}, ${Math.round(b)})`;
+  getResonanceEffect().trigger(remoteHeat);
 }
 
 export function updateOnlineCount(count) {
-  resonanceState.onlineCount = Math.max(1, count);
+  getResonanceEffect().updateOnlineCount(count);
 }
 
-function initResonanceCanvas() {
-  if (mediaPrefersReducedMotion?.matches) return;
-  
-  const canvas = document.createElement("canvas");
-  canvas.id = "resonanceCanvas";
-  canvas.style.position = "fixed";
-  canvas.style.inset = "0";
-  canvas.style.pointerEvents = "none";
-  canvas.style.zIndex = "850"; // Below playback overlay (900) but above wall
-  
-  // Fix: Append to wall-section to share stacking context with playbackOverlay
-  // This ensures z-index 850 (hearts) < z-index 900 (playback overlay) works correctly
-  const container = document.querySelector(".wall-section") || document.body;
-  container.appendChild(canvas);
-  
-  resonanceState.canvas = canvas;
-  resonanceState.ctx = canvas.getContext("2d");
-  
-  const resize = () => {
-    resonanceState.width = window.innerWidth;
-    resonanceState.height = window.innerHeight;
-    canvas.width = resonanceState.width;
-    canvas.height = resonanceState.height;
-  };
-  
-  window.addEventListener("resize", resize);
-  resize();
-  
-  startResonanceLoop();
-}
+// Resonance has been moved to ResonanceEffect.js
 
-function startResonanceLoop() {
-  const loop = (time) => {
-    requestAnimationFrame(loop);
-    
-    // Skip if tab is hidden to save battery
-    if (document.hidden) return;
+// HolyFire has been moved to HolyFireEffect.js
 
-    const dt = (time - resonanceState.lastTime) / 1000;
-    resonanceState.lastTime = time;
-    
-    if (dt > 0.1) return; // Skip large jumps
-    
-    // 1. Decay Heat
-    // Dynamic Difficulty:
-    // Base decay ensures single user cannot reach 100% (Need ~16 CPS to beat base decay of 8)
-    // Scaling decay ensures large crowds still need to be active (~2.4 CPS per person)
-    const currentDecay = Math.max(
-      HEAT_CONFIG.baseDecay, 
-      resonanceState.onlineCount * HEAT_CONFIG.decayPerPerson
-    );
-
-    // Default minimum heat: 1.2% (Very weak fire always present)
-    const minHeat = 1.2;
-
-    if (resonanceState.heat > minHeat) {
-      resonanceState.heat = Math.max(minHeat, resonanceState.heat - (currentDecay * dt));
-    } else if (resonanceState.heat < minHeat) {
-      // Slowly recover to minHeat if below (e.g. on init)
-      resonanceState.heat = Math.min(minHeat, resonanceState.heat + (dt * 2));
-    }
-    
-    // Sync Holy Fire intensity
-    if (holyFireState.ctx) {
-        holyFireState.intensity = resonanceState.heat / 100;
-    }
-
-    // 2. Render Particles
-    const ctx = resonanceState.ctx;
-    ctx.clearRect(0, 0, resonanceState.width, resonanceState.height);
-    
-    // Random Sparkles at High Heat (>80%)
-    // Replaces the previous full-screen flash
-    if (resonanceState.heat > 80) {
-      // Chance to spawn a sparkle based on heat
-      // Reduced spawn chance for a more gentle effect
-      // Heat 80 -> 2% chance, Heat 100 -> 10% chance
-      const spawnChance = (resonanceState.heat - 80) / 200; 
-      if (Math.random() < spawnChance) {
-         const x = Math.random() * resonanceState.width;
-         const y = Math.random() * resonanceState.height * 0.8; // Mostly top 80%
-         const size = 2 + Math.random() * 4;
-         
-         resonanceState.particles.push({
-            type: 'sparkle',
-            x, y, size,
-            life: 0, // Start at 0 for fade in
-            maxLife: 1,
-            state: 'in', // in, out
-            decay: 0.01 + Math.random() * 0.01, // Slower decay/fade
-            color: `rgba(255, 255, ${200 + Math.random() * 55}, 1)` // White/Yellowish
-         });
-      }
-    }
-
-    for (let i = resonanceState.particles.length - 1; i >= 0; i--) {
-      const p = resonanceState.particles[i];
-      
-      if (p.type === 'sparkle') {
-         // Handle Sparkle Lifecycle (Fade In -> Fade Out)
-         if (p.state === 'in') {
-             p.life += p.decay;
-             if (p.life >= p.maxLife) {
-                 p.life = p.maxLife;
-                 p.state = 'out';
-             }
-         } else {
-             p.life -= p.decay;
-             if (p.life <= 0) {
-                 resonanceState.particles.splice(i, 1);
-                 continue;
-             }
-         }
-
-         // Draw Sparkle (Cross/Star shape)
-         ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
-         ctx.fillStyle = p.color;
-         ctx.save();
-         ctx.translate(p.x, p.y);
-         // Rotate slowly
-         ctx.rotate(Date.now() * 0.001); 
-         
-         ctx.beginPath();
-         // Draw 4-point star
-         const s = p.size * (0.5 + p.life * 0.5); // Pulse size
-         ctx.moveTo(0, -s * 2);
-         ctx.quadraticCurveTo(s * 0.2, -s * 0.2, s * 2, 0);
-         ctx.quadraticCurveTo(s * 0.2, s * 0.2, 0, s * 2);
-         ctx.quadraticCurveTo(-s * 0.2, s * 0.2, -s * 2, 0);
-         ctx.quadraticCurveTo(-s * 0.2, -s * 0.2, 0, -s * 2);
-         ctx.fill();
-         ctx.restore();
-         continue;
-      }
-
-      // Generic decay for other particles (Hearts)
-      p.life -= p.decay;
-      if (p.life <= 0) {
-        resonanceState.particles.splice(i, 1);
-        continue;
-      }
-
-      p.x += p.vx;
-      p.y += p.vy;
-      
-      ctx.globalAlpha = p.life;
-      ctx.fillStyle = p.color;
-      
-      const size = p.size * p.life; 
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      
-      // Draw Heart
-      ctx.beginPath();
-      const topCurveHeight = size * 0.3;
-      ctx.moveTo(0, topCurveHeight);
-      ctx.bezierCurveTo(0, 0, -size / 2, 0, -size / 2, topCurveHeight);
-      ctx.bezierCurveTo(-size / 2, size / 2, 0, size * 0.8, 0, size);
-      ctx.bezierCurveTo(0, size * 0.8, size / 2, size / 2, size / 2, topCurveHeight);
-      ctx.bezierCurveTo(size / 2, 0, 0, 0, 0, topCurveHeight);
-      ctx.fill();
-      
-      // Add Glow if hot
-      if (resonanceState.heat > 50) {
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = "rgba(255, 200, 100, 0.5)";
-        ctx.fill();
-      }
-      
-      ctx.restore();
-    }
-  };
-  requestAnimationFrame(loop);
-}
-
-function initBottomFire() {
-  if (mediaPrefersReducedMotion?.matches) return;
-  
-  // Create canvas for the doom fire effect
-  const canvas = document.createElement("canvas");
-  canvas.id = "bottomFireCanvas";
-  // Low resolution for performance and "blur" effect
-  const w = 160;
-  const h = 100;
-  canvas.width = w;
-  canvas.height = h;
-  
-  // Style to stretch it across the bottom
-  Object.assign(canvas.style, {
-    position: "fixed",
-    bottom: "0",
-    left: "0",
-    width: "100%",
-    height: "40vh", // Increased height for smoother fade
-    pointerEvents: "none",
-    zIndex: "-1", // Behind everything (Mist is 0, Wall is 1)
-    opacity: "0.5", // Reduced opacity for better blending
-    mixBlendMode: "screen",
-    filter: "blur(12px)", // Increased blur
-    maskImage: "linear-gradient(to top, rgba(0,0,0,1) 20%, rgba(0,0,0,0.8) 60%, rgba(0,0,0,0) 100%)", // Multi-stop gradient
-    webkitMaskImage: "linear-gradient(to top, rgba(0,0,0,1) 20%, rgba(0,0,0,0.8) 60%, rgba(0,0,0,0) 100%)"
-  });
-
-  // Append to main to layer correctly between background and content
-  const main = document.querySelector("main");
-  if (main) {
-    main.appendChild(canvas);
-  } else {
-    document.body.appendChild(canvas);
-  }
-  
-  bottomFireState.canvas = canvas;
-  bottomFireState.ctx = canvas.getContext("2d");
-  bottomFireState.width = w;
-  bottomFireState.height = h;
-  bottomFireState.firePixels = new Array(w * h).fill(0);
-  
-  startBottomFireLoop();
-}
-
-const holyFireState = {
-  canvas: null,
-  ctx: null,
-  firePixels: [],
-  width: 0,
-  height: 0,
-  intensity: 0,
-  displayIntensity: 0, // Lagging intensity for smooth rise
-  paletteRGB: null
-};
-
-function initHolyFire() {
-  if (mediaPrefersReducedMotion?.matches) return;
-  
-  const canvas = document.createElement("canvas");
-  canvas.id = "holyFireCanvas";
-  const w = 160;
-  const h = 100;
-  canvas.width = w;
-  canvas.height = h;
-  
-  Object.assign(canvas.style, {
-    position: "fixed",
-    bottom: "0",
-    left: "0",
-    width: "100%",
-    height: "90vh", // Increased height to reach above eagle
-    pointerEvents: "none",
-    zIndex: "10", // Behind wall-stage (20)
-    opacity: "0.8", 
-    mixBlendMode: "screen", // Additive blending
-    filter: "blur(10px)",
-    // Mask out the bottom 15% to keep UI clear
-    maskImage: "linear-gradient(to top, rgba(0,0,0,1) 10%, rgba(0,0,0,0) 100%)",
-    webkitMaskImage: "linear-gradient(to top, rgba(0,0,0,1) 10%, rgba(0,0,0,0) 100%)"
-  });
-  
-  // Append to wall-section to be in the correct stacking context
-  const container = document.querySelector(".wall-section") || document.body;
-  container.appendChild(canvas);
-  
-  holyFireState.canvas = canvas;
-  holyFireState.ctx = canvas.getContext("2d");
-  holyFireState.width = w;
-  holyFireState.height = h;
-  holyFireState.firePixels = new Array(w * h).fill(0);
-  
-  startHolyFireLoop();
-}
-
-function startHolyFireLoop() {
-  const { width, height, firePixels, ctx } = holyFireState;
-  let lastTime = 0;
-  // Performance: Reduce FPS on mobile or if tab is hidden
-  const isMobile = window.innerWidth < 768;
-  const fps = isMobile ? 10 : 15; 
-  const interval = 1000 / fps;
-  
-  const update = (time) => {
-    requestAnimationFrame(update);
-    
-    // Skip if tab is hidden to save battery
-    if (document.hidden) return;
-
-    const delta = time - lastTime;
-    if (delta < interval) return;
-    lastTime = time - (delta % interval);
-
-    // Smoothly interpolate display intensity towards target intensity
-    // This prevents the fire from "jumping" up instantly
-    const targetIntensity = holyFireState.intensity;
-    const diff = targetIntensity - holyFireState.displayIntensity;
-    if (Math.abs(diff) > 0.001) {
-        holyFireState.displayIntensity += diff * 0.005; // Very slow ease-in for gradual rise
-    } else {
-        holyFireState.displayIntensity = targetIntensity;
-    }
-
-    // 1. Update Source based on intensity
-    // Intensity 0 = No fire, Intensity 1 = Raging fire
-    const intensity = holyFireState.displayIntensity;
-    
-    // Only generate source if intensity > 0
-    if (intensity > 0.01) {
-      for (let x = 0; x < width; x++) {
-        const index = (height - 1) * width + x;
-        // Source probability increases with intensity
-        // Cap visual density at ~40% (0.4 multiplier) to keep it looking like flames not a block
-        if (Math.random() < (intensity * 0.4)) {
-           // Scale max heat by intensity so low intensity = short fire
-           // Was fixed at 36, now 18 to 36 based on intensity
-           const maxHeat = 18 + (intensity * 18);
-           firePixels[index] = Math.floor(maxHeat); 
-        } else {
-           firePixels[index] = Math.max(0, firePixels[index] - 2);
-        }
-      }
-    } else {
-      // Extinguish source
-      for (let x = 0; x < width; x++) {
-        const index = (height - 1) * width + x;
-        firePixels[index] = Math.max(0, firePixels[index] - 4);
-      }
-    }
-
-    // 2. Propagate
-    for (let x = 0; x < width; x++) {
-      for (let y = 1; y < height; y++) {
-        const srcIndex = y * width + x;
-        const pixelHeat = firePixels[srcIndex];
-        
-        if (pixelHeat === 0) {
-          firePixels[srcIndex - width] = 0;
-        } else {
-          // Decay logic
-          // Higher intensity = Less decay = Taller fire
-          // To reach top (height 100), we need very low decay at max intensity
-          // At intensity 1.0: decayChance = 0.55 - 0.53 = 0.02 (2% chance to decay)
-          const decayChance = 0.55 - (intensity * 0.53); 
-          const decay = Math.random() < decayChance ? 1 : 0;
-          const dstIndex = srcIndex - width + (Math.random() > 0.5 ? 1 : -1); // More turbulent wind
-          
-          if (dstIndex >= 0 && dstIndex < width * height) {
-             firePixels[dstIndex] = Math.max(0, pixelHeat - decay);
-          }
-        }
-      }
-    }
-
-    // 3. Render
-    const imgData = ctx.createImageData(width, height);
-    const data = imgData.data;
-    
-    if (!holyFireState.paletteRGB) {
-       // Golden/Holy Fire Palette
-       // Transparent -> GoldenRod -> Gold -> LightYellow -> White
-       holyFireState.paletteRGB = [
-        [0,0,0,0],
-        [184,134,11,0], [184,134,11,10], [218,165,32,30], // Dark GoldenRod
-        [218,165,32,60], [255,215,0,90], [255,215,0,120], // Gold
-        [255,223,0,150], [255,223,0,180], [255,255,0,200], // Yellow
-        [255,255,100,220], [255,255,150,230], [255,255,200,240], // Light Yellow
-        [255,255,220,250], [255,255,240,255], [255,255,255,255], // White
-        // Fill rest with white
-        ...Array(21).fill([255,255,255,255])
-      ];
-    }
-    
-    const paletteRGB = holyFireState.paletteRGB;
-    
-    for (let i = 0; i < firePixels.length; i++) {
-      const heat = firePixels[i];
-      // Map heat 0-36 to palette
-      const color = paletteRGB[Math.min(36, heat)] || paletteRGB[0];
-      const baseIdx = i * 4;
-      data[baseIdx] = color[0];
-      data[baseIdx + 1] = color[1];
-      data[baseIdx + 2] = color[2];
-      data[baseIdx + 3] = color[3];
-    }
-    
-    ctx.putImageData(imgData, 0, 0);
-  };
-  
-  update(0);
-}
-
-function startBottomFireLoop() {
-  const { width, height, firePixels, ctx } = bottomFireState;
-  let lastTime = 0;
-  // Performance: Reduce FPS on mobile or if tab is hidden
-  const isMobile = window.innerWidth < 768;
-  const fps = isMobile ? 8 : 12; 
-  const interval = 1000 / fps;
-  
-  const update = (time) => {
-    bottomFireState.animationId = requestAnimationFrame(update);
-    
-    // Skip if tab is hidden to save battery
-    if (document.hidden) return;
-
-    const delta = time - lastTime;
-    if (delta < interval) return;
-    
-    lastTime = time - (delta % interval);
-
-    // 1. Update Fire Source (Bottom Row) based on intensity
-    const intensity = bottomFireState.intensity; 
-    // User wants constant "max" color/source, so we use a fixed high value for source generation
-    // But if intensity is 0, we turn off the source
-    const sourceIntensity = intensity > 0.01 ? 0.85 : 0; 
-    
-    for (let x = 0; x < width; x++) {
-      const index = (height - 1) * width + x;
-      // Randomize heat source
-      if (Math.random() < sourceIntensity) {
-         firePixels[index] = 36; // Max heat
-      } else {
-         firePixels[index] = Math.max(0, firePixels[index] - 1);
-      }
-    }
-
-    // 2. Propagate Fire
-    for (let x = 0; x < width; x++) {
-      for (let y = 1; y < height; y++) {
-        const srcIndex = y * width + x;
-        const pixelHeat = firePixels[srcIndex];
-        
-        if (pixelHeat === 0) {
-          firePixels[srcIndex - width] = 0;
-        } else {
-          // Dynamic decay based on intensity: Higher intensity = Lower decay chance = Taller fire
-          // Intensity 0.2 -> ~65% decay chance (Short fire)
-          // Intensity 1.0 -> ~5% decay chance (Tall fire)
-          const decayChance = 0.8 - (intensity * 0.75);
-          const decay = Math.random() < decayChance ? 1 : 0;
-          
-          const dstIndex = srcIndex - width + (Math.random() > 0.5 ? 1 : 0); // Slight wind
-          
-          if (dstIndex >= 0 && dstIndex < width * height) {
-             firePixels[dstIndex] = Math.max(0, pixelHeat - decay);
-          }
-        }
-      }
-    }
-
-    // 3. Render
-    const imgData = ctx.createImageData(width, height);
-    const data = imgData.data;
-    
-    if (!bottomFireState.paletteRGB) {
-       // Modified palette: Low heat colors are now transparent/semi-transparent to avoid "black smoke" look
-       bottomFireState.paletteRGB = [
-        [0,0,0,0],
-        [31,7,7,0],[47,15,7,0],[71,15,7,0], // 1-3: Fully transparent (was dark red/black)
-        [87,23,7,20],[103,31,7,50],[119,31,7,80],[143,39,7,110], // 4-7: Fading in
-        [159,47,7,150],[175,63,7,190],[191,71,7,220],[199,71,7,255], // 8-11: Becoming opaque
-        [223,79,7,255],[223,87,7,255],[223,87,7,255],[215,95,7,255],
-        [215,95,7,255],[215,103,15,255],[207,111,15,255],[207,119,15,255],[207,127,15,255],[207,135,23,255],[199,135,23,255],[199,143,23,255],
-        [199,151,31,255],[191,159,31,255],[191,159,31,255],[191,167,39,255],[191,167,39,255],[191,175,47,255],[183,175,47,255],[183,183,47,255],
-        [183,183,55,255],[207,207,111,255],[223,223,159,255],[239,239,199,255],[255,255,255,255],[255,255,255,255]
-      ];
-    }
-    
-    const paletteRGB = bottomFireState.paletteRGB;
-    
-    for (let i = 0; i < firePixels.length; i++) {
-      const heat = firePixels[i];
-      const color = paletteRGB[Math.min(36, heat)] || paletteRGB[0];
-      const baseIdx = i * 4;
-      data[baseIdx] = color[0];     // R
-      data[baseIdx + 1] = color[1]; // G
-      data[baseIdx + 2] = color[2]; // B
-      data[baseIdx + 3] = color[3]; // A
-    }
-    
-    ctx.putImageData(imgData, 0, 0);
-  };
-  
-  update(0);
-}
-
-const celebrationState = {
-  canvas: null,
-  ctx: null,
-  particles: [],
-  width: 0,
-  height: 0,
-  lastTime: 0
-};
-
-function initCelebrationMist() {
-  if (mediaPrefersReducedMotion?.matches) return;
-
-  const canvas = document.createElement("canvas");
-  canvas.id = "celebrationMistCanvas";
-  canvas.style.position = "fixed";
-  canvas.style.inset = "0";
-  canvas.style.pointerEvents = "none";
-  canvas.style.zIndex = "0"; // Above Fire (-1), Below Wall (1)
-  canvas.style.mixBlendMode = "screen";
-  canvas.style.opacity = "0.8";
-  
-  // Append to main to layer correctly
-  const main = document.querySelector("main");
-  if (main) {
-    main.appendChild(canvas);
-  } else {
-    document.body.appendChild(canvas);
-  }
-
-  celebrationState.canvas = canvas;
-  celebrationState.ctx = canvas.getContext("2d");
-
-  const resize = () => {
-    celebrationState.width = window.innerWidth;
-    celebrationState.height = window.innerHeight;
-    canvas.width = celebrationState.width;
-    canvas.height = celebrationState.height;
-  };
-  
-  window.addEventListener("resize", resize);
-  resize();
-  
-  startCelebrationLoop();
-}
-
-function startCelebrationLoop() {
-  const loop = (time) => {
-    requestAnimationFrame(loop);
-    if (document.hidden) return;
-
-    const dt = (time - celebrationState.lastTime) / 1000;
-    celebrationState.lastTime = time;
-    if (dt > 0.1) return;
-
-    const ctx = celebrationState.ctx;
-    const { width, height, particles } = celebrationState;
-    
-    // Clear with fade effect for trails? No, just clear for mist
-    ctx.clearRect(0, 0, width, height);
-
-    // 1. Spawn Particles based on intensity
-    // Only active if intensity is high (> 0.5)
-    const intensity = fireState.intensity;
-    
-    // Initialize timer if needed
-    if (celebrationState.spawnTimer === undefined) celebrationState.spawnTimer = 0;
-    celebrationState.spawnTimer += dt;
-
-    if (intensity > 0.5) {
-      // Continuous flow: Use timer instead of random chance to avoid gaps
-      // Target: ~1 particle/sec at max intensity (Interval 1.0s) - Very slow and calm
-      const baseInterval = 1.0; 
-      const spawnRate = (intensity - 0.5) * 2; // 0 to 1
-      const currentInterval = baseInterval / Math.max(0.1, spawnRate);
-      
-      if (celebrationState.spawnTimer > currentInterval) {
-        celebrationState.spawnTimer = 0; // Reset timer
-        // Spawn a "Mist Burst"
-        // Position: Random in top 70% of screen (Wider area)
-        const x = Math.random() * width;
-        const y = Math.random() * (height * 0.7); 
-        
-        // Varied Colors: More Gold/White focus for brightness
-        const hue = 30 + Math.random() * 25; // 30-55
-        const sat = 80 + Math.random() * 20; // Vibrant
-        const light = 70 + Math.random() * 30; // Bright
-        
-        const mainColor = `hsla(${hue}, ${sat}%, ${light}%,`;
-        const coreColor = `hsla(${hue}, ${sat}%, 95%,`; // Almost white core
-        
-        particles.push({
-          x, y,
-          size: 0, // Start small
-          maxSize: 100 + Math.random() * 150, // Much Larger & Grand (100px - 250px)
-          life: 0,
-          maxLife: 6 + Math.random() * 4, // Very slow turnover (6-10s)
-          mainColor,
-          coreColor,
-          vx: (Math.random() - 0.5) * 6, // Very slow drift
-          vy: -5 - Math.random() * 10 // Very slow upward float
-        });
-      }
-    }
-
-    // 2. Update & Render
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.life += dt;
-      
-      if (p.life >= p.maxLife) {
-        particles.splice(i, 1);
-        continue;
-      }
-
-      // Move
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      
-      // Grow
-      const progress = p.life / p.maxLife;
-      // Ease out size: Fast grow, slow finish
-      const sizeProgress = 1 - Math.pow(1 - progress, 3);
-      const currentSize = p.maxSize * sizeProgress;
-      
-      // Fade: Smoother fade in to avoid "pop"
-      let alpha = 0;
-      const fadeInDuration = 0.25; // Longer fade in (25% of life)
-      
-      if (progress < fadeInDuration) {
-        // Ease in alpha: starts very transparent
-        const t = progress / fadeInDuration;
-        alpha = t * t; 
-      } else {
-        alpha = 1 - ((progress - fadeInDuration) / (1 - fadeInDuration));
-      }
-      // Balanced opacity: Visible but not harsh
-      alpha *= 0.75; 
-
-      // Draw Soft Orb with Richer Gradient
-      const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, currentSize);
-      // Core (Bright)
-      gradient.addColorStop(0, p.coreColor + alpha + ")");
-      // Body (Soft orb structure)
-      gradient.addColorStop(0.25, p.mainColor + (alpha * 0.8) + ")");
-      // Glow (Atmospheric falloff)
-      gradient.addColorStop(0.6, p.mainColor + (alpha * 0.2) + ")");
-      // Edge (Transparent)
-      gradient.addColorStop(1, p.mainColor + "0)"); 
-      
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, currentSize, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  };
-  requestAnimationFrame(loop);
-}
+// Moved to MistEffect.js
+// const celebrationState = { ... };
+// function initCelebrationMist() { ... }
+// function startCelebrationLoop() { ... }
 
 // --- PixiJS Implementations ---
 
@@ -2722,434 +1600,20 @@ function playPixiRevealBurst(x, y) {
 }
 
 // --- Optimized Pixi Fire System ---
-const pixiFireSystem = {
-  particles: [],
-  spawnTimer: 0,
-  active: false,
-  texture: null,
-  spawnPoints: [],
-  center: { x: 0, y: 0 },
-  container: null
-};
 
-function initPixiFireEffect() {
-  // Reuse eagle paths for fire emission
-  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
-  const pathEntries = pathNodes
-    .map((path) => {
-      try {
-        const length = path.getTotalLength();
-        if (!Number.isFinite(length) || length <= 0) return null;
-        return { path, length };
-      } catch (error) { return null; }
-    })
-    .filter(Boolean);
 
-  if (!pathEntries.length) return;
 
-  // Pre-calculate spawn points
-  pixiFireSystem.spawnPoints = [];
-  const sampleResolution = 3; 
-  pathEntries.forEach(entry => {
-    const steps = Math.floor(entry.length / sampleResolution);
-    for (let i = 0; i <= steps; i++) {
-      try {
-        const point = entry.path.getPointAtLength(i * sampleResolution);
-        pixiFireSystem.spawnPoints.push({ x: point.x, y: point.y });
-      } catch (e) {}
-    }
-  });
 
-  if (pixiFireSystem.spawnPoints.length === 0) return;
 
-  // Center of mass
-  let totalX = 0, totalY = 0;
-  pixiFireSystem.spawnPoints.forEach(p => { totalX += p.x; totalY += p.y; });
-  pixiFireSystem.center = { x: totalX / pixiFireSystem.spawnPoints.length, y: totalY / pixiFireSystem.spawnPoints.length };
 
-  fireState.active = true;
-  pixiFireSystem.active = true;
-  pixiFireSystem.texture = getCircleTexture();
-  pixiFireSystem.container = pixiBgLayer;
 
-  // Start the update loop
-  if (!pixiFireSystem.loopRunning) {
-      pixiFireSystem.loopRunning = true;
-      pixiApp.ticker.add(updatePixiFire);
-  }
-}
-
-function updatePixiFire(delta) {
-    if (!fireState.active || !pixiFireSystem.active) return;
-    
-    const intensity = fireState.intensity;
-    const isMobile = window.innerWidth < 768;
-    
-    // 1. Spawn Logic
-    if (intensity > 0.01) {
-        let delayBase = isMobile ? 20 : 15; // Frames between spawns (approx)
-        // Higher intensity = lower delay
-        const spawnDelay = Math.max(2, delayBase - (intensity * (delayBase - 5)));
-        
-        pixiFireSystem.spawnTimer += delta;
-        
-        if (pixiFireSystem.spawnTimer >= spawnDelay) {
-            pixiFireSystem.spawnTimer = 0;
-            
-            let maxBatch = isMobile ? 1 : 2; 
-            const batchSize = 1 + Math.floor(intensity * (maxBatch - 1));
-            
-            for (let i = 0; i < batchSize; i++) {
-                spawnPixiFireParticle(intensity, isMobile);
-            }
-        }
-    }
-
-    // 2. Update Particles
-    for (let i = pixiFireSystem.particles.length - 1; i >= 0; i--) {
-        const p = pixiFireSystem.particles[i];
-        p.life += delta;
-        
-        // Normalized life (0 to 1)
-        const progress = p.life / p.maxLife;
-        
-        if (progress >= 1) {
-            // Kill
-            p.sprite.destroy();
-            pixiFireSystem.particles.splice(i, 1);
-            continue;
-        }
-        
-        // Movement
-        p.sprite.x += p.vx * delta;
-        p.sprite.y += p.vy * delta;
-        
-        // Alpha: Fade in fast (15%), Fade out slow (85%)
-        if (progress < 0.15) {
-            p.sprite.alpha = (progress / 0.15) * 0.9;
-        } else {
-            p.sprite.alpha = (1 - ((progress - 0.15) / 0.85)) * 0.9;
-        }
-        
-        // Scale: Puff up then shrink
-        // Start: 0.3, Peak: 1.4 at 40%, End: 0
-        let scale = 0;
-        if (progress < 0.4) {
-            // 0.3 -> 1.4
-            const t = progress / 0.4;
-            // Ease out quad
-            const ease = 1 - (1 - t) * (1 - t);
-            scale = p.baseSize * (0.3 + (ease * 1.1));
-        } else {
-            // 1.4 -> 0
-            const t = (progress - 0.4) / 0.6;
-            // Ease in quad
-            const ease = t * t;
-            scale = p.baseSize * (1.4 * (1 - ease));
-        }
-        
-        p.sprite.width = scale;
-        p.sprite.height = scale;
-    }
-}
-
-function spawnPixiFireParticle(intensity, isMobile) {
-    const point = pixiFireSystem.spawnPoints[Math.floor(Math.random() * pixiFireSystem.spawnPoints.length)];
-    if (!point) return;
-
-    const sprite = new PIXI.Sprite(pixiFireSystem.texture);
-    sprite.anchor.set(0.5);
-    
-    const jitter = 15 + (intensity * 25);
-    const startX = point.x + (Math.random() - 0.5) * jitter;
-    const startY = point.y + (Math.random() - 0.5) * jitter;
-    
-    sprite.x = startX;
-    sprite.y = startY;
-    
-    const mobileScale = isMobile ? 1.5 : 1;
-    const baseSize = (2 + (intensity * 4)) * mobileScale; 
-    const size = baseSize * (0.8 + Math.random() * 0.4); 
-    
-    sprite.width = size * 0.3; // Start small
-    sprite.height = size * 0.3;
-    
-    // Color
-    const colors = [0xFFD700, 0xFFA500, 0xFF8C00, 0xFF4500];
-    sprite.tint = colors[Math.floor(Math.random() * colors.length)];
-    sprite.alpha = 0;
-    sprite.blendMode = PIXI.BLEND_MODES.SCREEN;
-
-    pixiFireSystem.container.addChild(sprite);
-
-    // Calculate Velocity
-    // Duration in frames (assuming 60fps)
-    // 2.5s - 4.5s -> 150 - 270 frames
-    const maxLife = 150 + Math.random() * 120;
-    
-    const dx = startX - pixiFireSystem.center.x;
-    const dy = startY - pixiFireSystem.center.y;
-    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-    let dirX = dx / dist;
-    let dirY = dy / dist;
-    dirY -= 0.8; // Upward bias
-    const newDist = Math.sqrt(dirX * dirX + dirY * dirY) || 1;
-    dirX /= newDist;
-    dirY /= newDist;
-
-    // Speed per frame
-    // Original speed was ~15-40 pixels over duration? No, speed was per second in anime?
-    // Anime.js translateX is total distance.
-    // Original: speed = 15 + (intensity * 25) + random(10)
-    // This was the TOTAL travel distance? No, that seems small for 2.5s.
-    // Wait, in createPixiFireParticle:
-    // const travelX = dirX * speed;
-    // x: startX + travelX
-    // So 'speed' was actually 'distance'.
-    // 15-50 pixels travel over 2.5s is very slow.
-    // Let's match that.
-    const totalDist = 15 + (intensity * 25) + (Math.random() * 10);
-    const vx = (dirX * totalDist) / maxLife;
-    const vy = (dirY * totalDist) / maxLife;
-
-    pixiFireSystem.particles.push({
-        sprite,
-        vx, vy,
-        life: 0,
-        maxLife,
-        baseSize: size
-    });
-}
 
 // --- Optimized Pixi Ambient Glow ---
-const pixiAmbientSystem = {
-    particles: [],
-    active: false
-};
-
-function initPixiAmbientGlow() {
-  // Clear existing
-  pixiBgLayer.removeChildren();
-  pixiAmbientSystem.particles = [];
-  
-  const pathNodes = Array.from(document.querySelectorAll("#eagleBody, #eagleTail"));
-  const pathEntries = pathNodes
-    .map((path) => {
-      try {
-        const length = path.getTotalLength();
-        if (!Number.isFinite(length) || length <= 0) return null;
-        return { path, length };
-      } catch (error) { return null; }
-    })
-    .filter(Boolean);
-
-  if (!pathEntries.length) return;
-
-  const combinedLength = pathEntries.reduce((sum, entry) => sum + entry.length, 0);
-  const isCompactViewport = window.innerWidth < 768;
-  const sparkCount = isCompactViewport ? 15 : 25; 
-  const averageSpacing = combinedLength / sparkCount;
-  const jitterWindow = Math.min(averageSpacing * 0.8, 250);
-
-  const texture = getCircleTexture();
-
-  for (let i = 0; i < sparkCount; i += 1) {
-    const offset = averageSpacing * i + (Math.random() - 0.5) * jitterWindow;
-    const normalizedCombined = ((offset % combinedLength) + combinedLength) % combinedLength;
-
-    let remaining = normalizedCombined;
-    let targetEntry = pathEntries[0];
-    for (const entry of pathEntries) {
-      if (remaining <= entry.length) {
-        targetEntry = entry;
-        break;
-      }
-      remaining -= entry.length;
-    }
-
-    let point;
-    try {
-      point = targetEntry.path.getPointAtLength(Math.max(0, remaining));
-    } catch (error) { continue; }
-    
-    if (!point) continue;
-
-    const jitterX = window.anime.random(-30, 30);
-    const jitterY = window.anime.random(-30, 30);
-    
-    const maxRadius = window.anime.random(10, 25); 
-    const maxOpacity = window.anime.random(30, 60) / 100; 
-    
-    const sprite = new PIXI.Sprite(texture);
-    sprite.anchor.set(0.5);
-    sprite.x = point.x + jitterX;
-    sprite.y = point.y + jitterY;
-    sprite.width = 0; 
-    sprite.height = 0;
-    sprite.alpha = 0;
-    sprite.tint = 0xFFE4BC; 
-    
-    pixiBgLayer.addChild(sprite);
-    
-    // Init particle state
-    pixiAmbientSystem.particles.push({
-        sprite,
-        startX: sprite.x,
-        startY: sprite.y,
-        maxSize: maxRadius * 2,
-        maxOpacity,
-        drift: (Math.random() - 0.5) * 40,
-        // Random start phase
-        timer: Math.random() * 300, // frames
-        duration: 180 + Math.random() * 120, // 3-5 seconds (at 60fps)
-        state: 'in' // in, out, wait
-    });
-  }
-
-  if (!pixiAmbientSystem.loopRunning) {
-      pixiAmbientSystem.loopRunning = true;
-      pixiApp.ticker.add(updatePixiAmbient);
-  }
-}
-
-function updatePixiAmbient(delta) {
-    for (const p of pixiAmbientSystem.particles) {
-        p.timer += delta;
-        
-        // Cycle: Wait -> In -> Out -> Wait
-        // Wait: 0 to delay
-        // In: delay to delay+halfDuration
-        // Out: delay+halfDuration to delay+duration
-        
-        // Simplified state machine
-        const halfDur = p.duration * 0.5;
-        
-        if (p.timer > p.duration) {
-            // Reset
-            p.timer = 0;
-            p.duration = 180 + Math.random() * 120;
-            // Randomize position slightly again? No, keep anchor.
-        }
-        
-        const progress = p.timer / p.duration;
-        
-        if (progress < 0.5) {
-            // Fade In & Rise
-            // 0 -> 1
-            const t = progress * 2; 
-            // Ease out sine
-            const ease = Math.sin(t * Math.PI / 2);
-            
-            p.sprite.width = p.maxSize * ease;
-            p.sprite.height = p.maxSize * ease;
-            p.sprite.alpha = p.maxOpacity * ease;
-            p.sprite.x = p.startX + (p.drift * 0.5 * ease);
-            p.sprite.y = p.startY - (30 * ease);
-        } else {
-            // Fade Out & Rise Further
-            // 1 -> 0
-            const t = (progress - 0.5) * 2;
-            // Ease in sine
-            const ease = 1 - Math.cos(t * Math.PI / 2); // 0 to 1
-            const invEase = 1 - ease; // 1 to 0
-            
-            p.sprite.width = p.maxSize * invEase;
-            p.sprite.height = p.maxSize * invEase;
-            p.sprite.alpha = p.maxOpacity * invEase;
-            
-            // Continue moving up
-            // From -30 to -60
-            const yOffset = 30 + (30 * ease);
-            p.sprite.y = p.startY - yOffset;
-            
-            // Continue drift
-            // From 0.5 to 1.0
-            const driftOffset = 0.5 + (0.5 * ease);
-            p.sprite.x = p.startX + (p.drift * driftOffset);
-        }
-    }
-}
+// Refactored to AmbientGlowEffect.js
 
 function playPixiProjectile(screenX, screenY, targetX, targetY, onComplete) {
-  // 1. Determine Start Position (Top-Left SUPER FAR off-screen)
-  // Concentrated in the far top-left with slight jitter
-  const startScreenX = -window.innerWidth * 0.4 + (Math.random() * 100); 
-  const startScreenY = -window.innerHeight * 0.4 + (Math.random() * 100);
-
-  // Convert Screen coords to World coords (Pixi Stage)
-  // Assuming pixiEffectsLayer is in the world space (scaled/panned)
-  // We need to inverse transform the screen point to world point
-  // But wait, screenX/Y passed in are usually SVG coordinates or Screen coordinates?
-  // playProjectile receives screenX/Y but then converts them using getScreenCTM().inverse().
-  // Here we assume targetX/targetY are already in World Space (because they come from sticker.x/y).
-  // We need to calculate startX/startY in World Space.
-  
-  // Since we don't have easy access to the viewport transform here (it's in ZoomController),
-  // we can try to approximate or just use a very far point relative to target.
-  // Or better, if we can access the stage transform.
-  // pixiEffectsLayer.parent is likely the stage or a container with the transform.
-  
-  let startX = startScreenX;
-  let startY = startScreenY;
-  
-  if (pixiEffectsLayer.parent) {
-      const worldStart = pixiEffectsLayer.parent.toLocal({x: startScreenX, y: startScreenY});
-      startX = worldStart.x;
-      startY = worldStart.y;
-  }
-
-  const container = new PIXI.Container();
-  container.x = startX;
-  container.y = startY;
-  container.rotation = Math.atan2(targetY - startY, targetX - startX);
-  
-  // Beam - Outer Glow (Gradient Tail)
-  // Simulated with a long sprite or graphics with gradient texture
-  const beamLength = 60; // Reduced from 120
-  const beam = new PIXI.Graphics();
-  // Gradient simulation: multiple rects or texture
-  // Simple white line with alpha fade
-  beam.beginFill(0xFFFFFF);
-  beam.drawRect(-beamLength, -3, beamLength, 6); // Thinner: height 6 instead of 12
-  beam.endFill();
-  beam.alpha = 0.4; // Slightly lower alpha for subtler look
-  
-  // Beam - Core
-  const core = new PIXI.Graphics();
-  core.beginFill(0xFFFFFF);
-  core.drawRect(-25, -1, 25, 2); // Shorter and thinner core
-  core.endFill();
-  core.alpha = 0.9;
-  
-  // Tip
-  const tip = new PIXI.Graphics();
-  tip.beginFill(0xFFFFFF);
-  tip.drawCircle(0, 0, 2.5); // Smaller tip
-  tip.endFill();
-  
-  container.addChild(beam, core, tip);
-  // Add blend mode
-  container.filters = [new PIXI.filters.AlphaFilter()]; // Just to ensure alpha works well? No.
-  // Use blend mode on children
-  beam.blendMode = PIXI.BLEND_MODES.SCREEN;
-  core.blendMode = PIXI.BLEND_MODES.SCREEN;
-  
-  pixiEffectsLayer.addChild(container);
-  
-  const timeline = registerAnime(window.anime.timeline({
-      easing: 'easeInQuad',
-      complete: () => {
-          container.destroy({ children: true });
-          if (onComplete) onComplete();
-      }
-  }));
-  
-  timeline.add({
-      targets: container,
-      x: targetX,
-      y: targetY,
-      duration: 750
-  });
+ // Moved to ProjectileEffect.js
+ if (onComplete) onComplete(); 
 }
 
 function playPixiPlacementImpact(cx, cy) {
