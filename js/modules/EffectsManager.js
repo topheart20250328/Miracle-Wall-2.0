@@ -106,22 +106,11 @@ function getStickerRevealEffect() {
     return stickerRevealEffectInstance;
 }
 
-export function playStickerReveal(x, y) {
+export function playStickerReveal(x, y, onImpactCallback) {
     const effect = getStickerRevealEffect();
     if (effect) {
-        effect.play(x, y);
+        effect.play(x, y, onImpactCallback);
     }
-}
-
-/**
- * Public API to play a soft white 'pop' visual at (x,y).
- * Often used when stickers are revealed during playback.
- */
-export function playSoftPop(x, y) {
-    // Legacy support or delegate to new effect
-    // But user asked for "Light wave", which is StickerRevealEffect.
-    // We can keep playSoftPop for backward compat or just alias it.
-    playStickerReveal(x, y);
 }
 
 function getMistEffect() {

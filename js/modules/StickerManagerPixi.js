@@ -1258,8 +1258,7 @@ export function setStickerVisible(id, visible) {
          const startTime = Date.now();
          const duration = 400;
          
-         // Simple manual tween to avoid anime.js dependency for single properties if possible, 
-         // but if we have anime.js (which we do), use it.
+         // Use anime.js for smooth pop
          if (window.anime) {
              // Reset scale for pop
              sprite.scale.set(baseScale * 0.5);
@@ -1280,11 +1279,12 @@ export function setStickerVisible(id, visible) {
                  easing: 'easeOutElastic(1, .5)',
                  update: () => {
                      if (sprite && !sprite.destroyed) {
-                         sprite.scale.set(scaleObj.s); 
+                         sprite.scale.set(scaleObj.s);
                      }
                  }
              });
          } else {
+             // Fallback: Immediate show
              sprite.alpha = 1;
          }
     } else {

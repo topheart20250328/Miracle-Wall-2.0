@@ -137,11 +137,6 @@ const DRAG_ACTIVATION_DISTANCE = 12;
 const TOUCH_DRAG_OFFSET_X = 0;
 const TOUCH_DRAG_OFFSET_Y = STICKER_DIAMETER * 2;
 const POSITION_CONFLICT_CODE = "POSITION_CONFLICT";
-const PLACEMENT_MESSAGES = {
-  idle: "點擊下方貼紙放置",
-  click: "在老鷹上點擊以貼上",
-  drag: "拖曳到老鷹上方並鬆開以貼上",
-};
 const SUBTITLE_TEXT = "";
 
 const state = {
@@ -166,9 +161,6 @@ const state = {
   isAnimatingReturn: false,
   isTransitioning: false,
 };
-
-// Removed DOM-based ghost stickers in favor of Canvas
-// const ghostStickers = new Map(); 
 
 const reviewSettings = {
   requireMarqueeApproval: true,
@@ -931,7 +923,40 @@ function handlePalettePointerUp(event) {
     beginPlacement(drag.x, drag.y);
     return;
   }
-  toggleClickPlacement();
+  
+  // New Auto-Placement Logic
+  triggerAutoPlacement();
+}
+
+/**
+ * 觸發自動放置流程
+ * 1. 計算安全座標
+ * 2. 若成功，直接開啟 Dialog (Pre-allocation)
+ * 3. 鏡頭移動到預覽位置
+ */
+function triggerAutoPlacement() {
+    if (!paletteSticker) return;
+    if (state.pending) {
+        showToast("請先完成目前的留言", "danger");
+        return;
+    }
+
+    // 1. Find Spot
+    const safeSpot = Utils.findSafeSpot(eaglePaths, state.stickers, viewBox);
+    
+    if (!safeSpot) {
+        showToast("牆面空間不足，請嘗試手動拖曳", "warning");
+        return;
+    }
+
+    // 2. Occupy & Open
+    // Move Camera to spot for feedback
+    const isMobile = window.innerWidth <= 640;
+    const targetZoom = isMobile ? 3 : 1.8;
+    ZoomController.panToPoint(safeSpot.x, safeSpot.y, viewBox, targetZoom, null, { duration: 800, easing: 'easeOutQuart' });
+    
+    // Start Creation Flow with Pre-calculated coords
+    beginPlacement(safeSpot.x, safeSpot.y, true); // true = isAutoMode
 }
 
 function handlePalettePointerCancel(event) {
@@ -1203,7 +1228,7 @@ function ensureDeviceId() {
   }
 }
 
-function beginPlacement(x, y) {
+function beginPlacement(x, y, isAutoMode = false) {
   setPlacementMode("idle");
   const tempId = `temp-${Utils.createUuid()}`;
   const node = StickerManager.createStickerNode(tempId, x, y, true);
@@ -1229,6 +1254,7 @@ function beginPlacement(x, y) {
     deviceId: state.deviceId ?? null,
     isApproved: false,
     canViewNote: true,
+    isAutoMode // Track this flag
   };
   dialogTitle.textContent = "新增神蹟留言";
   noteInput.value = "";
@@ -1502,48 +1528,49 @@ async function handleFormSubmit(event) {
 
   const message = noteInput.value.trim();
   if (!message) {
-    formError.textContent = "請輸入留言內容";
+    if (formError) formError.textContent = "請輸入留言內容";
     return;
   }
+  
   const pending = state.pending;
   if (pending?.locked) {
-    if (pending.lockReason === "approved") {
-      formError.textContent = "";
-    } else {
-      formError.textContent = "";
-    }
-    return;
+     return; 
   }
+
   if (!pending) {
     await closeDialogWithResult("saved");
     return;
   }
-  if (!isSupabaseConfigured()) {
-    formError.textContent = "尚未設定 Supabase，請先完成設定";
-    return;
-  }
-
+  
+  // Start Submission
   state.isSubmitting = true;
-  const originalBtnText = saveButton ? saveButton.textContent : "";
-  if (saveButton) {
-    saveButton.disabled = true;
-    saveButton.textContent = "儲存中...";
-  }
-
+  if (saveButton) saveButton.disabled = true;
+  if (formError) formError.textContent = "";
+  
   try {
     if (pending.isNew) {
-      await saveNewSticker(pending, message);
+      await createNewSticker(pending, message);
     } else {
       await updateStickerMessage(pending, message);
     }
+    
+    // Auto Mode Feedback: Re-center
+    if (pending.isAutoMode) {
+         // Optional re-center if we wanted to enforce it
+    }
+
+  } catch (error) {
+    console.error("Submit error", error);
+    if (formError) formError.textContent = "傳送失敗，請稍後再試";
   } finally {
     state.isSubmitting = false;
-    if (saveButton) {
-      saveButton.disabled = false;
-      if (originalBtnText) saveButton.textContent = originalBtnText;
-    }
+    if (saveButton) saveButton.disabled = false;
   }
 }
+
+// Legacy function aliases removed to clean up code
+// createNewSticker and updateStickerMessage are used directly now.
+
 
 async function handleDeleteSticker() {
   const pending = state.pending;
@@ -1745,21 +1772,47 @@ async function closeDialogWithResult(result) {
   }
 }
 
-async function saveNewSticker(pending, message) {
+async function createNewSticker(pending, message) {
   const result = await StickerManager.saveSticker(pending, message);
   if (result.error) {
-    if (isPositionConflictError(result.error)) {
-      handlePlacementConflict(pending);
-    } else {
-      const msg = result.error.message || result.error.code || "未知錯誤";
-      formError.textContent = `儲存失敗: ${msg}`;
-      console.error("Save failed:", result.error);
-      showToast(`儲存失敗: ${msg}`, "danger");
-    }
-    return;
+     if (isPositionConflictError(result.error)) {
+        // Handle Auto-Retry for Auto-Placement mode
+        if (pending.isAutoMode && !pending._retryCount) {
+             pending._retryCount = 0;
+        }
+        
+        if (pending.isAutoMode && pending._retryCount < 5) {
+             pending._retryCount++;
+             const newSpot = Utils.findSafeSpot(eaglePaths, state.stickers, viewBox);
+             if (newSpot) {
+                 pending.x = newSpot.x;
+                 pending.y = newSpot.y;
+                 return createNewSticker(pending, message); // Recursive retry
+             }
+        }
+        handlePlacementConflict(pending);
+     } else {
+        const msg = result.error.message || result.error.code || "未知錯誤";
+        if (formError) formError.textContent = `儲存失敗: ${msg}`;
+        console.error(result.error);
+     }
+     throw result.error;
   }
+  
+  // Success!
+  // Wait for sticker to appear in state (StickerManager handles local optimistic update usually)
+  const record = state.stickers.get(result.data[0].id);
+  if (record) {
+    if (pending.isAutoMode) {
+        // High energy impact for auto mode
+        EffectsManager.playStickerReveal(record.x, record.y);
+    } else {
+        EffectsManager.playPlacementImpactEffect(record.x, record.y);
+    }
+  }
+  
   await closeDialogWithResult("saved");
-  showToast("留言已保存", "success");
+  showToast("留言已發送", "success");
 }
 
 async function updateStickerMessage(pending, message) {
@@ -1999,10 +2052,31 @@ function setStatusMessage(message, tone = "info", options = {}) {
     clearTimeout(state.toastTimer);
     state.toastTimer = null;
   }
-  statusToast.textContent = message;
+  
+  // Icon Mapping
+  let iconHtml = "";
+  if (tone === "success") {
+    iconHtml = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="toast-icon"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 4L12 14.01l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  } else if (tone === "danger") {
+    iconHtml = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="toast-icon"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  } else {
+    iconHtml = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="toast-icon"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><line x1="12" y1="16" x2="12" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="8" x2="12.01" y2="8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`;
+  }
+
+  statusToast.innerHTML = `${iconHtml}<span class="toast-message">${message}</span>`;
   statusToast.dataset.tone = tone;
   statusToast.dataset.context = context ?? "";
+  
+  // Reset animation
+  statusToast.classList.remove("visible", "shake");
+  void statusToast.offsetWidth; // Force reflow
+  
   statusToast.classList.add("visible");
+  
+  if (tone === "danger") {
+      statusToast.classList.add("shake");
+  }
+  
   statusToast.removeAttribute("aria-hidden");
   state.toastPersistent = Boolean(persist);
   state.toastContext = context ?? null;
@@ -2037,22 +2111,8 @@ function hideStatusMessage(force = false) {
 }
 
 function updatePlacementHint(force = false) {
-  if (!statusToast) {
-    return;
-  }
-  const mode = state.placementMode;
-  const statusVisible = statusToast.classList.contains("visible");
-  const hasForeignContext = statusVisible && state.toastContext && state.toastContext !== "placement";
-  if (!force && hasForeignContext) {
-    return;
-  }
-  if (mode === "click") {
-    setStatusMessage(PLACEMENT_MESSAGES.click, "info", { context: "placement", durationMs: STATUS_PLACEMENT_TIMEOUT });
-  } else if (mode === "drag") {
-    setStatusMessage(PLACEMENT_MESSAGES.drag, "info", { context: "placement", durationMs: STATUS_PLACEMENT_TIMEOUT });
-  } else if (state.toastContext === "placement") {
-    hideStatusMessage(true);
-  }
+  // Placement hints disabled by user request.
+  // Function kept empty to preserve call sites.
 }
 
 

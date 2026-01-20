@@ -101,6 +101,8 @@ export function startPlayback() {
     EffectsManager.resetFireEffect(); 
     // Also explicitly set logical intensity to 0 to prevent jump
     EffectsManager.setFireIntensity(0);
+    // Stop "Newest Sticker" Shimmer effect from interfering
+    EffectsManager.setShimmerPaused(true);
 
     if (countEl) countEl.classList.remove("finished"); // Reset animation
 
@@ -156,15 +158,22 @@ function playNextFrame() {
 
     const sticker = playlist[currentIndex];
     
-    // 1. Reveal Sticker
-    StickerManagerPixi.setStickerVisible(sticker.id, true);
-    
-    // 2. Play Reveal Effect (Light Wave)
+    // 1. Trigger Meteor Effect -> Reveal Sticker on Impact
     if (sticker.x !== undefined && sticker.y !== undefined) {
-        EffectsManager.playStickerReveal(sticker.x, sticker.y);
+        // Ensure sticker is hidden initially (just in case)
+        StickerManagerPixi.setStickerVisible(sticker.id, false);
+        
+        // Play Meteor Impact
+        EffectsManager.playStickerReveal(sticker.x, sticker.y, () => {
+             // IMPACT! Show Sticker
+             StickerManagerPixi.setStickerVisible(sticker.id, true);
+        });
+    } else {
+        // Fallback: Just show it
+        StickerManagerPixi.setStickerVisible(sticker.id, true);
     }
     
-    // 3. Update Counter
+    // 2. Update Counter
     currentCount++;
     updateCounter(currentCount);
 
@@ -311,6 +320,9 @@ export function stopPlayback() {
     if (playlist && playlist.length > 0) {
         EffectsManager.setFireIntensity(playlist.length);
     }
+    
+    // Resume "Newest Sticker" Shimmer effect
+    EffectsManager.setShimmerPaused(false);
 }
 
 function preparePlaylist() {

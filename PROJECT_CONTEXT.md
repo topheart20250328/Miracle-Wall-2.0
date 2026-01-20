@@ -31,6 +31,7 @@
    - **Interaction/UI:**
      - `js/modules/ZoomController.js` (Infinite canvas logic)
      - `js/modules/SearchController.js` (Filtering stickers)
+     - `js/modules/Utils.js` (Helper algorithms, including `findSafeSpot`)
    - **Logic/Data:**
      - `js/modules/RealtimeController.js` (Supabase subscriptions)
      - `js/modules/AudioManager.js` (Background music/SFX)
@@ -41,40 +42,35 @@
 
 ## 4. Current File Structure Highlights
 - `/index.html`: Main user view (Now includes `.loader-progress-bar`).
-- `/js/app.js`: Main controller. **Needs Refactoring**.
-- `/js/modules/`:
-  - `StickerManagerPixi.js`: Now supports chunked loading callbacks.
-  - `EffectsManager.js`: Added `playPixiLiftEffect`.
+- `/js/app.js`: Main controller. **Critical Logic for Placement & Errors**.
+- `/js/modules/Utils.js`: Contains `findSafeSpot` (Auto-placement algorithm).
+- `/css/styles.css`: Contains updated Glassmorphism Toast styles.
 
 ## 5. Current Status & Active Tasks
 
-*(Last Updated: 2026-01-16 Playback Polish & Visual Effects)*
+*(Last Updated: 2026-01-20 Auto-Placement & UI Polish)*
 
-- **Status:** Visual Polish & Playback Feature Enhancement.
-- **Recent Actions (Session: Playback Polish):**
-  - **Fixed Critical Bugs:**
-    - Resolved a crash in `PlaybackController.js` caused by duplicated code blocks.
-    - Fixed a visual glitch where the "Year Indicator (2026)" would jump suddenly at the start of animation. (Used CSS Grid `minmax(0, ...)` trick).
-  - **New Features (Visuals):**
-    - **Eagle Sheen Effect:** Implemented a "Prestige Sweep" light effect that slowly scans across the Eagle background at the end of playback (CSS-based, JS-triggered).
-    - **Sticker Reveal Effect (Base):** Added `StickerRevealEffect.js`. Currently renders a **Soft White Gradient Wave** (Hollow center) when stickers appear.
-  - **File Recovery:**
-    - Repaired `css/playback-spotlight.css` which had become corrupted/truncated.
+- **Status:** Feature Complete (Auto-Placement) & UI Refinement.
+- **Recent Actions (Session: Auto-Placement & UI):**
+  - **New Feature: Auto-Placement**
+    - Implemented "Click Palette -> Input -> Auto-Find Spot" workflow.
+    - **Logic:** `Utils.findSafeSpot` uses Monte Carlo sampling to find a non-overlapping spot within the Eagle shape.
+    - **Improvement:** Algorithm refined to check 5 points (center + 4 edges) to ensure stickers don't bleed over the border.
+    - **Retry:** `app.js` now handles recursion if the initially found spot is taken before save completes.
+  - **UI/UX Overhaul: Notification System (Toasts)**
+    - **Design:** Replaced generic notifications with a premium **Glassmorphism** style (Dark semi-transparent background, subtle borders).
+    - **Visuals:** Added tone-specific icons (Success/Danger/Info) and glow effects.
+    - **Animation:** Added "Shake" animation for errors (Danger tone).
+    - **Interaction:** Removed persistent "Manual/Auto" hints to declutter the UI.
+  - **Bug Fixes:**
+    - Fixed a critical syntax error (duplicated code blocks) in `app.js` `handleFormSubmit` that caused site freeze.
 
 - **Active Tasks (Next Session):**
-  - [ ] **Playback Animation Expansion (Plan A: Impact/Meteor):**
-      - **Goal:** Upgrade the current "Soft White Wave" into a high-energy "Meteor Strike".
-      - **Phase 1 (Incoming):** A glowing light beam or meteor stream shoots from off-screen (or high altitude) towards the target sticker position.
-      - **Phase 2 (Impact):** Upon contact with the wall, generate a strong "Light Burst" with particle explosion. *(Current Soft Wave is the foundation for this)*.
-      - **Phase 3 (Reveal):** The sticker fades in from the white-hot center of the impact.
-      - **Tech:** Optimize using Pixi particles or sprite animation to maintain 60fps.
-  - [ ] **Admin Feature (Backup/Restore):** Implement "Method 2: PostgreSQL RPC" for safe database restoration.
-    - Create SQL function `restore_schema.sql` (Transaction, Truncate, Insert).
-    - Update `admin.html` UI for file upload.
-    - Update `admin.js` to handle file reading and RPC call.
-  - [ ] **Refactor `app.js` (Pending):** Split large logic blocks (Event Listeners, Dialog Handlers) into separate modules (e.g., `js/actions/DialogActions.js`).
-  - [ ] **Refactor `admin.js`:** Segregate Auth, UI, and Data logic.
-  - [ ] **Refactor `StickerManagerPixi.js`:** Review for potential splitting (Texture management vs Layout logic).
+  - [ ] **Monitor UI Glitches:** User reported "unclear boxes" in the new UI. Need to investigate potential layout collisions or rendering artifacts on specific devices.
+  - [ ] **Playback Animation Expansion (Meteor/Impact):**
+      - Upgrade "Soft White Wave" sticker reveal to a high-energy "Meteor Strike" via Pixi particles.
+  - [ ] **Refactor `app.js`:** Segregate `handleFormSubmit` and Dialog logic into `DialogActions.js`.
+  - [ ] **Admin Feature (Backup/Restore):** Implement PostgreSQL RPC method.
 
 ## 6. Database Schema Summary
 - **Table `wall_stickers`:**
@@ -82,4 +78,4 @@
 
 ---
 **Instruction for AI:**
-When resuming work, check "Active Tasks" first. The priority is to refactor `app.js` to safer, smaller modules before adding new features.
+When resuming work, check "Active Tasks" first. Before tackling the "Meteor" animation, do a quick visual check on the new Toast UI to see if the "unclear boxes" issue can be reproduced/fixed.
