@@ -1085,8 +1085,9 @@ main::before {
 
 .palette-sticker:active {
   cursor: grabbing;
+    transform: scale(0.9);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
 }
-
 .palette-sticker span {
   font-size: 0.85rem;
   letter-spacing: 0.04em;

@@ -106,10 +106,10 @@ function getStickerRevealEffect() {
     return stickerRevealEffectInstance;
 }
 
-export function playStickerReveal(x, y, onImpactCallback) {
+export function playStickerReveal(x, y, onImpactCallback, options = {}) {
     const effect = getStickerRevealEffect();
     if (effect) {
-        effect.play(x, y, onImpactCallback);
+        effect.play(x, y, onImpactCallback, options);
     }
 }
 
@@ -332,23 +332,29 @@ export function playPlacementPreviewEffect(x, y) {
   }
 }
 
-export function playPlacementImpactEffect(node) {
-  if (pixiEffectsLayer && node) {
-    const cx = Number(node.dataset.cx);
-    const cy = Number(node.dataset.cy);
-    if (Number.isFinite(cx) && Number.isFinite(cy)) {
-        playPixiPlacementImpact(cx, cy);
-        return;
-    }
+export function playPlacementImpactEffect(arg1, arg2) {
+  let cx, cy;
+  if (typeof arg1 === "number" && typeof arg2 === "number") {
+      cx = arg1;
+      cy = arg2;
+  } else if (arg1 && arg1.dataset) {
+      cx = Number(arg1.dataset.cx);
+      cy = Number(arg1.dataset.cy);
   }
-  if (!elements.effectsLayer || !node) {
-    return;
-  }
-  const cx = Number(node.dataset.cx);
-  const cy = Number(node.dataset.cy);
+
   if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
     return;
   }
+
+  if (pixiEffectsLayer) {
+    playPixiPlacementImpact(cx, cy);
+    return;
+  }
+  
+  if (!elements.effectsLayer) {
+    return;
+  }
+
   const group = document.createElementNS(svgNS, "g");
   group.classList.add("effect-impact");
 

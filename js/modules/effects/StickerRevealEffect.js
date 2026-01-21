@@ -81,21 +81,29 @@ export class StickerRevealEffect {
      * @param {number} y - World Y coordinate of sticker center
      * @param {function} onImpactCallback - Function to call when meteor hits (reveals sticker)
      */
-    play(x, y, onImpactCallback) {
+    play(x, y, onImpactCallback, options = {}) {
         if (!this.ctx.pixiLayer || !this.ctx.pixiApp) {
             if (onImpactCallback) onImpactCallback();
             return;
         }
 
+        const { skipMeteor = false } = options;
+
         // Check for Reduced Motion
         const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (prefersReduced) {
+        
+        if (prefersReduced || skipMeteor) {
+            // Instant reveal
             if (onImpactCallback) onImpactCallback();
+            
+            // Visual impact (Ripple + Flash)
             this.spawnRipple(x, y);
+            this.spawnFlash(x, y);
+            this._ensureTicker();
             return;
         }
 
-        // Spawn Meteor
+        // Spawn Meteor (Standard playback effect)
         this.spawnMeteor(x, y, onImpactCallback);
         this._ensureTicker();
     }

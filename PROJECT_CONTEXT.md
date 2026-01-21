@@ -48,29 +48,31 @@
 
 ## 5. Current Status & Active Tasks
 
-*(Last Updated: 2026-01-20 Auto-Placement & UI Polish)*
+*(Last Updated: 2026-01-21 Auto-Zoom & Interactive Feedback)*
 
-- **Status:** Feature Complete (Auto-Placement) & UI Refinement.
-- **Recent Actions (Session: Auto-Placement & UI):**
-  - **New Feature: Auto-Placement**
-    - Implemented "Click Palette -> Input -> Auto-Find Spot" workflow.
-    - **Logic:** `Utils.findSafeSpot` uses Monte Carlo sampling to find a non-overlapping spot within the Eagle shape.
-    - **Improvement:** Algorithm refined to check 5 points (center + 4 edges) to ensure stickers don't bleed over the border.
-    - **Retry:** `app.js` now handles recursion if the initially found spot is taken before save completes.
-  - **UI/UX Overhaul: Notification System (Toasts)**
-    - **Design:** Replaced generic notifications with a premium **Glassmorphism** style (Dark semi-transparent background, subtle borders).
-    - **Visuals:** Added tone-specific icons (Success/Danger/Info) and glow effects.
-    - **Animation:** Added "Shake" animation for errors (Danger tone).
-    - **Interaction:** Removed persistent "Manual/Auto" hints to declutter the UI.
-  - **Bug Fixes:**
-    - Fixed a critical syntax error (duplicated code blocks) in `app.js` `handleFormSubmit` that caused site freeze.
+- **Status:** Optimization & Polish.
+- **Recent Actions (Session: Camera Focus & Effects):**
+  - **Feature: Auto-Zoom on Creation (Solved)**
+    - Fixed the issue where camera position reset after dialog close.
+    - **Logic Update:** New stickers now trigger effects -> Dialog closes (Flight animation) -> Camera pans to new sticker (in that specific order).
+    - **Code:** Updated `closeDialogWithResult` to accept `{ skipZoomRestore: true }`.
+  - **Bug Fix: Effects Manager**
+    - **Issue:** `playPlacementImpactEffect` crashed when receiving coordinates instead of DOM nodes.
+    - **Fix:** Refactored function to support both `(x, y)` arguments and DOM Node `dataset`.
+  - **Visual Polish: Sticker Button Interactions**
+    - **Manual Drag:** Added "Extraction/Pop" effect (Scale 0.8 -> Bounce) to simulate pulling a sticker out.
+    - **Auto Click:** Added "Pulse/Launch" effect (Scale 1.15 + Brightness) to indicate activation.
+    - **Correction:** Removed unintended "Bounce" animation on drag that was displacing the button.
+  - **Feature Tweak: Sticker Reveal Effects**
+    - Separated "New Sticker" vs "Playback" effects.
+    - **New Sticker:** Instant Ripple + Flash (No Meteor, for faster feedback).
+    - **Playback:** Full Meteor Strike animation retained.
 
 - **Active Tasks (Next Session):**
-  - [ ] **Monitor UI Glitches:** User reported "unclear boxes" in the new UI. Need to investigate potential layout collisions or rendering artifacts on specific devices.
-  - [ ] **Playback Animation Expansion (Meteor/Impact):**
-      - Upgrade "Soft White Wave" sticker reveal to a high-energy "Meteor Strike" via Pixi particles.
+  - [ ] **Monitor UI Glitches:** User reported "unclear boxes" earlier. Keep monitoring.
   - [ ] **Refactor `app.js`:** Segregate `handleFormSubmit` and Dialog logic into `DialogActions.js`.
   - [ ] **Admin Feature (Backup/Restore):** Implement PostgreSQL RPC method.
+  - [ ] **Performance Tuning:** Check if multiple animations (Button + Effects + Camera) cause frame drops on low-end mobile.
 
 ## 6. Database Schema Summary
 - **Table `wall_stickers`:**

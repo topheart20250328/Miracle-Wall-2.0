@@ -206,7 +206,7 @@ function init() {
   wallSvg.addEventListener("keydown", handleWallKeydown);
   paletteSticker?.addEventListener("pointerdown", handlePalettePointerDown);
   paletteSticker?.addEventListener("keydown", handlePaletteKeydown);
-  noteForm.addEventListener("submit", handleFormSubmit);
+
   
   // Read Mode Overlay Logic
   const readModeOverlay = document.getElementById('readModeOverlay');
@@ -222,10 +222,20 @@ function init() {
     closeReadModeBtn,
     readModeContainer,
     expandBtn: document.getElementById("expandBtn"),
-    noteInput
+    noteInput,
+    noteForm,
+    formError,
+    saveButton,
+    deleteStickerBtn
   }, state, {
     SearchController,
-    closeDialogWithResult
+    closeDialogWithResult,
+    StickerManager,
+    showToast,
+    findAvailableSpot,
+    isSupabaseConfigured,
+    eaglePaths,
+    viewBox
   });
 
   cancelModalBtn.addEventListener("click", DialogActions.handleCancelAction);
@@ -253,7 +263,9 @@ function init() {
     }
   });
   initDialogSwipe();
-  deleteStickerBtn?.addEventListener("click", handleDeleteSticker);
+  // Dialog Actions
+  deleteStickerBtn?.addEventListener("click", DialogActions.handleDeleteSticker);
+  
   jumpToRecentBtn?.addEventListener("click", handleJumpToRecent);
   document.addEventListener("keydown", handleGlobalKeyDown);
   window.addEventListener("resize", handleViewportChange);
@@ -950,6 +962,23 @@ function triggerAutoPlacement() {
     }
 
     // 2. Occupy & Open
+    // [Visual Effect] Auto-Placement Feedback (Pulse)
+    if (paletteSticker && window.anime) {
+        window.anime({
+            targets: paletteSticker,
+            scale: [
+                { value: 0.9, duration: 50, easing: 'easeOutQuad' },
+                { value: 1.15, duration: 150, easing: 'easeOutQuad' },
+                { value: 1.0, duration: 600, easing: 'easeOutElastic(1, .5)' }
+            ],
+            filter: [
+                { value: 'brightness(1.5)', duration: 100 },
+                { value: 'brightness(1)', duration: 500 }
+            ],
+            duration: 800
+        });
+    }
+
     // Move Camera to spot for feedback
     const isMobile = window.innerWidth <= 640;
     const targetZoom = isMobile ? 3 : 1.8;
@@ -1008,20 +1037,14 @@ function activatePaletteDrag(event) {
   // ghost.classList.toggle("invalid", !drag.valid); // Removed: handled by external highlight
   setPlacementMode("drag");
 
-  // [Visual Effect] Simulate "Pulling" sticker out of the button
+  // [Visual Effect] Extraction Feedback (Pop Effect)
   if (paletteSticker && window.anime) {
-    // 1. Force remove CSS animation class to allow JS override
-    const paletteContainer = document.querySelector(".drag-palette");
-    if (paletteContainer) paletteContainer.classList.remove("palette-highlight");
-    
-    // 2. JS Animation
-    window.anime.remove(paletteSticker);
     window.anime({
       targets: paletteSticker,
-      translateY: [0, -35, 0], // Jump up and fall back
-      scale: [1, 1.15, 1],
-      duration: 450,
-      easing: 'easeOutElastic(1, .5)'
+      scale: [
+        { value: 0.8, duration: 80, easing: 'easeOutQuad' }, // Shrink as if mass is taken
+        { value: 1.0, duration: 600, easing: 'easeOutElastic(1, .5)' } // Bounce back
+      ],
     });
   }
 
@@ -1522,143 +1545,14 @@ async function handleDialogClose() {
   SearchController.onDialogClosed();
 }
 
-async function handleFormSubmit(event) {
-  event.preventDefault();
-  if (state.isSubmitting) return;
 
-  const message = noteInput.value.trim();
-  if (!message) {
-    if (formError) formError.textContent = "請輸入留言內容";
-    return;
-  }
-  
-  const pending = state.pending;
-  if (pending?.locked) {
-     return; 
-  }
 
-  if (!pending) {
-    await closeDialogWithResult("saved");
-    return;
-  }
-  
-  // Start Submission
-  state.isSubmitting = true;
-  if (saveButton) saveButton.disabled = true;
-  if (formError) formError.textContent = "";
-  
-  try {
-    if (pending.isNew) {
-      await createNewSticker(pending, message);
-    } else {
-      await updateStickerMessage(pending, message);
-    }
-    
-    // Auto Mode Feedback: Re-center
-    if (pending.isAutoMode) {
-         // Optional re-center if we wanted to enforce it
-    }
 
-  } catch (error) {
-    console.error("Submit error", error);
-    if (formError) formError.textContent = "傳送失敗，請稍後再試";
-  } finally {
-    state.isSubmitting = false;
-    if (saveButton) saveButton.disabled = false;
-  }
-}
 
 // Legacy function aliases removed to clean up code
-// createNewSticker and updateStickerMessage are used directly now.
+// createNewSticker, updateStickerMessage, handleDeleteSticker are used directly from DialogActions now.
 
-
-async function handleDeleteSticker() {
-  const pending = state.pending;
-  
-  let isTimeLocked = false;
-  if (pending && !pending.isNew) {
-    const record = state.stickers.get(pending.id);
-    if (record) {
-      isTimeLocked = Utils.isStickerLocked(record, state.deviceId);
-    }
-  }
-
-  if (!pending || pending.isNew || isTimeLocked || pending.locked) {
-    return;
-  }
-  if (pending.deviceId && state.deviceId && pending.deviceId !== state.deviceId) {
-    formError.textContent = "此留言僅能由原建立裝置於 24 小時內刪除";
-    return;
-  }
-  if (!isSupabaseConfigured()) {
-    formError.textContent = "尚未設定 Supabase，無法刪除";
-    return;
-  }
-  if (!deleteStickerBtn) {
-    return;
-  }
-  const originalLabel = deleteStickerBtn.textContent;
-  deleteStickerBtn.disabled = true;
-  deleteStickerBtn.textContent = "刪除中…";
-  formError.textContent = "";
-  
-  const result = await StickerManager.deleteSticker(pending);
-  
-  if (result.error) {
-    const msg = result.error.message || result.error.code || "未知錯誤";
-    formError.textContent = `刪除失敗: ${msg}`;
-    console.error(result.error);
-    deleteStickerBtn.disabled = false;
-    deleteStickerBtn.textContent = originalLabel;
-    return;
-  }
-
-  await closeDialogWithResult("deleted");
-  showToast("留言已刪除", "success");
-  
-  // Reset button state (though dialog is closed)
-  if (deleteStickerBtn) {
-    deleteStickerBtn.disabled = false;
-    deleteStickerBtn.textContent = originalLabel;
-  }
-}
-
-function isPositionConflictError(error) {
-  if (!error) {
-    return false;
-  }
-  const code = typeof error.code === "string" ? error.code.toUpperCase() : "";
-  const message = typeof error.message === "string" ? error.message.toUpperCase() : "";
-  const details = typeof error.details === "string" ? error.details.toUpperCase() : "";
-  return (
-    code.includes(POSITION_CONFLICT_CODE)
-    || message.includes(POSITION_CONFLICT_CODE)
-    || details.includes(POSITION_CONFLICT_CODE)
-  );
-}
-
-function handlePlacementConflict(pending) {
-  if (!pending?.node) {
-    formError.textContent = "這個位置剛被其他人貼上，請重新選擇位置。";
-    showToast("這個位置剛被其他人貼上，請重新選擇位置", "danger");
-    return;
-  }
-  pending.node.classList.add("pending");
-  const fallback = findAvailableSpot({ x: pending.x, y: pending.y });
-  if (fallback) {
-    StickerManager.positionStickerNode(pending.node, fallback.x, fallback.y);
-    pending.x = fallback.x;
-    pending.y = fallback.y;
-    formError.textContent = "這個位置剛被其他人貼上，已為你換到附近的新位置，請再儲存一次。";
-    showToast("這個位置剛被其他人貼上，已為你換到附近的位置", "info");
-    EffectsManager.playPlacementPreviewEffect(fallback.x, fallback.y);
-  } else {
-    formError.textContent = "這個位置剛被其他人貼上，請關閉視窗後換個位置再試一次。";
-    showToast("這個位置剛被其他人貼上，請換個位置", "danger");
-  }
-}
-
-async function closeDialogWithResult(result) {
+async function closeDialogWithResult(result, options = {}) {
   if (state.closing || state.isTransitioning) {
     return;
   }
@@ -1707,7 +1601,7 @@ async function closeDialogWithResult(result) {
 
       // 3. Restore Zoom State (After flight lands)
       let restorePromise = Promise.resolve();
-      if (!SearchController.isSearchActive()) {
+      if (!SearchController.isSearchActive() && !options.skipZoomRestore) {
           restorePromise = ZoomController.restoreState();
       }
     
@@ -1772,68 +1666,7 @@ async function closeDialogWithResult(result) {
   }
 }
 
-async function createNewSticker(pending, message) {
-  const result = await StickerManager.saveSticker(pending, message);
-  if (result.error) {
-     if (isPositionConflictError(result.error)) {
-        // Handle Auto-Retry for Auto-Placement mode
-        if (pending.isAutoMode && !pending._retryCount) {
-             pending._retryCount = 0;
-        }
-        
-        if (pending.isAutoMode && pending._retryCount < 5) {
-             pending._retryCount++;
-             const newSpot = Utils.findSafeSpot(eaglePaths, state.stickers, viewBox);
-             if (newSpot) {
-                 pending.x = newSpot.x;
-                 pending.y = newSpot.y;
-                 return createNewSticker(pending, message); // Recursive retry
-             }
-        }
-        handlePlacementConflict(pending);
-     } else {
-        const msg = result.error.message || result.error.code || "未知錯誤";
-        if (formError) formError.textContent = `儲存失敗: ${msg}`;
-        console.error(result.error);
-     }
-     throw result.error;
-  }
-  
-  // Success!
-  // Wait for sticker to appear in state (StickerManager handles local optimistic update usually)
-  const record = state.stickers.get(result.data[0].id);
-  if (record) {
-    if (pending.isAutoMode) {
-        // High energy impact for auto mode
-        EffectsManager.playStickerReveal(record.x, record.y);
-    } else {
-        EffectsManager.playPlacementImpactEffect(record.x, record.y);
-    }
-  }
-  
-  await closeDialogWithResult("saved");
-  showToast("留言已發送", "success");
-}
 
-async function updateStickerMessage(pending, message) {
-  if (pending.deviceId && state.deviceId && pending.deviceId !== state.deviceId) {
-    formError.textContent = "";
-    return;
-  }
-  const result = await StickerManager.updateSticker(pending, message);
-  if (result.error) {
-    const msg = result.error.message || result.error.code || "未知錯誤";
-    formError.textContent = `更新失敗: ${msg}`;
-    console.error(result.error);
-    return;
-  }
-  const record = state.stickers.get(pending.id);
-  if (record) {
-    EffectsManager.runPulseAnimation(record.node);
-  }
-  await closeDialogWithResult("saved");
-  showToast("留言已更新", "success");
-}
 
 
 
