@@ -291,20 +291,19 @@ async function createNewSticker(pending, message) {
   const stickerId = result.data; 
   const record = _state.stickers.get(stickerId);
   
+  // Note: closeDialogWithResult might trigger animateStickerReturn.
+  // We want the zoom to persist, and return animation to fly towards the *new* zoomed location.
+  // Performance Optimization: Wait for flight to finish to avoid parallel heavy animations (Flight + Impact)
+  await closeDialogWithResult("saved", { skipZoomRestore: true });
+
   if (record) {
-    // 1. Play Effects (Immediate feedback)
+    // 1. Play Effects (After card lands)
     if (pending.isAutoMode) {
         EffectsManager.playStickerReveal(record.x, record.y, null, { skipMeteor: true });
     } else {
         EffectsManager.playPlacementImpactEffect(record.x, record.y);
     }
-  }
-  
-  // Note: closeDialogWithResult might trigger animateStickerReturn.
-  // We want the zoom to persist, and return animation to fly towards the *new* zoomed location.
-  await closeDialogWithResult("saved", { skipZoomRestore: true });
 
-  if (record) {
     // 2. Zoom to the new sticker (AFTER placement/card return)
     const isMobile = window.innerWidth <= 640;
     const targetZoom = isMobile ? 6 : 4; 
@@ -335,10 +334,12 @@ async function updateStickerMessage(pending, message) {
     return;
   }
   const record = _state.stickers.get(pending.id);
+  
+  await closeDialogWithResult("saved");
+  
   if (record) {
     EffectsManager.runPulseAnimation(record.node);
   }
-  await closeDialogWithResult("saved");
   showToast("留言已更新", "success");
 }
 

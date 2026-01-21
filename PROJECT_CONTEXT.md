@@ -23,7 +23,7 @@
    - Prevent native "pull-to-refresh" interfering with wall navigation.
 2. **Modular Design (Flat Structure but Logical Groups):**
    - **Orchestrator:** `js/app.js` (Entry point, initializes all modules).
-     - *Note: `app.js` is currently large and scheduled for refactoring (splitting event handlers).*
+     - *Note: Core dialog logic (Form, Delete) is delegated to `js/actions/DialogActions.js`.*
    - **Visual/Render:**
      - `js/modules/StickerManagerPixi.js` (Active Renderer - Handles Data & Pixi Sprites)
      - `js/modules/EffectsManager.js` (Visual effects: Mist, Ripple, Fire)
@@ -48,31 +48,28 @@
 
 ## 5. Current Status & Active Tasks
 
-*(Last Updated: 2026-01-21 Auto-Zoom & Interactive Feedback)*
+*(Last Updated: 2026-01-21 Refactoring and Optimization)*
 
-- **Status:** Optimization & Polish.
-- **Recent Actions (Session: Camera Focus & Effects):**
-  - **Feature: Auto-Zoom on Creation (Solved)**
-    - Fixed the issue where camera position reset after dialog close.
-    - **Logic Update:** New stickers now trigger effects -> Dialog closes (Flight animation) -> Camera pans to new sticker (in that specific order).
-    - **Code:** Updated `closeDialogWithResult` to accept `{ skipZoomRestore: true }`.
-  - **Bug Fix: Effects Manager**
-    - **Issue:** `playPlacementImpactEffect` crashed when receiving coordinates instead of DOM nodes.
-    - **Fix:** Refactored function to support both `(x, y)` arguments and DOM Node `dataset`.
-  - **Visual Polish: Sticker Button Interactions**
-    - **Manual Drag:** Added "Extraction/Pop" effect (Scale 0.8 -> Bounce) to simulate pulling a sticker out.
-    - **Auto Click:** Added "Pulse/Launch" effect (Scale 1.15 + Brightness) to indicate activation.
-    - **Correction:** Removed unintended "Bounce" animation on drag that was displacing the button.
-  - **Feature Tweak: Sticker Reveal Effects**
-    - Separated "New Sticker" vs "Playback" effects.
-    - **New Sticker:** Instant Ripple + Flash (No Meteor, for faster feedback).
-    - **Playback:** Full Meteor Strike animation retained.
+- **Status:** Stable / Maintenance.
+- **Recent Actions (Session: Refactoring & Performance):**
+  - **Refactoring (Major):**
+    - Extracted all form submission and sticker management logic (`handleFormSubmit`, `createNewSticker`, `updateStickerMessage`, `handleDeleteSticker`) from `js/app.js` to `js/actions/DialogActions.js`.
+    - Implemented **Dependency Injection** in `DialogActions.init()` to ensure modular access to global state and managers (`StickerManager`, `EffectsManager`).
+    - Reduced `app.js` complexity by ~180 lines, focusing it purely on orchestration.
+  - **Performance Optimization (Mobile):**
+    - **Issue:** Simultaneous execution of "Flight Animation", "Sticker Impact Effect", and "Camera Zoom" caused lag on low-end devices.
+    - **Fix:** Serialized the animation sequence:
+      1. **Close Dialog & Fly:** UI feedback first.
+      2. **Wait for Landing:** Ensure GPU is free.
+      3. **Play Effects & Zoom:** Trigger visual reward and camera movement only after the heavy UI transition is complete.
+  - **Visual Polish:**
+    - Updated `EffectsManager` to properly skip meteor animations for simple sticker creation (`skipMeteor: true`).
+    - Fixed timing issues where "Send Failed" toast appeared incorrectly due to context binding errors.
 
 - **Active Tasks (Next Session):**
-  - [ ] **Monitor UI Glitches:** User reported "unclear boxes" earlier. Keep monitoring.
-  - [ ] **Refactor `app.js`:** Segregate `handleFormSubmit` and Dialog logic into `DialogActions.js`.
+  - [ ] **Monitor Refactoring Stability:** Watch for regression in "Read Mode" or "Edit Mode" which share the same dialog controller.
   - [ ] **Admin Feature (Backup/Restore):** Implement PostgreSQL RPC method.
-  - [ ] **Performance Tuning:** Check if multiple animations (Button + Effects + Camera) cause frame drops on low-end mobile.
+  - [ ] **Pre-Launch Effect Check:** Verify the new "Serialized Animation" flow feels snappy enough on high-end devices (ensure no awkward pauses).
 
 ## 6. Database Schema Summary
 - **Table `wall_stickers`:**
