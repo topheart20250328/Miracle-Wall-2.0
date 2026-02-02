@@ -551,8 +551,8 @@ async function saveEntry(row, button) {
     showToast("留言內容不可為空。", "danger");
     return;
   }
-  if (note.length > 800) {
-    showToast("留言內容需在 800 字以內。", "danger");
+  if (note.length > 1000) {
+    showToast("留言內容需在 1000 字以內。", "danger");
     return;
   }
   const saveLabel = button.textContent;

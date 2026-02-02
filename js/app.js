@@ -928,7 +928,7 @@ function handlePalettePointerUp(event) {
     drag.layer = null;
     if (!drag.valid) {
       setPlacementMode("idle");
-      showToast("貼紙不可超出老鷹範圍或與其他貼紙重疊", "danger");
+      showToast("貼紙不可超出老鷹範圍或重疊", "danger");
       return;
     }
     setPlacementMode("idle");

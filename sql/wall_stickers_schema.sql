@@ -5,7 +5,7 @@ create table if not exists public.wall_stickers (
   id uuid primary key default gen_random_uuid(),
   x_norm double precision not null check (x_norm between 0 and 1),
   y_norm double precision not null check (y_norm between 0 and 1),
-  note text not null check (char_length(note) <= 800),
+  note text not null check (char_length(note) <= 1000),
   device_id text,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
