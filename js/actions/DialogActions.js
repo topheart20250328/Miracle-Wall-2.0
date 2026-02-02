@@ -207,8 +207,8 @@ export async function handleFormSubmit(e) {
     noteInput.focus();
     return;
   }
-  if (content.length > 50) {
-     if (formError) formError.textContent = "留言太長了，請縮短到 50 字以內";
+  if (content.length > 1000) {
+     if (formError) formError.textContent = "留言太長了，請縮短到 1000 字以內";
      noteInput.focus();
      return;
   }
