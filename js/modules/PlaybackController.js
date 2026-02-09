@@ -4,6 +4,7 @@
  */
 import * as StickerManagerPixi from "./StickerManagerPixi.js";
 import * as EffectsManager from "./EffectsManager.js"; 
+import * as SearchController from "./SearchController.js";
 
 let isPlaying = false;
 let playbackBtn = null;
@@ -68,6 +69,9 @@ function togglePlayback() {
  * 開始播放
  */
 export function startPlayback() {
+    // Force close search if open
+    SearchController.closeSearch();
+
     if (isPlaying) return;
     
     // 1. Prepare Data
