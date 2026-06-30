@@ -66,8 +66,9 @@ body {
 
 main {
   /* Reserve breathing room for floating UI and keep wall centered */
-  --main-padding-top: clamp(3rem, 7dvh, 4.25rem);
-  --main-padding-bottom: clamp(9rem, 32dvh, 12rem);
+  --wall-viewport-height: var(--stable-viewport-height, 100dvh);
+  --main-padding-top: clamp(3rem, calc(var(--wall-viewport-height) * 0.07), 4.25rem);
+  --main-padding-bottom: clamp(9rem, calc(var(--wall-viewport-height) * 0.32), 12rem);
   --main-padding-inline: clamp(1rem, 6vw, 2.4rem);
   flex: 1;
   display: grid;
@@ -385,7 +386,7 @@ main::before {
   justify-content: center;
   width: min(
     calc(100vw - var(--main-padding-inline, 2rem) * 2),
-    calc((100dvh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem)) * 1.96795)
+    calc((var(--wall-viewport-height, 100dvh) - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem)) * 1.96795)
   );
   max-width: 1500px;
   aspect-ratio: 3500 / 1779.31;
@@ -412,7 +413,7 @@ main::before {
 #wallSvg {
   width: 100%;
   height: auto;
-  max-height: calc(100dvh - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem));
+  max-height: calc(var(--wall-viewport-height, 100dvh) - var(--main-padding-top, 3rem) - var(--main-padding-bottom, 6rem));
   display: block;
   transition: none;
   transform-origin: center;
@@ -459,21 +460,21 @@ main::before {
 
 @media (min-width: 1024px) {
   main {
-    --main-padding-top: clamp(2.25rem, 4dvh, 3.5rem);
-    --main-padding-bottom: clamp(2.8rem, 5dvh, 4rem);
+    --main-padding-top: clamp(2.25rem, calc(var(--wall-viewport-height) * 0.04), 3.5rem);
+    --main-padding-bottom: clamp(2.8rem, calc(var(--wall-viewport-height) * 0.05), 4rem);
     --main-padding-inline: clamp(1.5rem, 5vw, 3.5rem);
   }
 
   .wall-stage {
     width: min(
       100vw - clamp(0.5rem, 3vw, 2rem),
-      calc((100dvh - var(--main-padding-top) - var(--main-padding-bottom)) * 1.96795)
+      calc((var(--wall-viewport-height, 100dvh) - var(--main-padding-top) - var(--main-padding-bottom)) * 1.96795)
     );
     max-width: min(2048px, 99vw);
   }
 
   #wallSvg {
-    max-height: calc(100dvh - var(--main-padding-top) - var(--main-padding-bottom));
+    max-height: calc(var(--wall-viewport-height, 100dvh) - var(--main-padding-top) - var(--main-padding-bottom));
   }
 
   .drag-palette {
