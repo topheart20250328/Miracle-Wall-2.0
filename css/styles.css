@@ -142,6 +142,7 @@ main::before {
   justify-content: space-between;
   gap: 0.6rem;
   z-index: 5;
+  transform: translateY(var(--viewport-shift-y, 0px));
   transition: opacity 0.8s ease;
 }
 
