@@ -181,7 +181,15 @@ function updateStableViewportHeight(allowShrink = false) {
   }
 }
 
+function updateViewportShift() {
+  const visualViewport = window.visualViewport;
+  const shouldCompensate = isTextInputFocused() || Date.now() < keyboardViewportLockUntil;
+  const offsetTop = shouldCompensate ? Math.round(visualViewport?.offsetTop || 0) : 0;
+  document.documentElement.style.setProperty("--viewport-shift-y", `${offsetTop}px`);
+}
+
 updateStableViewportHeight(true);
+updateViewportShift();
 
 const reviewSettings = {
   requireMarqueeApproval: true,
@@ -1259,6 +1267,7 @@ function scheduleViewportChangeWithRetries() {
 function handleViewportOrientationChange() {
   stableViewportHeight = 0;
   updateStableViewportHeight(true);
+  updateViewportShift();
   scheduleViewportChangeWithRetries();
 }
 
@@ -1274,6 +1283,7 @@ function handleViewportFocusChange(event) {
 
 function handleViewportChange() {
   updateStableViewportHeight(false);
+  updateViewportShift();
   StickerManager.syncViewportSize?.();
   GhostCanvas.syncViewportSize?.();
   EffectsManager.scheduleAmbientGlowRefresh();
