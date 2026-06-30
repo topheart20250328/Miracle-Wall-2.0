@@ -131,8 +131,11 @@ main::before {
 
 .marquee-layer {
   position: fixed;
-  inset: 0;
-  padding: clamp(1rem, 4dvh, 2rem) 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--stable-viewport-height, 100dvh);
+  padding: clamp(1rem, calc(var(--stable-viewport-height, 100dvh) * 0.04), 2rem) 0;
   pointer-events: none;
   display: flex;
   flex-direction: column;
